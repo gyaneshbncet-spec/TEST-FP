@@ -6483,52 +6483,95 @@ function autoCenterFp() {
   const h = fpChartCanvas.height / dpr;
   if (w < 10 || h < 10 || fpCandles.length === 0) return;
 
-  // Center ONLY on recent footprint candles (OKX) — avoid huge empty vertical bands
+  // Center on recent footprint candles + live price so live stays inside the frame
   let minP = Infinity, maxP = -Infinity;
-  // Prefer last ~14 bars so a big impulse doesn't leave a giant empty middle
   const start = Math.max(0, fpCandles.length - 14);
   for (let i = start; i < fpCandles.length; i++) {
     const c = fpCandles[i];
     if (c.low > 500 && c.low < minP) minP = c.low;
     if (c.high > 500 && c.high > maxP) maxP = c.high;
   }
+  const last = fpCandles[fpCandles.length - 1];
+  if (last && last.close > 500) fpLivePrice = last.close;
+  if (fpLivePrice > 500) {
+    minP = Math.min(minP, fpLivePrice);
+    maxP = Math.max(maxP, fpLivePrice);
+  }
   if (!(minP < maxP) || !isFinite(minP)) {
-    const last = fpCandles[fpCandles.length - 1];
     const mid = (last && last.close > 500) ? last.close : (fpLivePrice || 4000);
     minP = mid - 3;
     maxP = mid + 3;
   }
   let range = Math.max(maxP - minP, 1.5);
-  range *= 1.25; // tighter pad → less empty vertical space
+  range *= 1.35; // pad so live OHLC has room top + bottom inside chart
 
   fpPixelsPerDollar = (h * 0.78) / range;
   fpPixelsPerDollar = Math.max(10, Math.min(180, fpPixelsPerDollar));
-  fpViewCenter = (minP + maxP) / 2;
-  const last = fpCandles[fpCandles.length - 1];
-  if (last && last.close > 500) fpLivePrice = last.close;
+  // Prefer live price as vertical center so it sits mid-frame
+  fpViewCenter = (fpLivePrice > 500) ? fpLivePrice : ((minP + maxP) / 2);
 
-  // Horizontal: pack candles to the RIGHT edge (live on right).
-  // If they don't fill the width, still pin live to the right — no empty LEFT void
-  // caused by oversizing the gap. Cap effective gap when few bars.
+  // Horizontal: pin LIVE candle to the right edge (inside chart)
   const n = fpCandles.length;
   const cw = FP_CANDLE_WIDTH();
-  let gap = FP_GAP;
-  const needW = n * (cw + gap) + 36;
-  if (needW < w * 0.92) {
-    // shrink gap so bars fill more of the width (removes large left empty)
-    const fillGap = Math.max(4, Math.floor((w - 36 - n * cw) / Math.max(1, n)));
-    // keep a modest gap; don't stretch absurdly
-    gap = Math.min(gap, Math.max(4, Math.min(14, fillGap)));
-  }
-  // Store effective gap for this layout via pan (draw still uses FP_GAP constant for step)
-  // Right-align live candle
-  fpPanX = w - (n * (cw + FP_GAP)) - 28;
-  // If first candle is still far left of 0 with large empty, pull group left-edge to ~8px
-  if (fpPanX > 8) {
-    // Not enough bars to fill → left-align group so no big left void
-    fpPanX = 8;
+  const step = cw + FP_GAP;
+  // Right-align last (live) candle with small margin
+  fpPanX = w - ((n - 1) * step) - cw - 28;
+  // If too few bars, avoid huge left void but still keep live near right when possible
+  if (fpPanX > 8 && n * step < w * 0.55) {
+    fpPanX = Math.max(8, w - n * step - 28);
   }
   fpPanY = h / 2;
+  // Final clamp: live price Y must stay inside chart (top+bottom margin)
+  try { fpClampLivePriceVertical(h); } catch (e) {}
+}
+
+/** Keep live price Y inside the visible chart area (both top and bottom). */
+function fpClampLivePriceVertical(hOpt) {
+  if (!(fpLivePrice > 500)) return;
+  const dpr = window.devicePixelRatio || 1;
+  const h = (hOpt != null) ? hOpt : (fpChartCanvas.height / dpr);
+  if (h < 20) return;
+  const margin = Math.max(18, Math.min(48, h * 0.12));
+  let y = fpPriceToY(fpLivePrice);
+  if (y < margin) {
+    // price is too high on screen → shift view center up (show higher prices)
+    const pxPerD = Math.max(1, (fpPixelsPerDollar || 55) * (fpZoom || 1));
+    // fpPriceToY: y = fpPanY - (p - center) * pxPerD
+    // Increase center so y moves down toward middle
+    const need = margin - y;
+    fpViewCenter = fpViewCenter + (need / pxPerD);
+  } else if (y > h - margin) {
+    const pxPerD = Math.max(1, (fpPixelsPerDollar || 55) * (fpZoom || 1));
+    const need = y - (h - margin);
+    fpViewCenter = fpViewCenter - (need / pxPerD);
+  }
+}
+
+/** Pin live candle into the visible frame (horizontal + vertical). */
+function fpSnapToLiveCandle() {
+  _fpViewingHistory = false;
+  _fpUserViewLocked = false;
+  try {
+    const dpr = window.devicePixelRatio || 1;
+    const w = fpChartCanvas.width / dpr;
+    const h = fpChartCanvas.height / dpr;
+    if (w < 10 || h < 10) return;
+    if (fpCandles && fpCandles.length) {
+      const last = fpCandles[fpCandles.length - 1];
+      if (last && last.close > 500) fpLivePrice = last.close;
+    }
+    // Horizontal: live candle fully inside right side of chart
+    const cw = FP_CANDLE_WIDTH();
+    const step = cw + FP_GAP;
+    const n = (fpCandles && fpCandles.length) ? fpCandles.length : 1;
+    fpPanX = w - ((n - 1) * step) - cw - 28;
+    // Vertical: center on live, then clamp inside margins
+    if (fpLivePrice > 500) {
+      fpViewCenter = fpLivePrice;
+      fpPanY = h / 2;
+      fpClampLivePriceVertical(h);
+    }
+  } catch (e) {}
 }
 
 function fpPriceToY(p) {
@@ -6561,19 +6604,23 @@ function fpUpdateGotoLiveBtn() {
 }
 
 function fpJumpToLive() {
-  _fpViewingHistory = false;
-  try {
-    const dpr = window.devicePixelRatio || 1;
-    const w = fpChartCanvas.width / dpr;
-    const cw = FP_CANDLE_WIDTH();
-    const step = cw + FP_GAP;
-    // Pin live candle to the right edge
-    fpPanX = w - ((fpCandles.length - 1) * step) - cw - 28;
-    // Optional: soft vertical center on live price without changing zoom
-    if (fpLivePrice > 500) {
-      fpViewCenter = fpLivePrice;
-    }
-  } catch (e) {}
+  // Explicit user action: leave history mode and snap live candle into frame
+  try { fpSnapToLiveCandle(); } catch (e) {
+    _fpViewingHistory = false;
+    try {
+      const dpr = window.devicePixelRatio || 1;
+      const w = fpChartCanvas.width / dpr;
+      const h = fpChartCanvas.height / dpr;
+      const cw = FP_CANDLE_WIDTH();
+      const step = cw + FP_GAP;
+      fpPanX = w - ((fpCandles.length - 1) * step) - cw - 28;
+      if (fpLivePrice > 500) {
+        fpViewCenter = fpLivePrice;
+        fpPanY = h / 2;
+        fpClampLivePriceVertical(h);
+      }
+    } catch (e2) {}
+  }
   try { fpUpdateGotoLiveBtn(); } catch (e) {}
   try { scheduleFpRedraw(); } catch (e) {}
   try { drawFpChart(); drawFpPriceLadder(); drawFpTable(); } catch (e) {}
@@ -6585,26 +6632,38 @@ function ensureLivePriceVisible() {
   if (fpIsDragging || fpPinching || isDraggingPriceScale) return;
   if (!fpCandles || !fpCandles.length) return;
 
-  // If user panned away, mark history mode and update arrow
-  if (!fpIsLiveInView()) {
-    _fpViewingHistory = true;
-  }
+  // Do NOT auto-set _fpViewingHistory here — that caused TF-change to jump to history
+  // after OKX bars loaded (live briefly off-screen before snap). Only user pan sets it.
   try { fpUpdateGotoLiveBtn(); } catch (e) {}
 
-  // While viewing history: do not move panX / zoom / width at all
+  // While viewing history (user panned): do not move panX / zoom / width at all
   if (_fpViewingHistory) return;
 
-  // At live edge only: if a brand-new candle would leave the frame, nudge once
   const dpr = window.devicePixelRatio || 1;
   const w = fpChartCanvas.width / dpr;
-  if (w < 40) return;
+  const h = fpChartCanvas.height / dpr;
+  if (w < 40 || h < 20) return;
   const cw = FP_CANDLE_WIDTH();
   const step = cw + FP_GAP;
   const liveX = fpPanX + (fpCandles.length - 1) * step;
   const rightLimit = w - 28;
-  if (liveX + cw > rightLimit + 8) {
-    fpPanX -= (liveX + cw - rightLimit);
+
+  // User has manually adjusted: only prevent live candle from clipping off the RIGHT
+  // when a brand-new bar is appended — never yank pan/zoom/vertical back.
+  if (_fpUserViewLocked) {
+    if (liveX + cw > rightLimit + 8) {
+      fpPanX -= (liveX + cw - rightLimit);
+    }
+    return;
   }
+
+  // Auto-follow mode (not locked): keep live fully inside frame
+  if (liveX + cw > rightLimit + 4) {
+    fpPanX -= (liveX + cw - rightLimit);
+  } else if (liveX < w * 0.35) {
+    fpPanX = w - ((fpCandles.length - 1) * step) - cw - 28;
+  }
+  try { fpClampLivePriceVertical(h); } catch (e) {}
 }
 
 function toggleFpFollow() {
@@ -6824,8 +6883,8 @@ function drawFpChart() {
     }
     const displayPrices = rows.map(r => r.p);
 
-    // Skip empty candles (no volume at all)
-    if (!displayPrices.length) continue;
+    // Do NOT synthesize fake 0.5/0.5 volume cells — that is what looked like "skipping" junk bars.
+    // Gap-fill / empty bars keep wick+body only (no orange 0.5 boxes).
 
     const fmtVol = (n) => {
       if (!(n > 0)) return '0';
@@ -6903,14 +6962,16 @@ function drawFpChart() {
         fpCtxChart.textBaseline = 'middle';
         const textY = cellTop + ch / 2;
         if (isPoc) {
-          fpCtxChart.fillStyle = '#fde68a';
+          // POC: still sell left (warm) / buy right (warm-green)
+          fpCtxChart.fillStyle = '#fca5a5';
           fpCtxChart.fillText(fmtVol(lvl.bid), cx + halfW * 0.5, textY);
-          fpCtxChart.fillStyle = '#fef3c7';
+          fpCtxChart.fillStyle = '#86efac';
           fpCtxChart.fillText(fmtVol(lvl.ask), cx + halfW * 1.5, textY);
         } else {
-          fpCtxChart.fillStyle = sellImbalance ? '#fecaca' : '#cbd5e1';
+          // LEFT = Sell (bid/red), RIGHT = Buy (ask/green)
+          fpCtxChart.fillStyle = sellImbalance ? '#fecaca' : '#f87171';
           fpCtxChart.fillText(fmtVol(lvl.bid), cx + halfW * 0.5, textY);
-          fpCtxChart.fillStyle = buyImbalance ? '#bbf7d0' : '#e2e8f0';
+          fpCtxChart.fillStyle = buyImbalance ? '#bbf7d0' : '#34d399';
           fpCtxChart.fillText(fmtVol(lvl.ask), cx + halfW * 1.5, textY);
         }
         fpCtxChart.textBaseline = 'alphabetic';
@@ -7013,14 +7074,14 @@ function drawFpChart() {
           fpCtxChart.closePath();
           fpCtxChart.fill();
         }
-        // Buy (green) left / Sell (red) right under candle
+        // Match footprint cells: LEFT = Sell (red / bid), RIGHT = Buy (green / ask)
         fpCtxChart.font = 'bold 9px monospace';
         fpCtxChart.textAlign = 'center';
         fpCtxChart.textBaseline = 'top';
-        fpCtxChart.fillStyle = '#00e676';
-        fpCtxChart.fillText(fmt(buyTot), midX - FP_CANDLE_WIDTH() * 0.28, baseY);
         fpCtxChart.fillStyle = '#ff5252';
-        fpCtxChart.fillText(fmt(sellTot), midX + FP_CANDLE_WIDTH() * 0.28, baseY);
+        fpCtxChart.fillText(fmt(sellTot), midX - FP_CANDLE_WIDTH() * 0.28, baseY);
+        fpCtxChart.fillStyle = '#00e676';
+        fpCtxChart.fillText(fmt(buyTot), midX + FP_CANDLE_WIDTH() * 0.28, baseY);
         fpCtxChart.textBaseline = 'alphabetic';
       }
     } catch (eVol) {}
@@ -7209,6 +7270,7 @@ function fpTouchMid(t0, t1) {
 
 fpChartCanvas.addEventListener('mousedown', (e) => {
   fpFollowLive = false;
+  _fpUserViewLocked = true; // user is exploring — don't auto-center over them
   try {
     const btn = document.getElementById('fpFollowBtn');
     if (btn) { btn.classList.remove('active'); btn.textContent = 'Free'; }
@@ -7239,6 +7301,7 @@ window.addEventListener('mouseup', () => {
 });
 
 fpChartCanvas.addEventListener('touchstart', (e) => {
+  _fpUserViewLocked = true;
   e.preventDefault();
   if (e.touches.length === 1) {
     fpIsDragging = true;
@@ -7284,6 +7347,10 @@ function fpEndTouch(e) {
   if (!e.touches || e.touches.length === 0) {
     fpIsDragging = false;
     fpPinching = false;
+    try {
+      if (!fpIsLiveInView()) _fpViewingHistory = true;
+      fpUpdateGotoLiveBtn();
+    } catch (err) {}
   } else if (e.touches.length === 1) {
     fpPinching = false;
     fpIsDragging = true;
@@ -8089,6 +8156,134 @@ function rfHistoryLimit(tfMin) {
   return 90;                   // 90 minutes of 1m
 }
 
+/**
+ * Fill missing TF slots so history is continuous (no skipped candles).
+ * Synthetic bars use neighbor OHLC bridge so the chart never has holes.
+ */
+function fpFillBarGaps(bars, tfMin) {
+  if (!bars || bars.length < 2) return bars || [];
+  const ms = (tfMin || fpTfMinutes || 5) * 60000;
+  const sorted = bars.slice().sort(function (a, b) {
+    return (a.barSlot || a.time || 0) - (b.barSlot || b.time || 0);
+  });
+  // Dedupe same slot (keep richer / real volume)
+  const bySlot = new Map();
+  for (let i = 0; i < sorted.length; i++) {
+    const c = sorted[i];
+    const s = c.barSlot || c.time;
+    if (!(s > 0)) continue;
+    // Drop pure fake gap-fill shells if a real bar exists later
+    if (c._gapFill && (Number(c._v) || 0) <= 1) {
+      // keep only if nothing better yet
+    }
+    const prev = bySlot.get(s);
+    if (!prev || ((c._v || 0) > (prev._v || 0)) || ((c.levels && c.levels.size) > (prev.levels && prev.levels.size || 0))) {
+      bySlot.set(s, c);
+    }
+  }
+  const keys = [...bySlot.keys()].sort(function (a, b) { return a - b; });
+  if (keys.length < 2) return keys.map(function (k) { return bySlot.get(k); });
+
+  const out = [];
+  let cvd = 0;
+  const MAX_GAP_BARS = 2; // only bridge tiny holes — never invent long fake history
+  for (let i = 0; i < keys.length; i++) {
+    const s = keys[i];
+    const cur = bySlot.get(s);
+    if (i > 0) {
+      const prevS = keys[i - 1];
+      const missing = Math.round((s - prevS) / ms) - 1;
+      // Only fill if 1–2 bars missing (network hiccup). Larger gaps = real missing data — leave hole.
+      if (missing > 0 && missing <= MAX_GAP_BARS) {
+        for (let gap = prevS + ms; gap < s; gap += ms) {
+          if (bySlot.has(gap)) continue;
+          const left = bySlot.get(prevS);
+          const right = cur;
+          const px = (right && right.open > 500) ? right.open
+            : (left && left.close > 500 ? left.close : 0);
+          if (!(px > 500)) continue;
+          // Bridge OHLC only — NO fake volume cells (those showed as 0.5/0.5 boxes)
+          out.push({
+            time: gap, barSlot: gap, closeTime: gap + ms,
+            open: px, high: px, low: px, close: px,
+            levels: new Map(), pocPrice: 0,
+            _d: 0, _v: 0, _cvd: cvd,
+            volume: 0, delta: 0, isLive: false,
+            _gapFill: true
+          });
+        }
+      }
+    }
+    // Skip pure fake shells that have no real volume when a real series exists
+    if (cur._gapFill && (Number(cur._v) || 0) <= 1 && !cur.isLive) {
+      // still include for continuity of time axis only if tiny gap — already handled
+      // if this key itself is a stale fake from older build, drop it when neighbors are real
+      const hasRealNeighbors = keys.some(function (k) {
+        const b = bySlot.get(k);
+        return b && !b._gapFill && (Number(b._v) || 0) > 1;
+      });
+      if (hasRealNeighbors) {
+        // drop this fake slot from display
+        continue;
+      }
+    }
+    cvd = (cur._cvd != null) ? cur._cvd : (cvd + (cur._d || 0));
+    cur._cvd = cvd;
+    out.push(cur);
+  }
+  return out;
+}
+
+/** Merge candle series by barSlot — never drop richer OKX history for a thin rebuild. */
+function fpMergeCandles(existing, incoming, tfMin) {
+  const by = new Map();
+  function richer(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    const av = Number(a._v) || 0, bv = Number(b._v) || 0;
+    const al = (a.levels && a.levels.size) || 0;
+    const bl = (b.levels && b.levels.size) || 0;
+    // Prefer real OKX / trade-backed over gap-fill shells
+    const aReal = !a._gapFill && (av > 1 || al > 0 || a._okxVol > 0 || a._okxReal);
+    const bReal = !b._gapFill && (bv > 1 || bl > 0 || b._okxVol > 0 || b._okxReal);
+    if (aReal && !bReal) return a;
+    if (bReal && !aReal) return b;
+    if (al !== bl) return al >= bl ? a : b;
+    if (av !== bv) return av >= bv ? a : b;
+    // Prefer wider OHLC range (more complete bar)
+    const ar = Math.abs((a.high || 0) - (a.low || 0));
+    const br = Math.abs((b.high || 0) - (b.low || 0));
+    if (ar !== br) return ar >= br ? a : b;
+    return b; // newer wins on tie
+  }
+  function add(list) {
+    if (!list) return;
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (!c) continue;
+      const s = c.barSlot || c.time;
+      if (!(s > 0)) continue;
+      by.set(s, richer(by.get(s), c));
+    }
+  }
+  add(existing);
+  add(incoming);
+  let out = [...by.values()].sort(function (a, b) {
+    return (a.barSlot || 0) - (b.barSlot || 0);
+  });
+  try { out = fpFillBarGaps(out, tfMin || fpTfMinutes || 5) || out; } catch (e) {}
+  // Recompute CVD sequentially
+  let cvd = 0;
+  for (let i = 0; i < out.length; i++) {
+    cvd += Number(out[i]._d) || 0;
+    out[i]._cvd = cvd;
+  }
+  // Cap depth
+  if (out.length > 120) out = out.slice(-120);
+  return out;
+}
+
+
 const RF_BASE = 10;
 const RF_KEEP_MS = 24 * 3600000;
 const rfStore = new Map();
@@ -8508,12 +8703,15 @@ function rfBuild(min) {
     volBySlot.get(t).push(rfStore.get(s));
   }
 
-  // Also accept OKX bars previously written by fpLoadOkxFootprint (_okxReal)
-  // Prefer store OHLC when present
+  // Only REAL store slots (+ live). Do NOT invent empty continuous bars
+  // (that produced walls of 0.5/0.5 fake cells on the chart).
   const allSlots = new Set([...volBySlot.keys()]);
   const nowSlot = Math.floor(Date.now() / ms) * ms;
   allSlots.add(nowSlot);
-  const gKeys = [...allSlots].sort((a, b) => a - b);
+  let gKeys = [...allSlots].sort((a, b) => a - b);
+  // Keep last N real bars only
+  const maxBars = (min >= 60) ? 60 : (min >= 15) ? 80 : (min >= 5) ? 96 : 120;
+  if (gKeys.length > maxBars) gKeys = gKeys.slice(-maxBars);
 
   let cvd = 0;
   const out = [];
@@ -8569,7 +8767,17 @@ function rfBuild(min) {
       }
     }
 
-    if (!(o > 500) || !(c_ > 500)) continue;
+    // No OHLC in store for this slot → bridge from previous out bar (no skip holes)
+    if (!(o > 500) || !(c_ > 500)) {
+      if (out.length && out[out.length - 1].close > 500) {
+        const px = out[out.length - 1].close;
+        o = c_ = h = l = px;
+      } else if (fpLivePrice > 500 && isLast) {
+        o = c_ = h = l = fpLivePrice;
+      } else {
+        continue; // nothing to bridge yet
+      }
+    }
     h = Math.max(h || o, o, c_);
     l = Math.min(l || o, o, c_);
 
@@ -8607,6 +8815,8 @@ function rfBuild(min) {
       }
     }
 
+    // Leave levels empty when no real volume — chart draws wick/body only (no fake 0.5 cells)
+
     cvd += c._d;
     c._cvd = cvd;
     try { rfFinal(c); } catch (e) {}
@@ -8627,7 +8837,7 @@ function rfBuild(min) {
     out.push(c);
   }
 
-  return out.slice(-90);
+  return out.slice(-120);
 }
 
 function rfAnchor() {
@@ -8666,7 +8876,7 @@ async function fpLoadOkxFootprint(tfMin, limit) {
 
   // OKX returns newest first — reverse to oldest→newest
   const bars = rows.slice().reverse();
-  const out = [];
+  let out = [];
   let cvd = 0;
 
   for (let i = 0; i < bars.length; i++) {
@@ -8806,6 +9016,7 @@ async function fpLoadOkxFootprint(tfMin, limit) {
       volume: _v, delta: _d,
       isLive: isLive,
       _okxVol: vol,
+      _okxReal: true,
       _fromTrades: fromTrades
     };
     // Keep pure OKX prices — do NOT inject interbank (causes vertical gap vs cells)
@@ -8826,6 +9037,12 @@ async function fpLoadOkxFootprint(tfMin, limit) {
   }
 
   if (!out.length) return 0;
+
+  // Fill any skipped OKX slots so history is continuous on chart
+  try {
+    const filled = fpFillBarGaps(out, tfMin);
+    if (filled && filled.length) out = filled;
+  } catch (e) {}
 
   // Avoid blank flash: only replace if we have real bars
   if (out && out.length) {
@@ -8848,17 +9065,64 @@ async function fpLoadOkxFootprint(tfMin, limit) {
         }
       }
     } catch (e) {}
-    fpCandles = out;
+    // Ensure live slot exists at the end
+    try {
+      const msL = tfMin * 60000;
+      const liveS = Math.floor(Date.now() / msL) * msL;
+      const last = out[out.length - 1];
+      if (!last || last.barSlot < liveS) {
+        const px = (fpLivePrice > 500) ? fpLivePrice : (last && last.close > 500 ? last.close : 0);
+        if (px > 500) {
+          out.push({
+            time: liveS, barSlot: liveS, closeTime: liveS + msL,
+            open: px, high: px, low: px, close: px,
+            levels: new Map(), pocPrice: 0,
+            _d: 0, _v: 0, _cvd: last ? (last._cvd || 0) : 0,
+            volume: 0, delta: 0, isLive: true
+          });
+        }
+      } else if (last.barSlot === liveS) {
+        last.isLive = true;
+      }
+    } catch (e) {}
+    try {
+      // Prefer pure OKX series; drop previous fake gap-fill shells
+      const prev = (fpCandles && fpCandles.length && fpTfMinutes === tfMin)
+        ? fpCandles.filter(function (c) {
+            return c && !c._gapFill && ((Number(c._v) || 0) > 1 || (c.levels && c.levels.size > 1) || c._okxReal || c.isLive);
+          })
+        : [];
+      fpCandles = fpMergeCandles(prev, out, tfMin);
+      // Final pass: remove any remaining 0.5-volume fakes if we have real bars
+      const realCount = fpCandles.filter(function (c) {
+        return c && ((Number(c._v) || 0) > 1 || c._okxVol > 0 || c._okxReal);
+      }).length;
+      if (realCount >= 3) {
+        fpCandles = fpCandles.filter(function (c) {
+          if (!c) return false;
+          if (c.isLive) return true;
+          if (c._gapFill && (Number(c._v) || 0) <= 1) return false;
+          return true;
+        });
+      }
+    } catch (e) {
+      fpCandles = out;
+    }
   }
   fpTfMinutes = tfMin;
   if (fpCandles.length) fpLivePrice = fpCandles[fpCandles.length - 1].close;
 
   try { if (rfWait) rfWait.style.display = 'none'; } catch (e) {}
   try { resizeFpCanvases(); } catch (e) {}
-  // Keep user zoom/pan stable — only auto-center when view was never adjusted
+  // After OKX history arrives: always pin live unless user has manually panned this session
   try {
-    if (!_fpUserViewLocked) autoCenterFp();
-    else ensureLivePriceVisible();
+    if (_fpUserViewLocked && _fpViewingHistory) {
+      ensureLivePriceVisible();
+    } else {
+      _fpViewingHistory = false;
+      autoCenterFp();
+      fpSnapToLiveCandle();
+    }
   } catch (e) {}
   try { rfAnchor(); } catch (e) {}
   try { scheduleFpRedraw(); } catch (e) {}
@@ -8885,17 +9149,24 @@ function fpSeedInstantCandles() {
     const ms = min * 60000;
     const nowSlot = Math.floor(Date.now() / ms) * ms;
     const built = rfBuild(min);
+    const prev = (fpCandles && fpCandles.length) ? fpCandles.slice() : [];
     if (built && built.length) {
-      fpCandles = built;
+      try {
+        fpCandles = fpMergeCandles(prev, built, min);
+      } catch (e) {
+        fpCandles = built;
+      }
       const last = fpCandles[fpCandles.length - 1];
       if (last && last.close > 500) fpLivePrice = last.close;
-    } else if (fpLivePrice > 500) {
+    } else if (fpLivePrice > 500 && !prev.length) {
       // empty store — single live shell at OKX price so canvas is not blank
       fpCandles = [{
         time: nowSlot, barSlot: nowSlot, closeTime: nowSlot + ms,
         open: fpLivePrice, high: fpLivePrice, low: fpLivePrice, close: fpLivePrice,
         levels: new Map(), pocPrice: 0, _d: 0, _v: 0, _cvd: 0, isLive: true
       }];
+    } else if (prev.length) {
+      fpCandles = prev; // keep what we already had
     }
     try {
       if (rfWait) {
@@ -9095,6 +9366,24 @@ function rfSoftRollNewBar() {
     : (last && last.close > 500 ? last.close : 0);
   if (!(px > 500)) return;
 
+  // If only 1 bar was skipped, add a silent OHLC bridge (no fake volume cells).
+  // Larger skips: leave hole — real OKX history will fill on next load/refresh.
+  if (last && last.barSlot && last.barSlot + ms < nowSlot) {
+    const missing = Math.round((nowSlot - last.barSlot) / ms) - 1;
+    if (missing > 0 && missing <= 2) {
+      for (let gap = last.barSlot + ms; gap < nowSlot; gap += ms) {
+        const bridgePx = last.close > 500 ? last.close : px;
+        fpCandles.push({
+          time: gap, barSlot: gap, closeTime: gap + ms,
+          open: bridgePx, high: bridgePx, low: bridgePx, close: bridgePx,
+          levels: new Map(), pocPrice: 0,
+          _d: 0, _v: 0, _cvd: last._cvd || 0,
+          volume: 0, delta: 0, isLive: false, _gapFill: true
+        });
+      }
+    }
+  }
+
   const shell = {
     time: nowSlot, barSlot: nowSlot, closeTime: nowSlot + ms,
     open: px, high: px, low: px, close: px,
@@ -9104,7 +9393,8 @@ function rfSoftRollNewBar() {
   };
   try { rfFinal(shell); } catch (e) {}
   fpCandles.push(shell);
-  if (fpCandles.length > 90) fpCandles = fpCandles.slice(-90);
+  // Keep more history so skips are less likely when scrolling back
+  if (fpCandles.length > 120) fpCandles = fpCandles.slice(-120);
 
   // Keep newest candle in frame only — do NOT autoCenter / reset zoom
   try { ensureLivePriceVisible(); } catch (e) {}
@@ -9149,7 +9439,16 @@ function rfRebuild() {
       return;
     }
   }
-  fpCandles = built;
+  // Continuous history — fill holes, then MERGE with existing so OKX history is not wiped
+  try {
+    const filled = fpFillBarGaps(built, fpTfMinutes);
+    if (filled && filled.length) built = filled;
+  } catch (e) {}
+  try {
+    fpCandles = fpMergeCandles(prevSnap, built, fpTfMinutes);
+  } catch (e) {
+    fpCandles = (built && built.length) ? built : prevSnap;
+  }
   try { rfWait.style.display = fpCandles.length ? 'none' : 'flex'; } catch (e) {}
   if (!fpCandles.length) {
     try { scheduleFpRedraw(); } catch (e) {}
@@ -9211,7 +9510,9 @@ function rfRebuild() {
     const last = fpCandles[fpCandles.length - 1];
     if (last && last.close > 500) fpLivePrice = last.close;
   }
-  if (!fpViewCenter) autoCenterFp();
+  // Only auto-center if user has not adjusted the view
+  if (!fpViewCenter && !_fpUserViewLocked && !_fpViewingHistory) autoCenterFp();
+  else try { ensureLivePriceVisible(); } catch (e) {}
   try { rfAnchor(); } catch (e) {}
   try { scheduleFpRedraw(); } catch (e) {}
 }
@@ -9387,11 +9688,25 @@ function rfIngest(p, q, buy, ts, id) {
   }
   _rfLastBarSlot = nowSlot;
 
-  // Ensure live candle exists for current slot
+  // Ensure live candle exists for current slot — soft-roll, do NOT wipe history
   let a = fpCandles.length ? fpCandles[fpCandles.length - 1] : null;
   if (!a || a.barSlot !== nowSlot) {
-    rfRebuild();
+    try { rfSoftRollNewBar(); } catch (e) {
+      try { rfRebuild(); } catch (e2) {}
+    }
     a = fpCandles.length ? fpCandles[fpCandles.length - 1] : null;
+    // If soft-roll still missed the slot, append a shell without rebuilding history
+    if ((!a || a.barSlot !== nowSlot) && fpLivePrice > 500) {
+      const shell = {
+        time: nowSlot, barSlot: nowSlot, closeTime: nowSlot + ms,
+        open: fpLivePrice, high: fpLivePrice, low: fpLivePrice, close: fpLivePrice,
+        levels: new Map(), pocPrice: 0, _d: 0, _v: 0,
+        _cvd: a ? (a._cvd || 0) : 0, volume: 0, delta: 0, isLive: true
+      };
+      if (a && a.barSlot < nowSlot) a.isLive = false;
+      fpCandles.push(shell);
+      a = shell;
+    }
   }
   // Force current slot candle live (rebuild can occasionally leave isLive false)
   if (a && a.barSlot === nowSlot) {
@@ -9650,13 +9965,16 @@ async function rfFetchOkx(url) {
       return null;
     }
   }
-  // 1) Direct OKX (works — verified CORS)
-  var d = await tryUrl(url, 4000);
+  // 1) Direct OKX (works — verified CORS). Longer timeout for mobile networks.
+  var d = await tryUrl(url, 12000);
   if (d && d.length) return d;
-  // 2) One proxy fallback only
-  d = await tryUrl('https://corsproxy.io/?' + encodeURIComponent(url), 4000);
+  // retry direct once
+  d = await tryUrl(url, 12000);
   if (d && d.length) return d;
-  d = await tryUrl('https://api.allorigins.win/raw?url=' + encodeURIComponent(url), 4000);
+  // 2) Proxy fallbacks
+  d = await tryUrl('https://corsproxy.io/?' + encodeURIComponent(url), 12000);
+  if (d && d.length) return d;
+  d = await tryUrl('https://api.allorigins.win/raw?url=' + encodeURIComponent(url), 12000);
   if (d && d.length) return d;
   return [];
 }
@@ -10529,34 +10847,69 @@ async function changeFpTF(m) {
     if (b) b.classList.toggle('active', x === m);
   });
 
-  // 1) INSTANT plot — no network wait
+  // TF change ALWAYS jumps to LIVE candle (leave history mode)
+  _fpViewingHistory = false;
+  _fpUserViewLocked = false;
   fpCandles = [];
   _rfLastBarSlot = 0;
   fpViewCenter = 0;
-  _fpUserViewLocked = false; // TF change → allow one auto-center
+  fpPanX = 0;
+  fpPanY = 0;
+
+  // 1) Instant: only live shell (avoid sparse rebuild → fake 0.5 bars). Real history from OKX next.
   try { startAllTickFeed(); } catch (e) {}
-  try { fpSeedInstantCandles(); } catch (e) {}
-  try { rfRebuild(); } catch (e) {}
+  try {
+    const ms = m * 60000;
+    const nowSlot = Math.floor(Date.now() / ms) * ms;
+    const px = (fpLivePrice > 500) ? fpLivePrice : 0;
+    if (px > 500) {
+      fpCandles = [{
+        time: nowSlot, barSlot: nowSlot, closeTime: nowSlot + ms,
+        open: px, high: px, low: px, close: px,
+        levels: new Map(), pocPrice: 0, _d: 0, _v: 0, _cvd: 0, isLive: true
+      }];
+    }
+    try { if (rfWait && fpCandles.length) rfWait.style.display = 'none'; } catch (e2) {}
+  } catch (e) {}
   try { resizeFpCanvases(); } catch (e) {}
   try { autoCenterFp(); } catch (e) {}
-  try { syncLivePriceToFootprint(); } catch (e) {}
+  try { fpSnapToLiveCandle(); } catch (e) {}
   try { scheduleFpRedraw(); } catch (e) {}
   try { drawFpChart(); drawFpPriceLadder(); drawFpTable(); } catch (e) {}
-  try { rfBackfill(); } catch (e) {}
+  try { fpUpdateGotoLiveBtn(); } catch (e) {}
 
-  // 2) Load this TF from OKX (OHLC + real volume) — matches every timeframe
+  // 2) Load this TF from OKX (OHLC + real volume) — then snap to LIVE again
   (async function () {
     if (fpTfMinutes !== m) return;
     try {
       await Promise.race([
         fpLoadOkxFootprint(m, (typeof rfHistoryLimit === "function" ? rfHistoryLimit(m) : 72)),
-        new Promise(function (r) { setTimeout(function () { r(0); }, 8000); })
+        new Promise(function (r) { setTimeout(function () { r(0); }, 25000); })
       ]);
     } catch (e) {}
     if (fpTfMinutes !== m) return;
-    try { autoCenterFp(); syncLivePriceToFootprint(); scheduleFpRedraw(); } catch (e) {}
-    try { drawFpChart(); drawFpPriceLadder(); drawFpTable(); } catch (e) {}
-    try { avRefreshFootprintGauge(true); rfPersistStore(); } catch (e) {}
+    // After history loads: FORCE live view (bar count jumped — old panX would show history)
+    function _fpForceLive() {
+      _fpViewingHistory = false;
+      _fpUserViewLocked = false;
+      try { autoCenterFp(); } catch (e) {}
+      try { fpSnapToLiveCandle(); } catch (e) {}
+      try { syncLivePriceToFootprint(); } catch (e) {}
+      try { scheduleFpRedraw(); } catch (e) {}
+      try { drawFpChart(); drawFpPriceLadder(); drawFpTable(); } catch (e) {}
+      try { fpUpdateGotoLiveBtn(); } catch (e) {}
+    }
+    _fpForceLive();
+    // Re-snap after layout settles (canvas size / candle width ready)
+    setTimeout(function () {
+      if (fpTfMinutes !== m) return;
+      _fpForceLive();
+    }, 80);
+    setTimeout(function () {
+      if (fpTfMinutes !== m) return;
+      _fpForceLive();
+      try { avRefreshFootprintGauge(true); rfPersistStore(); } catch (e) {}
+    }, 350);
   })();
 }
 
@@ -10580,7 +10933,7 @@ async function refreshFootprintChart() {
     try {
       n = await Promise.race([
         fpLoadOkxFootprint(tf, (typeof rfHistoryLimit === "function" ? rfHistoryLimit(tf) : 72)),
-        new Promise(function (r) { setTimeout(function () { r(0); }, 8000); })
+        new Promise(function (r) { setTimeout(function () { r(0); }, 25000); })
       ]);
     } catch (e) { console.warn('[FP] load', e); }
 
