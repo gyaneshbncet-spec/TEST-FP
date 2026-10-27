@@ -1262,12 +1262,142 @@ h1 { font-size: 17.5px; font-weight: 700; color: #ffffff; }
   height: 100% !important;
   display: block;
 }
-#footprintModal .modal-container { height: 100%; max-height: 100%; }
+/* Footprint always fullscreen — desktop padding/centering was hiding the footer */
+#footprintModal.modal-overlay,
+#footprintModal {
+  padding: 0 !important;
+  align-items: stretch !important;
+  justify-content: stretch !important;
+  height: 100% !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  width: 100% !important;
+  inset: 0 !important;
+}
+#footprintModal .modal-container {
+  width: 100% !important;
+  max-width: none !important;
+  height: 100% !important;
+  max-height: none !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  display: block !important;
+  position: relative !important;
+  overflow: hidden !important;
+  --fp-footer-h: 110px;
+}
+#footprintModal .chart-mkt-closed { display: none !important; }
+#footprintModal .fp-header {
+  position: absolute !important;
+  top: 0; left: 0; right: 0;
+  height: 48px !important;
+  z-index: 50;
+}
+#footprintModal .fp-chart-viewport {
+  position: absolute !important;
+  top: 48px !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: var(--fp-footer-h, 100px) !important;
+  flex: none !important;
+  min-height: 80px !important;
+  overflow: hidden !important;
+  z-index: 1;
+}
+#footprintModal .fp-resize-handle {
+  position: absolute !important;
+  left: 0; right: 0;
+  bottom: var(--fp-footer-h, 100px) !important;
+  height: 12px !important;
+  margin-bottom: -6px;
+  z-index: 70;
+  cursor: ns-resize;
+  touch-action: none;
+  background: transparent;
+}
+#footprintModal .fp-resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 56px;
+  height: 5px;
+  border-radius: 3px;
+  background: #3b82f6;
+  opacity: 0.9;
+  box-shadow: 0 0 8px rgba(59,130,246,0.5);
+}
+#footprintModal .fp-resize-handle:active,
+#footprintModal .fp-resize-handle.active {
+  background: rgba(59,130,246,0.18);
+}
+#footprintModal .fp-footer-summary {
+  position: absolute !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  top: auto !important;
+  height: var(--fp-footer-h, 100px) !important;
+  min-height: 80px !important;
+  max-height: none !important;
+  flex: none !important;
+  display: grid !important;
+  grid-template-columns: 1fr 72px !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  z-index: 60;
+  background: #0b0d12 !important;
+  border-top: 1px solid #2a3344 !important;
+  box-sizing: border-box !important;
+}
+/* Jump-to-live arrow (shown when viewing history) */
+.fp-goto-live {
+  display: none;
+  position: absolute;
+  right: 84px;
+  bottom: calc(var(--fp-footer-h, 100px) + 16px);
+  z-index: 80;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(16,185,129,0.55);
+  background: rgba(8,12,18,0.92);
+  color: #34d399;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.55);
+  touch-action: manipulation;
+}
+.fp-goto-live.show { display: flex; }
+.fp-goto-live:active { transform: scale(0.96); }
+.fp-goto-live .arr { font-size: 16px; line-height: 1; }
 @media (min-width: 768px) {
-  #footprintModal .modal-container { height: 94vh; max-height: 96vh; }
+  #footprintModal.modal-overlay,
+  #footprintModal {
+    padding: 0 !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+  }
+  #footprintModal .modal-container {
+    width: 100% !important;
+    max-width: none !important;
+    height: 100% !important;
+    max-height: none !important;
+    --fp-footer-h: 120px;
+  }
 }
 @media (max-width: 767px) {
-  #footprintModal .modal-container { height: 100%; max-height: 100%; }
+  #footprintModal .modal-container {
+    --fp-footer-h: 100px;
+  }
+  #footprintModal .fp-footer-summary {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
   #chartModal .tv-top-bar {
     padding-top: max(6px, env(safe-area-inset-top, 0px));
     min-height: 44px;
@@ -1589,7 +1719,15 @@ canvas#tvCanvas {
 .fp-tf-btn { background: #191d27; border: 1px solid #2e3444; color: #6b7280; padding: 4px 7px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .fp-tf-btn.active { background: #089981; color: #fff; border-color: #089981; }
 .fp-exit-btn { background: #ff2a44; color: #ffffff; border: none; font-weight: 700; font-size: 11px; padding: 5px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
-.fp-chart-viewport { flex: 1 1 auto; display: grid; grid-template-columns: 1fr 72px; position: relative; overflow: hidden; background: #0a0b0e; min-height: 0; }
+.fp-chart-viewport {
+  flex: 1 1 0;
+  display: grid;
+  grid-template-columns: 1fr 72px;
+  position: relative;
+  overflow: hidden;
+  background: #0a0b0e;
+  min-height: 0;
+}
 #fpChartCanvas { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none; }
 #fpChartCanvas:active { cursor: grabbing; }
 #fpPriceCanvas { width: 100%; height: 100%; display: block; background: #0d0f14; border-left: 1px solid #212530; touch-action: none; -webkit-user-select: none; user-select: none; cursor: ns-resize; }
@@ -1599,10 +1737,56 @@ canvas#tvCanvas {
 .fp-w-btn { background: #19202f; border: 1px solid #333f57; color: #e2e8f0; font-size: 14px; font-weight: 800; width: 26px; height: 26px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; transition: background 0.15s, border-color 0.15s, transform 0.1s; }
 .fp-w-btn:hover { background: #2563eb; border-color: #3b82f6; color: #ffffff; }
 .fp-w-btn:active { transform: scale(0.9); }
-.fp-footer-summary { height: 92px; min-height: 50px; background: #0b0d12; border-top: 1px solid #212530; display: grid; grid-template-columns: 72px 1fr 72px; flex-shrink: 0; font-family: monospace; font-size: 10px; transition: height 0.1s ease; }
-.fp-metrics-labels { background: #11141c; border-right: 1px solid #212530; display: flex; flex-direction: column; justify-content: space-around; padding: 4px 5px; color: #6b7280; overflow: hidden; }
-#fpTableCanvas { width: 100%; height: 100%; display: block; }
-.fp-footer-corner { background: #0d0f14; border-left: 1px solid #212530; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 4px; user-select: none; }
+/* Footer: [table same width as chart | 72px corner under price scale] */
+.fp-footer-summary {
+  background: #0b0d12;
+  border-top: 1px solid #2a3344;
+  font-family: monospace;
+  font-size: 10px;
+  overflow: hidden;
+}
+.fp-metrics-labels {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 58px;
+  z-index: 3;
+  background: rgba(11,13,18,0.94);
+  border-right: 1px solid #212530;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  padding: 3px 4px;
+  color: #94a3b8;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+#fpTableCanvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+  grid-column: 1;
+}
+.fp-footer-corner {
+  grid-column: 2;
+  background: #0d0f14;
+  border-left: 1px solid #212530;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px;
+  user-select: none;
+}
+.fp-resize-handle {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
 .fp-corner-h-btn { width: 28px; height: 28px; background: #151a24; border: 1px solid #2a3449; color: #94a3b8; border-radius: 6px; font-size: 15px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; transition: all 0.15s; }
 .fp-corner-h-btn:hover { background: #1e293b; color: #38bdf8; border-color: #38bdf8; }
 .fp-corner-h-btn:active { background: #0284c7; color: #ffffff; transform: scale(0.92); }
@@ -2511,17 +2695,17 @@ canvas#tvCanvas {
 }
 .acv-body {
   flex: 1; min-height: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 3px;
+  display: block;
   background: #1a1e29;
   position: relative;
+  overflow: hidden;
 }
 .acv-pane {
   display: flex; flex-direction: column;
-  background: #080a0f; min-height: 0; position: relative;
+  background: #080a0f; min-height: 0; position: absolute;
   overflow: hidden;
+  box-sizing: border-box;
+  border: 1.5px solid #12151c;
 }
 .acv-pane.closed { display: none !important; }
 .acv-pane-bar {
@@ -2614,37 +2798,37 @@ canvas#tvCanvas {
   border: 1px solid #2a3142; background: #151822; color: #c8cdd8;
   font-size: 11px; font-weight: 700; padding: 5px 10px; border-radius: 8px; cursor: pointer;
 }
-.acv-split-v, .acv-split-h {
-  position: absolute; z-index: 20; background: #1f2937;
+.acv-split-v, .acv-split-h, .acv-split-hl, .acv-split-hr {
+  position: absolute; z-index: 30; background: #1f2937;
   touch-action: none;
 }
-.acv-split-v:hover, .acv-split-h:hover,
-.acv-split-v.active, .acv-split-h.active { background: #3b82f6; }
+.acv-split-v:hover, .acv-split-h:hover, .acv-split-hl:hover, .acv-split-hr:hover,
+.acv-split-v.active, .acv-split-h.active, .acv-split-hl.active, .acv-split-hr.active {
+  background: #3b82f6;
+}
 .acv-split-v {
-  top: 0; bottom: 0; width: 6px; left: 50%; transform: translateX(-50%);
+  top: 0; bottom: 0; width: 8px; margin-left: -4px;
   cursor: col-resize;
 }
-.acv-split-h {
-  left: 0; right: 0; height: 6px; top: 50%; transform: translateY(-50%);
+.acv-split-hl, .acv-split-hr {
+  height: 8px; margin-top: -4px;
   cursor: row-resize;
 }
+/* legacy full-width H hidden — replaced by per-column splitters */
+.acv-split-h { display: none !important; }
 @media (max-width: 700px) {
-  .acv-body {
-    grid-template-columns: 1fr;
-    grid-template-rows: repeat(4, minmax(140px, 1fr));
-  }
-  .acv-split-v, .acv-split-h { display: none; }
+  .acv-split-v, .acv-split-h, .acv-split-hl, .acv-split-hr { display: none !important; }
 }
 
 
 /* ACV embeds real AI Footprint chart */
 .acv-fp-host {
-  display: flex;
-  flex-direction: column;
+  display: block;
   padding: 0 !important;
   overflow: hidden !important;
   min-height: 0;
   height: 100%;
+  position: relative;
 }
 .acv-fp-host .modal-container {
   width: 100% !important;
@@ -2654,30 +2838,44 @@ canvas#tvCanvas {
   border-radius: 0 !important;
   border: none !important;
   box-shadow: none !important;
-  display: flex !important;
-  flex-direction: column;
+  display: block !important;
+  position: relative !important;
   background: #080a0f;
   overflow: hidden;
   min-height: 0;
 }
 .acv-fp-host .fp-header {
-  flex-shrink: 0;
-  min-height: 34px;
+  position: absolute !important;
+  top: 0; left: 0; right: 0;
+  height: 36px !important;
+  min-height: 36px !important;
+  z-index: 20;
 }
 .acv-fp-host .fp-chart-viewport {
-  flex: 1 1 auto;
-  min-height: 60px;
+  position: absolute !important;
+  top: 36px !important;
+  left: 0; right: 0;
+  bottom: var(--fp-footer-h, 80px) !important;
   overflow: hidden;
 }
+.acv-fp-host .fp-resize-handle {
+  position: absolute !important;
+  left: 0; right: 0;
+  bottom: var(--fp-footer-h, 80px);
+  height: 10px;
+  margin-bottom: -5px;
+  z-index: 30;
+}
 .acv-fp-host .fp-footer-summary {
-  flex: 0 0 auto !important;
-  display: grid !important;
-  height: 72px !important;
+  position: absolute !important;
+  left: 0; right: 0; bottom: 0 !important;
+  height: var(--fp-footer-h, 80px) !important;
   min-height: 64px !important;
-  max-height: 110px;
+  display: grid !important;
+  grid-template-columns: 1fr 72px !important;
   visibility: visible !important;
   opacity: 1 !important;
-  z-index: 5;
+  z-index: 20;
 }
 .acv-fp-host .fp-exit-btn {
   display: none !important; /* use pane ✕ instead while docked */
@@ -3554,11 +3752,13 @@ canvas#tvCanvas {
 <div class="acv-overlay" id="allChartViewOverlay">
   <div class="acv-top">
     <h2>ALL <span>CHART VIEW</span></h2>
-    <span class="acv-hint">Drag edges to resize · close any pane you don’t need</span>
+    <span class="acv-hint">Drag edges — each pane resizes independently · close any you don’t need</span>
     <button type="button" class="acv-close" onclick="closeAllChartView()" aria-label="Close">✕</button>
   </div>
   <div class="acv-body" id="acvBody">
-    <div class="acv-split-v" id="acvSplitV" title="Drag to resize columns"></div>
+    <div class="acv-split-v" id="acvSplitV" title="Drag to resize left/right width"></div>
+    <div class="acv-split-hl" id="acvSplitHL" title="Drag to resize Gold / AI Visual height"></div>
+    <div class="acv-split-hr" id="acvSplitHR" title="Drag to resize DXY / Footprint height"></div>
     <div class="acv-split-h" id="acvSplitH" title="Drag to resize rows"></div>
 
     <!-- 1 GOLD -->
@@ -3776,7 +3976,6 @@ canvas#tvCanvas {
         <button class="fp-tf-btn active" id="fpBtn5" onclick="changeFpTF(5)">M5</button>
         <button class="fp-tf-btn" id="fpBtn15" onclick="changeFpTF(15)">M15</button>
         <button class="fp-tf-btn" id="fpBtn60" onclick="changeFpTF(60)">H1</button>
-        <button class="fp-tf-btn" id="fpFollowBtn" onclick="toggleFpFollow()" title="Auto-follow live price">Follow</button>
         <button class="fp-tf-btn" id="fpRefreshBtn" onclick="refreshFootprintChart()" title="Reload real OHLC + volume history">↻</button>
         <button class="fp-tf-btn" onclick="fpZoomOut()" title="Smaller candles">−</button>
         <button class="fp-tf-btn" onclick="fpZoomIn()" title="Larger candles">+</button>
@@ -3801,6 +4000,10 @@ canvas#tvCanvas {
       </div>
     </div>
 
+    <div class="fp-resize-handle" id="fpResizeHandle" title="Drag to resize bottom panel height"></div>
+    <button type="button" class="fp-goto-live" id="fpGotoLive" onclick="fpJumpToLive()" title="Jump to live candle">
+      <span class="arr">▶</span> LIVE
+    </button>
     <div class="fp-footer-summary" id="fpFooterSummary">
       <div class="fp-metrics-labels" id="fpMetricsLabels">
         <div>Delta</div>
@@ -5958,7 +6161,8 @@ let fpCandleWidthCustom = 52;
 const FP_GAP = 10;
 const FP_PRICE_W = 72;
 let fpZoom = 1.0;
-let fpFollowLive = true;
+let fpFollowLive = false; // never auto-reset zoom/pan on new candles
+let _fpUserViewLocked = false; // true after user pans/zooms — blocks autoCenter
 let fpTfMinutes = 5;
 let fpLivePrice = 0;
 let fpPanX = 0;
@@ -5974,7 +6178,7 @@ let fpLastPinchMidY = 0;
 let isDraggingPriceScale = false;
 let priceScaleStartY = 0;
 let priceScaleStartPixelsPerDollar = 55;
-let fpFooterHeight = 92;
+let fpFooterHeight = 100;
 
 const fpChartCanvas = document.getElementById('fpChartCanvas');
 const fpPriceCanvas = document.getElementById('fpPriceCanvas');
@@ -5997,26 +6201,219 @@ function FP_CANDLE_WIDTH() {
 }
 
 function adjustCandleWidth(multiplier) {
+  _fpUserViewLocked = true;
   fpCandleWidthCustom = Math.max(24, Math.min(160, Math.round(fpCandleWidthCustom * multiplier)));
 }
 
 function adjustFooterHeight(multiplier) {
-  fpFooterHeight = Math.max(50, Math.min(220, Math.round(fpFooterHeight * multiplier)));
-  const footerWrap = document.getElementById('fpFooterSummary');
-  if (footerWrap) {
-    footerWrap.style.height = fpFooterHeight + 'px';
-    footerWrap.style.minHeight = fpFooterHeight + 'px';
-  }
+  fpApplyFooterHeight(Math.max(70, Math.min(280, Math.round((fpFooterHeight || 100) * multiplier))));
   resizeFpCanvases();
+  try { drawFpTable(); } catch (e) {}
+}
+
+function fpApplyFooterHeight(px) {
+  const h = Math.max(70, Math.min(280, Math.round(px || fpFooterHeight || 100)));
+  fpFooterHeight = h;
+  return fpLayoutShell();
+}
+
+function fpRestoreFooterToModal() {
+  const root = document.querySelector('#footprintModal .modal-container')
+    || document.querySelector('.acv-fp-host .modal-container')
+    || document.querySelector('#acvEmbedFp .modal-container');
+  if (!root) return;
+  const footer = document.getElementById('fpFooterSummary');
+  const handle = document.getElementById('fpResizeHandle');
+  const gotoBtn = document.getElementById('fpGotoLive');
+  if (footer && footer.parentElement !== root) root.appendChild(footer);
+  if (handle && handle.parentElement !== root) root.appendChild(handle);
+  if (gotoBtn && gotoBtn.parentElement !== root) root.appendChild(gotoBtn);
+}
+
+/** Full modal: footer on body (fixed). Docked ACV: footer absolute inside host. */
+function fpLayoutShell() {
+  const docked = (typeof _acvFpDocked !== 'undefined' && _acvFpDocked);
+  // Smaller footer when docked so it fits the pane
+  const defaultH = docked ? 78 : 110;
+  const h = Math.max(docked ? 64 : 80, Math.min(280, Math.round(fpFooterHeight || defaultH)));
+  fpFooterHeight = h;
+  const headerH = docked ? 36 : 48;
+
+  const modal = document.getElementById('footprintModal');
+  const host = document.getElementById('acvEmbedFp');
+  const root = docked
+    ? (document.querySelector('#acvEmbedFp .modal-container') || document.querySelector('.acv-fp-host .modal-container'))
+    : (document.querySelector('#footprintModal .modal-container'));
+  if (!root) return h;
+
+  const footer = document.getElementById('fpFooterSummary');
+  const handle = document.getElementById('fpResizeHandle');
+  const gotoBtn = document.getElementById('fpGotoLive');
+  const vp = document.getElementById('fpViewport');
+
+  // Parenting
+  if (docked) {
+    // MUST be inside the ACV host container
+    if (footer && footer.parentElement !== root) root.appendChild(footer);
+    if (handle && handle.parentElement !== root) root.appendChild(handle);
+    if (gotoBtn && gotoBtn.parentElement !== root) root.appendChild(gotoBtn);
+  } else {
+    // Full screen: body mount so fixed works
+    if (footer && footer.parentElement !== document.body) document.body.appendChild(footer);
+    if (handle && handle.parentElement !== document.body) document.body.appendChild(handle);
+    if (gotoBtn && gotoBtn.parentElement !== document.body) document.body.appendChild(gotoBtn);
+  }
+
+  root.style.position = 'relative';
+  root.style.overflow = 'hidden';
+  root.style.display = 'block';
+  root.style.width = '100%';
+  root.style.height = '100%';
+  root.style.setProperty('--fp-footer-h', h + 'px');
+  if (host) host.style.setProperty('--fp-footer-h', h + 'px');
+
+  const header = root.querySelector('.fp-header');
+  if (header) {
+    header.style.position = 'absolute';
+    header.style.top = '0';
+    header.style.left = '0';
+    header.style.right = '0';
+    header.style.height = headerH + 'px';
+    header.style.minHeight = headerH + 'px';
+    header.style.zIndex = '20';
+  }
+
+  if (vp) {
+    vp.style.position = 'absolute';
+    vp.style.top = headerH + 'px';
+    vp.style.left = '0';
+    vp.style.right = '0';
+    vp.style.bottom = h + 'px';
+    vp.style.height = 'auto';
+    vp.style.zIndex = '1';
+    vp.style.overflow = 'hidden';
+    vp.style.display = 'grid';
+    vp.style.gridTemplateColumns = '1fr 72px';
+    vp.style.background = '#0a0b0e';
+  }
+
+  const boundEl = docked ? (host || root) : (modal || root);
+  const rect = boundEl.getBoundingClientRect();
+  const left = Math.round(rect.left);
+  const width = Math.max(40, Math.round(rect.width));
+  const bottomGap = Math.round(Math.max(0, window.innerHeight - rect.bottom));
+
+  if (docked) {
+    // Absolute inside host pane
+    if (handle) {
+      handle.style.cssText = 'position:absolute;left:0;right:0;bottom:' + h + 'px;height:12px;z-index:30;display:block;cursor:ns-resize;touch-action:none;';
+    }
+    if (footer) {
+      footer.style.cssText =
+        'position:absolute;left:0;right:0;bottom:0;top:auto;height:' + h + 'px;min-height:' + h + 'px;' +
+        'display:grid;grid-template-columns:1fr 72px;visibility:visible;opacity:1;z-index:25;' +
+        'background:#0b0d12;border-top:2px solid #3b82f6;pointer-events:auto;box-sizing:border-box;';
+    }
+    if (gotoBtn) {
+      gotoBtn.style.position = 'absolute';
+      gotoBtn.style.right = '8px';
+      gotoBtn.style.bottom = (h + 8) + 'px';
+      gotoBtn.style.zIndex = '35';
+      gotoBtn.style.left = 'auto';
+    }
+  } else {
+    // Fixed to viewport for full modal
+    if (handle) {
+      handle.style.position = 'fixed';
+      handle.style.left = left + 'px';
+      handle.style.width = width + 'px';
+      handle.style.bottom = (bottomGap + h - 6) + 'px';
+      handle.style.height = '14px';
+      handle.style.zIndex = '100060';
+      handle.style.display = 'block';
+      handle.style.cursor = 'ns-resize';
+      handle.style.touchAction = 'none';
+    }
+    if (footer) {
+      footer.style.position = 'fixed';
+      footer.style.left = left + 'px';
+      footer.style.width = width + 'px';
+      footer.style.right = 'auto';
+      footer.style.bottom = bottomGap + 'px';
+      footer.style.top = 'auto';
+      footer.style.height = h + 'px';
+      footer.style.minHeight = h + 'px';
+      footer.style.display = 'grid';
+      footer.style.gridTemplateColumns = '1fr 72px';
+      footer.style.visibility = 'visible';
+      footer.style.opacity = '1';
+      footer.style.zIndex = '100050';
+      footer.style.background = '#0b0d12';
+      footer.style.borderTop = '2px solid #3b82f6';
+      footer.style.pointerEvents = 'auto';
+      footer.style.boxSizing = 'border-box';
+    }
+    if (gotoBtn) {
+      gotoBtn.style.position = 'fixed';
+      gotoBtn.style.right = Math.max(12, Math.round(window.innerWidth - rect.right + 12)) + 'px';
+      gotoBtn.style.bottom = (bottomGap + h + 12) + 'px';
+      gotoBtn.style.left = 'auto';
+      gotoBtn.style.zIndex = '100070';
+    }
+  }
+
+  // Size table canvas
+  try {
+    const dpr = window.devicePixelRatio || 1;
+    const table = document.getElementById('fpTableCanvas');
+    if (table) {
+      const chartW = Math.max(40, (vp && vp.clientWidth ? vp.clientWidth : width) - 72);
+      table.width = Math.round(chartW * dpr);
+      table.height = Math.round(h * dpr);
+      table.style.width = '100%';
+      table.style.height = '100%';
+      if (typeof fpCtxTable !== 'undefined' && fpCtxTable) {
+        fpCtxTable.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+    }
+  } catch (e) {}
+
+  try { if (typeof drawFpTable === 'function') drawFpTable(); } catch (e) {}
+  try { if (typeof fpUpdateGotoLiveBtn === 'function') fpUpdateGotoLiveBtn(); } catch (e) {}
+  return h;
 }
 
 function resizeFpCanvases() {
   const vp = document.getElementById('fpViewport');
+  const footerWrap = document.getElementById('fpFooterSummary');
   if (!vp) return;
   const dpr = window.devicePixelRatio || 1;
-  const fullW = vp.clientWidth;
-  const h = vp.clientHeight;
-  if (fullW < 40 || h < 40) return;
+
+  // Pin footer height via CSS variable (absolute layout)
+  fpApplyFooterHeight(fpFooterHeight || 100);
+
+  const fullW = vp.clientWidth || (vp.parentElement && vp.parentElement.clientWidth) || 300;
+  let h = vp.clientHeight;
+  // If viewport ate all height, leave room for footer
+  if (h < 40) {
+    const parent = vp.parentElement;
+    const ph = parent ? parent.clientHeight : 0;
+    const hh = (document.querySelector('.fp-header') || {}).offsetHeight || 40;
+    const fh = fpFooterHeight || 92;
+    if (ph > hh + fh + 40) h = ph - hh - fh;
+  }
+  if (fullW < 40 || h < 40) {
+    // Still size footer table so bottom metrics can paint
+    try {
+      const fw = footerWrap ? (footerWrap.clientWidth || fullW || 300) : (fullW || 300);
+      const chartW0 = Math.max(40, fw - 72);
+      const footerH0 = Math.max(72, fpFooterHeight || 92);
+      fpTableCanvas.width = Math.round(chartW0 * dpr);
+      fpTableCanvas.height = Math.round(footerH0 * dpr);
+      fpCtxTable.setTransform(dpr, 0, 0, dpr, 0, 0);
+    } catch (e) {}
+    return;
+  }
   const chartW = Math.max(40, fullW - FP_PRICE_W);
   fpChartCanvas.width = Math.round(chartW * dpr);
   fpChartCanvas.height = Math.round(h * dpr);
@@ -6026,12 +6423,59 @@ function resizeFpCanvases() {
   fpPriceCanvas.height = Math.round(h * dpr);
   fpCtxPrice.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const footerH = fpFooterHeight;
+  const footerH = Math.max(84, fpFooterHeight || 96);
+  fpFooterHeight = footerH;
+  // CRITICAL: table width must equal chart canvas width so columns line up with candles
   fpTableCanvas.width = Math.round(chartW * dpr);
   fpTableCanvas.height = Math.round(footerH * dpr);
   fpCtxTable.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (!fpViewCenter) autoCenterFp();
+  try { drawFpTable(); } catch (e) {}
 }
+
+
+function fpInitFooterResize() {
+  const handle = document.getElementById('fpResizeHandle');
+  const container = document.querySelector('#footprintModal .modal-container');
+  if (!handle || handle._fpResizeBound) return;
+  handle._fpResizeBound = true;
+  let dragging = false;
+  let startY = 0;
+  let startH = 100;
+  const onMove = (clientY) => {
+    if (!dragging || !container) return;
+    const rect = container.getBoundingClientRect();
+    // Drag up → taller footer
+    const fromBottom = rect.bottom - clientY;
+    const maxH = Math.min(280, rect.height * 0.45);
+    fpApplyFooterHeight(Math.max(70, Math.min(maxH, fromBottom)));
+    try { resizeFpCanvases(); } catch (e) {}
+    try { drawFpTable(); } catch (e) {}
+  };
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragging = true;
+    handle.classList.add('active');
+    startY = e.clientY;
+    startH = fpFooterHeight || 100;
+    try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    onMove(e.clientY);
+  });
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('active');
+    try { resizeFpCanvases(); scheduleFpRedraw(); } catch (e) {}
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+}
+try { fpInitFooterResize(); } catch (e) {}
 
 function autoCenterFp() {
   const dpr = window.devicePixelRatio || 1;
@@ -6092,30 +6536,74 @@ function fpPriceToY(p) {
   return Math.round(fpPanY - ((p - center) * fpPixelsPerDollar * fpZoom));
 }
 
-function ensureLivePriceVisible() {
-  if (!fpFollowLive || fpIsDragging || fpPinching || isDraggingPriceScale) return;
-  if (!(fpLivePrice > 500)) return;
+// When true, user is looking at history — never force pan back to live candle
+let _fpViewingHistory = false;
+
+function fpIsLiveInView() {
+  if (!fpCandles || !fpCandles.length || !fpChartCanvas) return true;
   const dpr = window.devicePixelRatio || 1;
-  const h = fpChartCanvas.height / dpr;
   const w = fpChartCanvas.width / dpr;
-  if (h < 40) return;
+  if (w < 40) return true;
+  const cw = FP_CANDLE_WIDTH();
+  const step = cw + FP_GAP;
+  const liveX = fpPanX + (fpCandles.length - 1) * step;
+  // Live is "in view" if any part of the live candle is in the right 55% of chart
+  return (liveX + cw > w * 0.45) && (liveX < w + 20);
+}
 
-  // Only shift view when live price is near the TOP or BOTTOM edge (not every tick)
-  const liveY = fpPriceToY(fpLivePrice);
-  const margin = h * 0.18;
-  if (liveY < margin) {
-    // price near top – nudge view up slowly
-    fpViewCenter += (fpLivePrice - fpViewCenter) * 0.08;
-  } else if (liveY > h - margin) {
-    // price near bottom – nudge view down slowly
-    fpViewCenter += (fpLivePrice - fpViewCenter) * 0.08;
+function fpUpdateGotoLiveBtn() {
+  const btn = document.getElementById('fpGotoLive');
+  if (!btn) return;
+  const show = !!( _fpViewingHistory || !fpIsLiveInView() );
+  btn.classList.toggle('show', show);
+  // Inline display — class alone was not enough after style.cssText writes
+  btn.style.display = show ? 'flex' : 'none';
+}
+
+function fpJumpToLive() {
+  _fpViewingHistory = false;
+  try {
+    const dpr = window.devicePixelRatio || 1;
+    const w = fpChartCanvas.width / dpr;
+    const cw = FP_CANDLE_WIDTH();
+    const step = cw + FP_GAP;
+    // Pin live candle to the right edge
+    fpPanX = w - ((fpCandles.length - 1) * step) - cw - 28;
+    // Optional: soft vertical center on live price without changing zoom
+    if (fpLivePrice > 500) {
+      fpViewCenter = fpLivePrice;
+    }
+  } catch (e) {}
+  try { fpUpdateGotoLiveBtn(); } catch (e) {}
+  try { scheduleFpRedraw(); } catch (e) {}
+  try { drawFpChart(); drawFpPriceLadder(); drawFpTable(); } catch (e) {}
+}
+
+function ensureLivePriceVisible() {
+  // NEVER force the chart back to the live candle while user is browsing history.
+  // Only show the ▶ LIVE arrow so they can jump when ready.
+  if (fpIsDragging || fpPinching || isDraggingPriceScale) return;
+  if (!fpCandles || !fpCandles.length) return;
+
+  // If user panned away, mark history mode and update arrow
+  if (!fpIsLiveInView()) {
+    _fpViewingHistory = true;
   }
+  try { fpUpdateGotoLiveBtn(); } catch (e) {}
 
-  // Keep latest candle visible on the right
-  const liveX = fpPanX + (fpCandles.length - 1) * (FP_CANDLE_WIDTH() + FP_GAP);
-  const targetX = w - FP_CANDLE_WIDTH() - 35;
-  if (Math.abs(liveX - targetX) > 30) {
-    fpPanX += (targetX - liveX) * 0.2;
+  // While viewing history: do not move panX / zoom / width at all
+  if (_fpViewingHistory) return;
+
+  // At live edge only: if a brand-new candle would leave the frame, nudge once
+  const dpr = window.devicePixelRatio || 1;
+  const w = fpChartCanvas.width / dpr;
+  if (w < 40) return;
+  const cw = FP_CANDLE_WIDTH();
+  const step = cw + FP_GAP;
+  const liveX = fpPanX + (fpCandles.length - 1) * step;
+  const rightLimit = w - 28;
+  if (liveX + cw > rightLimit + 8) {
+    fpPanX -= (liveX + cw - rightLimit);
   }
 }
 
@@ -6131,8 +6619,8 @@ function toggleFpFollow() {
 
 function fpZoomIn() {
   fpZoom = Math.min(3.5, +(fpZoom * 1.2).toFixed(2));
-  // User zoom → leave follow so view is not yanked back
   fpFollowLive = false;
+  _fpUserViewLocked = true;
   try {
     const btn = document.getElementById('fpFollowBtn');
     if (btn) { btn.classList.remove('active'); btn.textContent = 'Free'; }
@@ -6143,10 +6631,6 @@ function fpZoomIn() {
 function fpZoomOut() {
   fpZoom = Math.max(0.3, +(fpZoom * 0.83).toFixed(2));
   fpFollowLive = false;
-  try {
-    const btn = document.getElementById('fpFollowBtn');
-    if (btn) { btn.classList.remove('active'); btn.textContent = 'Free'; }
-  } catch (e) {}
   try { scheduleFpRedraw(); } catch (e) {}
 }
 
@@ -6158,9 +6642,14 @@ function renderFpFrame() {
   const fullOpen = modal && modal.style.display === 'flex';
   if (fullOpen || docked) {
     try {
+      // Keep footer geometry pinned (desktop WebView can drop absolute layout)
+      if (!window._fpShellTick) window._fpShellTick = 0;
+      window._fpShellTick++;
+      if (window._fpShellTick % 30 === 1) fpLayoutShell();
       drawFpChart();
       drawFpPriceLadder();
       drawFpTable();
+      fpUpdateGotoLiveBtn();
     } catch (e) {}
   }
   requestAnimationFrame(renderFpFrame);
@@ -6176,6 +6665,8 @@ function drawFpChart() {
   const w = fpChartCanvas.width / dpr;
   const h = fpChartCanvas.height / dpr;
   if (w < 10 || h < 10) return;
+  // Keep last frame visible if candles briefly empty (new-bar race)
+  if (!fpCandles || !fpCandles.length) return;
   fpCtxChart.clearRect(0, 0, w, h);
   fpCtxChart.strokeStyle = '#141822';
   fpCtxChart.lineWidth = 1;
@@ -6623,8 +7114,15 @@ function drawFpPriceLadder() {
 function drawFpTable() {
   const dpr = window.devicePixelRatio || 1;
   const w = fpTableCanvas.width / dpr;
-  const h = fpFooterHeight;
-  if (w < 10) return;
+  const h = fpFooterHeight || 96;
+  if (w < 10 || h < 10) return;
+  // Sync live bar metrics before paint
+  try {
+    if (fpCandles.length) {
+      const last = fpCandles[fpCandles.length - 1];
+      if (last && last.isLive) rfFinal(last);
+    }
+  } catch (e) {}
   fpCtxTable.clearRect(0, 0, w, h);
   fpCtxTable.font = '10.5px monospace';
   fpCtxTable.textAlign = 'center';
@@ -6633,20 +7131,28 @@ function drawFpTable() {
   const rowY3 = Math.round(h * 0.63);
   const rowY4 = Math.round(h * 0.85);
 
+  // Same panX + candle width as chart → columns under candles (labels are absolute overlay)
   for (let idx = 0; idx < fpCandles.length; idx++) {
     const c = fpCandles[idx];
     const cx = fpPanX + idx * (FP_CANDLE_WIDTH() + FP_GAP);
     if (cx + FP_CANDLE_WIDTH() < -40 || cx > w + 40) continue;
+    // Skip drawing under the fixed label gutter so values don't collide with "Delta" etc.
+    if (cx + FP_CANDLE_WIDTH() < 58) continue;
     const midX = cx + FP_CANDLE_WIDTH() / 2;
-    const isPos = c.delta >= 0;
+    // Prefer live OKX fields; fall back to rfFinal aliases
+    const dlt = (c._d != null ? c._d : c.delta) || 0;
+    const vol = (c._v != null ? c._v : c.volume) || 0;
+    const cvd = (c._cvd != null ? c._cvd : c.sessionCVD) || 0;
+    const pct = vol ? Math.round((dlt / vol) * 100) : (c.deltaPct || 0);
+    const isPos = dlt >= 0;
     fpCtxTable.fillStyle = isPos ? '#089981' : '#f23645';
-    fpCtxTable.fillText((isPos ? '+' : '') + Math.round(c.delta), midX, rowY1);
+    fpCtxTable.fillText((isPos ? '+' : '') + Math.round(dlt), midX, rowY1);
     fpCtxTable.fillStyle = isPos ? '#34d399' : '#f87171';
-    fpCtxTable.fillText(c.deltaPct + '%', midX, rowY2);
+    fpCtxTable.fillText(pct + '%', midX, rowY2);
     fpCtxTable.fillStyle = '#38bdf8';
-    fpCtxTable.fillText(String(Math.round(c.sessionCVD)), midX, rowY3);
+    fpCtxTable.fillText(String(Math.round(cvd)), midX, rowY3);
     fpCtxTable.fillStyle = '#94a3b8';
-    fpCtxTable.fillText(String(Math.round(c.volume)), midX, rowY4);
+    fpCtxTable.fillText(String(Math.round(vol)), midX, rowY4);
     fpCtxTable.fillStyle = '#1c202b';
     fpCtxTable.fillRect(cx + FP_CANDLE_WIDTH() + 5, 0, 1, h);
   }
@@ -6719,11 +7225,16 @@ window.addEventListener('mousemove', (e) => {
   if (!fpIsDragging || fpPinching) return;
   e.preventDefault();
   fpPanX = e.clientX - fpStartX;
+  try { if (!fpIsLiveInView()) { _fpViewingHistory = true; fpUpdateGotoLiveBtn(); } } catch (e) {}
   fpPanY = e.clientY - fpStartY;
 });
 
 window.addEventListener('mouseup', () => {
   fpIsDragging = false;
+  try {
+    if (!fpIsLiveInView()) _fpViewingHistory = true;
+    fpUpdateGotoLiveBtn();
+  } catch (e) {}
   fpPinching = false;
 });
 
@@ -8120,8 +8631,9 @@ function rfBuild(min) {
 }
 
 function rfAnchor() {
-  if (!fpFollowLive || fpIsDragging) return;
-  fpPanX = fpChartCanvas.width / (window.devicePixelRatio || 1) - fpCandles.length * (FP_CANDLE_WIDTH() + FP_GAP) - 40;
+  // Deprecated follow-yank: keep user pan/zoom. Only ensure newest candle stays in frame.
+  if (fpIsDragging) return;
+  try { ensureLivePriceVisible(); } catch (e) {}
 }
 
 
@@ -8315,13 +8827,39 @@ async function fpLoadOkxFootprint(tfMin, limit) {
 
   if (!out.length) return 0;
 
-  fpCandles = out;
+  // Avoid blank flash: only replace if we have real bars
+  if (out && out.length) {
+    // Preserve live mid-bar ticks if same TF and same live slot
+    try {
+      const msL = tfMin * 60000;
+      const liveS = Math.floor(Date.now() / msL) * msL;
+      const prevLive = (fpCandles || []).find(function (c) { return c && c.barSlot === liveS && c.levels && c.levels.size; });
+      if (prevLive) {
+        for (let i = 0; i < out.length; i++) {
+          if (out[i].barSlot === liveS) {
+            if (!out[i].levels || out[i].levels.size === 0 || (prevLive._v || 0) > (out[i]._v || 0)) {
+              out[i].levels = prevLive.levels;
+              out[i]._d = prevLive._d; out[i]._v = prevLive._v; out[i]._cvd = prevLive._cvd;
+              out[i].pocPrice = prevLive.pocPrice || out[i].pocPrice;
+              out[i].isLive = true;
+            }
+            break;
+          }
+        }
+      }
+    } catch (e) {}
+    fpCandles = out;
+  }
   fpTfMinutes = tfMin;
-  if (out.length) fpLivePrice = out[out.length - 1].close;
+  if (fpCandles.length) fpLivePrice = fpCandles[fpCandles.length - 1].close;
 
   try { if (rfWait) rfWait.style.display = 'none'; } catch (e) {}
   try { resizeFpCanvases(); } catch (e) {}
-  try { autoCenterFp(); } catch (e) {}
+  // Keep user zoom/pan stable — only auto-center when view was never adjusted
+  try {
+    if (!_fpUserViewLocked) autoCenterFp();
+    else ensureLivePriceVisible();
+  } catch (e) {}
   try { rfAnchor(); } catch (e) {}
   try { scheduleFpRedraw(); } catch (e) {}
   try { drawFpChart(); drawFpPriceLadder(); drawFpTable(); } catch (e) {}
@@ -8530,6 +9068,49 @@ async function fpSeedOkxCandleVolume(tfMin, nBars) {
 }
 
 
+
+/** Append new live bar without wiping existing footprint (prevents blank flash). */
+function rfSoftRollNewBar() {
+  const ms = (fpTfMinutes || 5) * 60000;
+  const nowSlot = Math.floor(Date.now() / ms) * ms;
+  if (!fpCandles || !fpCandles.length) {
+    try { rfRebuild(); } catch (e) {}
+    return;
+  }
+  let last = fpCandles[fpCandles.length - 1];
+  if (last && last.barSlot === nowSlot) return;
+
+  // Freeze closed bar volume so rebuilds can restore it
+  if (last && last.barSlot && last.barSlot < nowSlot) {
+    try {
+      if (last.levels && last.levels.size > 0) {
+        fpFreezeBar(fpTfMinutes, last.barSlot, last.open, last.high, last.low, last.close,
+          true, last.levels, last.pocPrice, last._d, last._v, last._cvd);
+      }
+    } catch (e) {}
+    last.isLive = false;
+  }
+
+  const px = (fpLivePrice > 500) ? fpLivePrice
+    : (last && last.close > 500 ? last.close : 0);
+  if (!(px > 500)) return;
+
+  const shell = {
+    time: nowSlot, barSlot: nowSlot, closeTime: nowSlot + ms,
+    open: px, high: px, low: px, close: px,
+    levels: new Map(), pocPrice: 0,
+    _d: 0, _v: 0, _cvd: last ? (last._cvd || 0) : 0,
+    volume: 0, delta: 0, isLive: true
+  };
+  try { rfFinal(shell); } catch (e) {}
+  fpCandles.push(shell);
+  if (fpCandles.length > 90) fpCandles = fpCandles.slice(-90);
+
+  // Keep newest candle in frame only — do NOT autoCenter / reset zoom
+  try { ensureLivePriceVisible(); } catch (e) {}
+  try { scheduleFpRedraw(); } catch (e) {}
+}
+
 function rfRebuild() {
   // SIMPLE rebuild: interbank OHLC + OKX volume from store. No hard lock on live bar.
   const nowMs = fpTfMinutes * 60000;
@@ -8554,7 +9135,21 @@ function rfRebuild() {
     }
   }
 
-  fpCandles = rfBuild(fpTfMinutes);
+  const prevSnap = fpCandles && fpCandles.length ? fpCandles.slice() : [];
+  let built = [];
+  try { built = rfBuild(fpTfMinutes) || []; } catch (e) { built = []; }
+
+  // Never blank the chart: if rebuild is empty/thin, keep previous candles and soft-roll live bar
+  if (!built.length || (prevSnap.length >= 3 && built.length < Math.max(2, prevSnap.length * 0.4))) {
+    if (prevSnap.length) {
+      fpCandles = prevSnap;
+      try { rfSoftRollNewBar(); } catch (e) {}
+      try { rfWait.style.display = 'none'; } catch (e) {}
+      try { scheduleFpRedraw(); } catch (e) {}
+      return;
+    }
+  }
+  fpCandles = built;
   try { rfWait.style.display = fpCandles.length ? 'none' : 'flex'; } catch (e) {}
   if (!fpCandles.length) {
     try { scheduleFpRedraw(); } catch (e) {}
@@ -8629,7 +9224,9 @@ function scheduleFpRedraw() {
     window._fpRedrawPending = false;
     try {
       const modal = document.getElementById('footprintModal');
-      if (modal && modal.style.display === 'flex') {
+      const fullOpen = modal && modal.style.display === 'flex';
+      const docked = (typeof _acvFpDocked !== 'undefined' && _acvFpDocked);
+      if (fullOpen || docked) {
         drawFpChart();
         drawFpPriceLadder();
         drawFpTable();
@@ -9813,12 +10410,12 @@ setInterval(async () => {
         rfIngest(p, q, buy, ts, id);
       }
       rfStatus('LIVE · REST', '#10b981', 'OKX poll');
-      // Only rebuild if live candle missing (avoids wiping tick-by-tick prints every 1.5s)
+      // Soft-roll new bar only — never full rebuild (avoids blank flash)
       try {
         const ms = fpTfMinutes * 60000;
         const nowSlot = Math.floor(Date.now() / ms) * ms;
         const last = fpCandles.length ? fpCandles[fpCandles.length - 1] : null;
-        if (!last || last.barSlot !== nowSlot) rfRebuild();
+        if (!last || last.barSlot !== nowSlot) rfSoftRollNewBar();
       } catch (e) {}
       try { avRefreshFootprintGauge(true); } catch (e) {}
       try { scheduleFpRedraw(); } catch (e) {}
@@ -9871,17 +10468,20 @@ function syncLivePriceToFootprint() {
     let last = fpCandles[fpCandles.length - 1];
     // Do NOT full-rebuild here (wipes OKX volume). Only append empty live shell if needed.
     if (!last || last.barSlot !== liveSlot) {
-      if (last && last.isLive) last.isLive = false;
-      const shell = {
-        time: liveSlot, barSlot: liveSlot, closeTime: liveSlot + ms,
-        open: g, high: g, low: g, close: g,
-        levels: new Map(), pocPrice: 0, _d: 0, _v: 0, _cvd: last ? last._cvd : 0,
-        volume: 0, delta: 0, isLive: true
-      };
-      try { rfFinal(shell); } catch (e) {}
-      fpCandles.push(shell);
-      if (fpCandles.length > 40) fpCandles = fpCandles.slice(-40);
-      last = shell;
+      // Soft roll — keep history visible (no blank)
+      try { rfSoftRollNewBar(); } catch (e) {
+        if (last && last.isLive) last.isLive = false;
+        const shell = {
+          time: liveSlot, barSlot: liveSlot, closeTime: liveSlot + ms,
+          open: g, high: g, low: g, close: g,
+          levels: new Map(), pocPrice: 0, _d: 0, _v: 0, _cvd: last ? last._cvd : 0,
+          volume: 0, delta: 0, isLive: true
+        };
+        try { rfFinal(shell); } catch (e2) {}
+        fpCandles.push(shell);
+        if (fpCandles.length > 90) fpCandles = fpCandles.slice(-90);
+      }
+      last = fpCandles[fpCandles.length - 1];
     }
     if (last && last.barSlot === liveSlot) {
       last.isLive = true;
@@ -9933,6 +10533,7 @@ async function changeFpTF(m) {
   fpCandles = [];
   _rfLastBarSlot = 0;
   fpViewCenter = 0;
+  _fpUserViewLocked = false; // TF change → allow one auto-center
   try { startAllTickFeed(); } catch (e) {}
   try { fpSeedInstantCandles(); } catch (e) {}
   try { rfRebuild(); } catch (e) {}
@@ -9970,6 +10571,7 @@ async function refreshFootprintChart() {
   try {
     _rfLastBarSlot = 0;
     fpViewCenter = 0;
+    _fpUserViewLocked = false; // manual refresh → re-center once
     FP_TICK_SIZE = RF_TICKS[tf] || 0.2;
     try { startAllTickFeed(); } catch (e) {}
 
@@ -9989,7 +10591,12 @@ async function refreshFootprintChart() {
       try { rfRebuild(); } catch (e) {}
     }
 
-    try { resizeFpCanvases(); autoCenterFp(); syncLivePriceToFootprint(); } catch (e) {}
+    try {
+      resizeFpCanvases();
+      if (!_fpUserViewLocked) autoCenterFp();
+      else ensureLivePriceVisible();
+      syncLivePriceToFootprint();
+    } catch (e) {}
     try { drawFpChart(); drawFpPriceLadder(); drawFpTable(); } catch (e) {}
 
     // Background: top up live trades into current bar
@@ -12671,14 +13278,31 @@ async function openFootprintModal() {
   document.documentElement.style.overflow = 'hidden';
   document.body.style.overflow = 'hidden';
   document.body.style.touchAction = 'none';
-  const fb = document.getElementById('fpFollowBtn');
-  if (fb) {
-    fb.classList.toggle('active', fpFollowLive);
-    fb.textContent = fpFollowLive ? 'Follow' : 'Free';
-  }
-  fpFollowLive = true;
-  fpViewCenter = 0;
-  fpZoom = 1;
+  fpFollowLive = false; // never auto-follow; user zoom/pan stay put
+  // Initial center only when view has never been set
+  if (!fpViewCenter) fpViewCenter = 0;
+  // Force bottom metrics strip visible (desktop + mobile)
+  try {
+    const isDesktop = window.matchMedia('(min-width: 768px)').matches;
+    const isDesk = window.matchMedia('(min-width: 768px)').matches;
+    fpFooterHeight = isDesk ? 112 : 96;
+    try { fpLayoutShell(); } catch (e) {}
+    try { fpInitFooterResize(); } catch (e) {}
+    try { fpUpdateGotoLiveBtn(); } catch (e) {}
+    // Multiple layout passes — desktop WebView often needs delayed measure
+    requestAnimationFrame(function () {
+      try { fpLayoutShell(); resizeFpCanvases(); drawFpTable(); scheduleFpRedraw(); } catch (e) {}
+      requestAnimationFrame(function () {
+        try { fpLayoutShell(); resizeFpCanvases(); drawFpTable(); drawFpChart(); drawFpPriceLadder(); } catch (e) {}
+      });
+    });
+    setTimeout(function () {
+      try { fpLayoutShell(); resizeFpCanvases(); drawFpTable(); scheduleFpRedraw(); } catch (e) {}
+    }, 120);
+    setTimeout(function () {
+      try { fpLayoutShell(); resizeFpCanvases(); drawFpTable(); scheduleFpRedraw(); } catch (e) {}
+    }, 400);
+  } catch (e) {}
 
   // Hide wait overlay so chart is visible
   try { if (rfWait) { rfWait.style.display = 'none'; } } catch (e) {}
@@ -12690,7 +13314,10 @@ async function openFootprintModal() {
   requestAnimationFrame(function () {
     requestAnimationFrame(function () {
       try { resizeFpCanvases(); } catch (e) {}
-      try { autoCenterFp(); } catch (e) {}
+      try {
+        if (!_fpUserViewLocked) autoCenterFp();
+        else ensureLivePriceVisible();
+      } catch (e) {}
       try { syncLivePriceToFootprint(); } catch (e) {}
       try { scheduleFpRedraw(); } catch (e) {}
       try { drawFpChart(); drawFpPriceLadder(); drawFpTable(); } catch (e) {}
@@ -12701,18 +13328,29 @@ async function openFootprintModal() {
   // Load OKX footprint for current TF (real OHLC + real volume)
   try {
     fpLoadOkxFootprint(fpTfMinutes || 5, 40).then(function () {
-      try { resizeFpCanvases(); autoCenterFp(); syncLivePriceToFootprint(); } catch (e) {}
+      try {
+        resizeFpCanvases();
+        if (!_fpUserViewLocked) autoCenterFp();
+        else ensureLivePriceVisible();
+        syncLivePriceToFootprint();
+      } catch (e) {}
       try { drawFpChart(); drawFpPriceLadder(); drawFpTable(); } catch (e) {}
     });
   } catch (e) {}
 
   setTimeout(function () {
-    try { resizeFpCanvases(); autoCenterFp(); syncLivePriceToFootprint(); } catch (e) {}
+    try {
+      resizeFpCanvases();
+      if (!_fpUserViewLocked) autoCenterFp();
+      else ensureLivePriceVisible();
+      syncLivePriceToFootprint();
+    } catch (e) {}
     try { drawFpChart(); drawFpPriceLadder(); drawFpTable(); } catch (e) {}
   }, 400);
 }
 
 function closeFootprintModal() {
+  try { fpRestoreFooterToModal(); } catch (e) {}
   document.getElementById('footprintModal').style.display = 'none';
   document.documentElement.style.overflow = '';
   document.body.style.overflow = '';
@@ -12771,8 +13409,10 @@ const acvPanes = {
   fp: { open: true }
 };
 let _acvOpen = false;
-let _acvCol = 0.5;
-let _acvRow = 0.5;
+let _acvCol = 0.5;   // left column width fraction
+let _acvRowL = 0.5;  // left column: gold height fraction (independent)
+let _acvRowR = 0.5;  // right column: dxy height fraction (independent)
+let _acvRow = 0.5;   // legacy alias
 
 function openAllChartView() {
   const el = document.getElementById('allChartViewOverlay');
@@ -12873,82 +13513,192 @@ function acvUpdateRestoreBar() {
 function acvApplyLayout() {
   const body = document.getElementById('acvBody');
   if (!body) return;
-  const openKeys = ['gold','dxy','av','fp'].filter(k => acvPanes[k].open);
-  const n = openKeys.length;
+  const GAP = 3; // px gap between panes
+  const open = {
+    gold: !!(acvPanes.gold && acvPanes.gold.open),
+    dxy:  !!(acvPanes.dxy && acvPanes.dxy.open),
+    av:   !!(acvPanes.av && acvPanes.av.open),
+    fp:   !!(acvPanes.fp && acvPanes.fp.open)
+  };
+  const n = ['gold','dxy','av','fp'].filter(k => open[k]).length;
   const mobile = window.matchMedia('(max-width: 700px)').matches;
-  // Reset all grid placement
+  const W = body.clientWidth || 1;
+  const H = body.clientHeight || 1;
+
+  const place = (key, left, top, width, height) => {
+    const el = document.getElementById(acvPaneId(key));
+    if (!el) return;
+    if (!open[key] || width < 8 || height < 8) {
+      el.style.display = open[key] ? 'none' : 'none';
+      return;
+    }
+    el.style.display = 'flex';
+    el.style.left = Math.round(left) + 'px';
+    el.style.top = Math.round(top) + 'px';
+    el.style.width = Math.round(width) + 'px';
+    el.style.height = Math.round(height) + 'px';
+  };
+
+  // Hide all first
   ['gold','dxy','av','fp'].forEach(k => {
     const el = document.getElementById(acvPaneId(k));
-    if (!el) return;
-    el.style.gridColumn = '';
-    el.style.gridRow = '';
+    if (el && !open[k]) {
+      el.style.display = 'none';
+    }
   });
-  if (n === 0) {
-    body.style.gridTemplateColumns = '1fr';
-    body.style.gridTemplateRows = '1fr';
-    return;
-  }
-  if (mobile || n === 1) {
-    body.style.gridTemplateColumns = '1fr';
-    body.style.gridTemplateRows = 'repeat(' + n + ', 1fr)';
-  } else if (n === 2) {
-    body.style.gridTemplateColumns = (_acvCol * 100).toFixed(1) + '% ' + ((1 - _acvCol) * 100).toFixed(1) + '%';
-    body.style.gridTemplateRows = '1fr';
-  } else if (n === 3) {
-    // 2 on top, 1 bottom spanning
-    body.style.gridTemplateColumns = (_acvCol * 100).toFixed(1) + '% ' + ((1 - _acvCol) * 100).toFixed(1) + '%';
-    body.style.gridTemplateRows = (_acvRow * 100).toFixed(1) + '% ' + ((1 - _acvRow) * 100).toFixed(1) + '%';
-    const third = openKeys[2];
-    const el = document.getElementById(acvPaneId(third));
-    if (el) { el.style.gridColumn = '1 / -1'; }
-  } else {
-    body.style.gridTemplateColumns = (_acvCol * 100).toFixed(1) + '% ' + ((1 - _acvCol) * 100).toFixed(1) + '%';
-    body.style.gridTemplateRows = (_acvRow * 100).toFixed(1) + '% ' + ((1 - _acvRow) * 100).toFixed(1) + '%';
-  }
-  // Position splitters
+
   const splitV = document.getElementById('acvSplitV');
-  const splitH = document.getElementById('acvSplitH');
-  if (splitV) {
-    splitV.style.left = (_acvCol * 100).toFixed(1) + '%';
-    splitV.style.display = (!mobile && n >= 2) ? 'block' : 'none';
+  const splitHL = document.getElementById('acvSplitHL');
+  const splitHR = document.getElementById('acvSplitHR');
+  const hideSplits = () => {
+    if (splitV) splitV.style.display = 'none';
+    if (splitHL) splitHL.style.display = 'none';
+    if (splitHR) splitHR.style.display = 'none';
+  };
+
+  if (n === 0) { hideSplits(); return; }
+
+  // Mobile / single pane: stack full width
+  if (mobile || n === 1) {
+    hideSplits();
+    const keys = ['gold','dxy','av','fp'].filter(k => open[k]);
+    const hEach = (H - GAP * (keys.length - 1)) / keys.length;
+    keys.forEach((k, i) => {
+      place(k, 0, i * (hEach + GAP), W, hEach);
+    });
+  } else {
+    // Independent 2-column layout:
+    // Left col width = _acvCol, right = 1-_acvCol
+    // Left heights: gold=_acvRowL, av=1-_acvRowL  (independent)
+    // Right heights: dxy=_acvRowR, fp=1-_acvRowR  (independent)
+    // Closed panes expand their sibling to fill the column/row.
+
+    let col = Math.max(0.18, Math.min(0.82, _acvCol));
+    let rowL = Math.max(0.18, Math.min(0.82, _acvRowL));
+    let rowR = Math.max(0.18, Math.min(0.82, _acvRowR));
+
+    const leftOpen = open.gold || open.av;
+    const rightOpen = open.dxy || open.fp;
+
+    // If one side fully closed, other takes full width
+    if (!leftOpen && rightOpen) col = 0;
+    if (leftOpen && !rightOpen) col = 1;
+
+    const leftW = leftOpen ? (rightOpen ? col * W - GAP / 2 : W) : 0;
+    const rightW = rightOpen ? (leftOpen ? (1 - col) * W - GAP / 2 : W) : 0;
+    const leftX = 0;
+    const rightX = leftOpen && rightOpen ? col * W + GAP / 2 : 0;
+
+    // LEFT column panes
+    if (open.gold && open.av) {
+      const gH = rowL * H - GAP / 2;
+      const aH = (1 - rowL) * H - GAP / 2;
+      place('gold', leftX, 0, leftW, gH);
+      place('av', leftX, rowL * H + GAP / 2, leftW, aH);
+    } else if (open.gold) {
+      place('gold', leftX, 0, leftW, H);
+    } else if (open.av) {
+      place('av', leftX, 0, leftW, H);
+    }
+
+    // RIGHT column panes
+    if (open.dxy && open.fp) {
+      const dH = rowR * H - GAP / 2;
+      const fH = (1 - rowR) * H - GAP / 2;
+      place('dxy', rightX, 0, rightW, dH);
+      place('fp', rightX, rowR * H + GAP / 2, rightW, fH);
+    } else if (open.dxy) {
+      place('dxy', rightX, 0, rightW, H);
+    } else if (open.fp) {
+      place('fp', rightX, 0, rightW, H);
+    }
+
+    // Splitters — only when both sides of that split are open
+    if (splitV) {
+      if (leftOpen && rightOpen && !mobile) {
+        splitV.style.display = 'block';
+        splitV.style.left = (col * W) + 'px';
+        splitV.style.top = '0';
+        splitV.style.height = H + 'px';
+      } else {
+        splitV.style.display = 'none';
+      }
+    }
+    if (splitHL) {
+      if (open.gold && open.av && leftOpen && !mobile) {
+        splitHL.style.display = 'block';
+        splitHL.style.left = leftX + 'px';
+        splitHL.style.width = leftW + 'px';
+        splitHL.style.top = (rowL * H) + 'px';
+      } else {
+        splitHL.style.display = 'none';
+      }
+    }
+    if (splitHR) {
+      if (open.dxy && open.fp && rightOpen && !mobile) {
+        splitHR.style.display = 'block';
+        splitHR.style.left = rightX + 'px';
+        splitHR.style.width = rightW + 'px';
+        splitHR.style.top = (rowR * H) + 'px';
+      } else {
+        splitHR.style.display = 'none';
+      }
+    }
   }
-  if (splitH) {
-    splitH.style.top = (_acvRow * 100).toFixed(1) + '%';
-    splitH.style.display = (!mobile && n >= 3) ? 'block' : 'none';
-  }
-  if (acvPanes.gold.open) acvDraw('gold');
-  if (acvPanes.dxy.open) acvDraw('dxy');
+
+  // Redraw charts after layout
+  try {
+    if (open.gold) acvDraw('gold');
+    if (open.dxy) acvDraw('dxy');
+    if (open.fp && typeof acvRefreshDockedFp === 'function') acvRefreshDockedFp(true);
+  } catch (e) {}
 }
 
 function acvInitSplitters() {
   const body = document.getElementById('acvBody');
-  const splitV = document.getElementById('acvSplitV');
-  const splitH = document.getElementById('acvSplitH');
   if (!body) return;
-  function bind(el, vertical) {
+
+  function bindSplit(el, mode) {
+    // mode: 'col' | 'rowL' | 'rowR'
     if (!el || el._acvBound) return;
     el._acvBound = true;
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      e.stopPropagation();
       el.classList.add('active');
       try { el.setPointerCapture(e.pointerId); } catch (err) {}
       const move = (ev) => {
         const rect = body.getBoundingClientRect();
-        if (vertical) _acvCol = Math.max(0.22, Math.min(0.78, (ev.clientX - rect.left) / rect.width));
-        else _acvRow = Math.max(0.22, Math.min(0.78, (ev.clientY - rect.top) / rect.height));
+        if (!rect.width || !rect.height) return;
+        if (mode === 'col') {
+          _acvCol = Math.max(0.18, Math.min(0.82, (ev.clientX - rect.left) / rect.width));
+        } else if (mode === 'rowL') {
+          _acvRowL = Math.max(0.18, Math.min(0.82, (ev.clientY - rect.top) / rect.height));
+        } else if (mode === 'rowR') {
+          _acvRowR = Math.max(0.18, Math.min(0.82, (ev.clientY - rect.top) / rect.height));
+        }
         acvApplyLayout();
       };
       const up = () => {
         el.classList.remove('active');
         el.removeEventListener('pointermove', move);
         el.removeEventListener('pointerup', up);
+        el.removeEventListener('pointercancel', up);
+        // Final redraw after resize settles
+        try {
+          if (acvPanes.gold.open) acvDraw('gold');
+          if (acvPanes.dxy.open) acvDraw('dxy');
+          if (acvPanes.fp.open && typeof acvRefreshDockedFp === 'function') acvRefreshDockedFp(true);
+        } catch (err) {}
       };
       el.addEventListener('pointermove', move);
       el.addEventListener('pointerup', up);
+      el.addEventListener('pointercancel', up);
     });
   }
-  bind(splitV, true);
-  bind(splitH, false);
+  bindSplit(document.getElementById('acvSplitV'), 'col');
+  bindSplit(document.getElementById('acvSplitHL'), 'rowL');
+  bindSplit(document.getElementById('acvSplitHR'), 'rowR');
 }
 
 function acvOpenFull(asset) {
@@ -13499,7 +14249,7 @@ function acvDockFootprint() {
   try {
     FP_TICK_SIZE = (typeof RF_TICKS !== 'undefined' && RF_TICKS[fpTfMinutes]) ? RF_TICKS[fpTfMinutes] : (FP_TICK_SIZE || 0.2);
   } catch (e) {}
-  try { fpFollowLive = true; fpViewCenter = 0; fpZoom = 1; } catch (e) {}
+  try { fpFollowLive = false; /* keep user zoom/pan; center only if unset */ if (!fpViewCenter) fpViewCenter = 0; } catch (e) {}
   try { if (typeof rfRestoreStore === 'function') rfRestoreStore(); } catch (e) {}
   try { if (typeof fpSeedInstantCandles === 'function') fpSeedInstantCandles(); } catch (e) {}
   try { if (typeof startAllTickFeed === 'function') startAllTickFeed(); } catch (e) {}
@@ -13511,41 +14261,43 @@ function acvDockFootprint() {
     }
   } catch (e) {}
   _acvFpSizedOnce = false;
-  // Compact but visible footer while docked
+  // Footer must live inside docked host and be visible
   try {
-    if (typeof fpFooterHeight !== 'undefined') {
-      fpFooterHeight = Math.max(64, Math.min(96, fpFooterHeight || 72));
-      const fw = document.getElementById('fpFooterSummary');
-      if (fw) {
-        fw.style.height = fpFooterHeight + 'px';
-        fw.style.minHeight = '64px';
-        fw.style.display = 'grid';
-      }
-    }
+    fpFooterHeight = 78;
+    fpRestoreFooterToModal();
+    fpLayoutShell();
   } catch (e) {}
-  // Double rAF so layout has size — force layout only once
   requestAnimationFrame(function () {
     requestAnimationFrame(function () {
+      try { fpLayoutShell(); } catch (e) {}
       acvRefreshDockedFp(true);
     });
   });
-  setTimeout(function () { acvRefreshDockedFp(true); }, 400);
+  setTimeout(function () {
+    try { fpLayoutShell(); } catch (e) {}
+    acvRefreshDockedFp(true);
+  }, 300);
+  setTimeout(function () {
+    try { fpLayoutShell(); drawFpTable(); } catch (e) {}
+    acvRefreshDockedFp(true);
+  }, 700);
 }
 
 let _acvFpSizedOnce = false;
 
 function acvRefreshDockedFp(forceLayout) {
   if (!_acvFpDocked) return;
-  // Only resize/recenter on first dock or explicit force — keeps view stable like sidebar
+  try { fpLayoutShell(); } catch (e) {}
   if (forceLayout || !_acvFpSizedOnce) {
     try { if (typeof resizeFpCanvases === 'function') resizeFpCanvases(); } catch (e) {}
-    try { if (typeof autoCenterFp === 'function') autoCenterFp(); } catch (e) {}
+    if (!_acvFpSizedOnce && !_fpUserViewLocked) {
+      try { if (typeof autoCenterFp === 'function') autoCenterFp(); } catch (e) {}
+    }
     _acvFpSizedOnce = true;
   }
-  // Soft live-price follow only (same as sidebar follow mode) — no hard recenter
   try { if (typeof ensureLivePriceVisible === 'function') ensureLivePriceVisible(); } catch (e) {}
   try { if (typeof syncLivePriceToFootprint === 'function') syncLivePriceToFootprint(); } catch (e) {}
-  // Drawing is handled by renderFpFrame rAF when docked — avoid double hard redraws
+  try { if (typeof drawFpTable === 'function') drawFpTable(); } catch (e) {}
   try { if (typeof scheduleFpRedraw === 'function') scheduleFpRedraw(); } catch (e) {}
 }
 
@@ -13561,6 +14313,7 @@ function acvUndockFootprint() {
   modal.classList.remove('acv-docked');
   _acvFpDocked = false;
   _acvFpSizedOnce = false;
+  try { fpFooterHeight = 110; fpLayoutShell(); } catch (e) {}
   // Keep modal closed unless user opens it from sidebar
   if (modal.style.display === 'flex') {
     // was full-screen — leave as is
