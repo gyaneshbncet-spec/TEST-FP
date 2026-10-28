@@ -7608,8 +7608,13 @@ function paintLiveUI() {
     recalculateMetricsInstant();
     updateLiveButtonStatus();
     updateMarketClosedBanner();
-    // CRITICAL: keep Footprint price in lock-step with main interbank feed
-    syncLivePriceToFootprint();
+    // Footprint = OKX only. Sync only when footprint is visible; never push interbank.
+    try {
+      const modal = document.getElementById('footprintModal');
+      const fpOpen = modal && modal.style.display === 'flex';
+      const docked = (typeof _acvFpDocked !== 'undefined' && _acvFpDocked);
+      if (fpOpen || docked) syncLivePriceToFootprint();
+    } catch (e2) {}
   } catch (e) {}
 }
 
@@ -8505,59 +8510,13 @@ function fpClearFreezeTF(tf) {
   }
 }
 
-// Fetch real OHLC history for the footprint timeframe (SAME API as main gold chart)
+// Footprint does NOT use interbank OHLC. Kept as no-op so callers don't break.
+// All footprint candles come from OKX (fpLoadOkxFootprint / rfStore trades).
 async function fetchFpRealHistory(minutes) {
-  if (fpRealLoading) return;
-  fpRealLoading = true;
-  const interval = minutes + 'm';
-  try {
-    // Identical interbank source + limit style as main chart
-    const data = await fetchJson(`https://biquote.io/api/XAUUSD/ohlc?interval=${interval}&limit=200`);
-    let bars = (data && data.bars) ? data.bars.slice() : [];
-    if (bars.length > 1 && new Date(bars[0].openTime) > new Date(bars[bars.length - 1].openTime)) bars.reverse();
-    const ms = minutes * 60000;
-    const nowSlot = Math.floor(Date.now() / ms) * ms;
-    fpRealHistory = bars.map(b => {
-      const t = new Date(b.openTime || b.time || b.t).getTime();
-      const slot = Math.floor(t / ms) * ms;
-      return {
-        barSlot: slot,
-        openTime: slot,
-        closeTime: slot + ms,
-        o: +b.open || +b.o,
-        h: +b.high || +b.h,
-        l: +b.low || +b.l,
-        c: +b.close || +b.c
-      };
-    }).filter(b => b.o > 500 && b.barSlot > 0);
-    if (fpRealHistory.length > 150) fpRealHistory = fpRealHistory.slice(-150);
-
-    // Soft-seed OHLC only — never force-wipe volume levels
-    for (let i = 0; i < fpRealHistory.length; i++) {
-      const rc = fpRealHistory[i];
-      if (rc.barSlot < nowSlot) {
-        const existing = fpGetFrozen(minutes, rc.barSlot);
-        if (!existing) {
-          fpFreezeBar(minutes, rc.barSlot, rc.o, rc.h, rc.l, rc.c, false);
-        } else if (!(existing.o > 500)) {
-          fpFreezeBar(minutes, rc.barSlot, rc.o, rc.h, rc.l, rc.c, true);
-        }
-      }
-    }
-  } catch (e) {
-    // fallback: main chart history (same interbank OHLC)
-    if (typeof candleHistory !== 'undefined' && candleHistory.length) {
-      const ms = minutes * 60000;
-      fpRealHistory = candleHistory.slice(-80).map(b => ({
-        barSlot: b.barSlot || Math.floor((b.openTime || 0) / ms) * ms,
-        openTime: b.barSlot || b.openTime,
-        closeTime: (b.barSlot || b.openTime) + ms,
-        o: +b.o, h: +b.h, l: +b.l, c: +b.c
-      })).filter(b => b.o > 500);
-    }
-  } finally {
-    fpRealLoading = false;
-  }
+  // Intentionally empty — interbank freeze was overplotting OKX prices ($ flash).
+  fpRealHistory = [];
+  fpRealLoading = false;
+  return;
 }
 
 fpCandles = [];
@@ -9179,6 +9138,15 @@ async function fpLoadOkxFootprint(tfMin, limit) {
     rfStatus('OKX LIVE', '#10b981',
       out.length + ' bars · last vol ' + (lastVol >= 1000 ? (Math.round(lastVol / 1000) + 'k') : lastVol));
   } catch (e) {}
+  // Drop any stale interbank-only freezes so OKX prices stay authoritative
+  try {
+    const prefix = tfMin + '_';
+    for (const k of [...fpFrozenOHLC.keys()]) {
+      if (!k.startsWith(prefix)) continue;
+      const fr = fpFrozenOHLC.get(k);
+      if (fr && !fr.fromLiveClose && !(fr._v > 1)) fpFrozenOHLC.delete(k);
+    }
+  } catch (e) {}
   console.log('[FP] OKX footprint loaded', out.length, 'bars TF', tfMin + 'm');
   try { fpUpdateGapBadge(); } catch (e) {}
   return out.length;
@@ -9263,24 +9231,17 @@ async function fpSeedOkxCandleVolume(tfMin, nBars) {
       let cVol = volContracts > 0 ? volContracts : volCcy;
       if (!(cVol > 0) || !(o > 500)) continue;
 
-      // Interbank OHLC if frozen / history available, else OKX OHLC
-      const fr = fpGetFrozen(tfMin, slot);
-      let lo = (fr && fr.l > 500) ? +fr.l : Math.min(o, h, l, c);
-      let hi = (fr && fr.h > 500) ? +fr.h : Math.max(o, h, l, c);
-      let open = (fr && fr.o > 500) ? +fr.o : o;
-      let close = (fr && fr.c > 500) ? +fr.c : c;
-      // Also prefer interbank from fpRealHistory
+      // OKX OHLC ONLY — never prefer interbank freeze / fpRealHistory (causes $ flash)
+      let lo = Math.min(o, h, l, c);
+      let hi = Math.max(o, h, l, c);
+      let open = o;
+      let close = c;
+      // Only restore levels from a bar that was closed while LIVE on footprint (OKX trades)
       try {
-        if (fpRealHistory && fpRealHistory.length) {
-          for (let r = 0; r < fpRealHistory.length; r++) {
-            if (fpRealHistory[r].barSlot === slot && +fpRealHistory[r].o > 500) {
-              open = +fpRealHistory[r].o;
-              hi = +fpRealHistory[r].h;
-              lo = +fpRealHistory[r].l;
-              close = +fpRealHistory[r].c;
-              break;
-            }
-          }
+        const fr = fpGetFrozen(tfMin, slot);
+        if (fr && fr.fromLiveClose && fr.o > 500) {
+          // Keep OKX shape from live close, not interbank
+          open = +fr.o; hi = +fr.h; lo = +fr.l; close = +fr.c;
         }
       } catch (e) {}
 
@@ -9526,27 +9487,28 @@ function rfRebuild() {
     }
     c.isLive = false;
     const fr = fpGetFrozen(fpTfMinutes, c.barSlot);
-    if (fr) {
+    // ONLY apply freeze when bar was closed from LIVE OKX footprint — never interbank-only freeze
+    if (fr && fr.fromLiveClose) {
       if (fr.o > 500) { c.open = fr.o; c.high = fr.h; c.low = fr.l; c.close = fr.c; }
-      // Closed-from-live: ALWAYS restore exact levels that were on the live candle
-      if (fr.fromLiveClose && fr.levels && fr.levels.size > 0) {
+      if (fr.levels && fr.levels.size > 0) {
         c.levels = fpCloneLevels(fr.levels);
         c.pocPrice = fr.pocPrice || 0;
         c._d = fr._d || 0;
         c._v = fr._v || 0;
         c._cvd = fr._cvd || 0;
         rfFinal(c);
-      } else if ((!c.levels || c.levels.size === 0 || !(c._v > 0)) && fr.levels && fr.levels.size > 0) {
-        c.levels = fpCloneLevels(fr.levels);
-        c.pocPrice = fr.pocPrice || 0;
-        c._d = fr._d || 0;
-        c._v = fr._v || 0;
-        c._cvd = fr._cvd || 0;
-        rfFinal(c);
-      } else if (c.levels && c.levels.size > 0 && (c._v || 0) > 0 && !fr.fromLiveClose) {
-        fpFreezeBar(fpTfMinutes, c.barSlot, c.open, c.high, c.low, c.close,
-          false, c.levels, c.pocPrice, c._d, c._v, c._cvd);
       }
+    } else if (fr && (!c.levels || c.levels.size === 0 || !(c._v > 0)) && fr.levels && fr.levels.size > 0 && (fr._v || 0) > 1) {
+      // Levels-only restore (volume), keep current OKX OHLC shape
+      c.levels = fpCloneLevels(fr.levels);
+      c.pocPrice = fr.pocPrice || 0;
+      c._d = fr._d || 0;
+      c._v = fr._v || 0;
+      c._cvd = fr._cvd || 0;
+      rfFinal(c);
+    } else if (c.levels && c.levels.size > 0 && (c._v || 0) > 0) {
+      fpFreezeBar(fpTfMinutes, c.barSlot, c.open, c.high, c.low, c.close,
+        false, c.levels, c.pocPrice, c._d, c._v, c._cvd);
     }
   }
   // Keep live price + view in sync (OKX only)
@@ -10391,7 +10353,7 @@ async function rfDeepFillFootprint(hours) {
       if (r && r.count) cnt += r.count;
     } catch (e1) {}
 
-    // 3) Attach OKX candle VOLUME onto INTERBANK bars only (never OKX prices for shape)
+    // 3) DISABLED: interbank shape + OKX volume caused price flash. Use OKX OHLC only via fpLoadOkxFootprint.
     try {
       const url = (RF_SOURCE.restCandles || 'https://www.okx.com/api/v5/market/history-candles?instId=XAU-USDT-SWAP')
         + '&bar=' + tfMin + 'm&limit=' + Math.min(20, needBars + 2);
@@ -10407,7 +10369,7 @@ async function rfDeepFillFootprint(hours) {
         }
         ibList.sort(function (a, b) { return a.barSlot - b.barSlot; });
       }
-      if (rows && rows.length && ibList.length) {
+      if (false && rows && rows.length && ibList.length) { // interbank path disabled
         for (let i = 0; i < rows.length; i++) {
           const r = rows[i];
           const rawTs = parseInt(r[0], 10) || 0;
