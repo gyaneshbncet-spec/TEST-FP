@@ -3968,7 +3968,7 @@ canvas#tvCanvas {
       <div class="fp-header-left">
         <div class="fp-symbol-badge" id="fpSymbolBadge">GOLD · OKX LIVE</div>
         <div class="fp-price-ticker" id="fpLiveTicker">Syncing...</div>
-        <div class="fp-gap-badge" id="fpGapBadge" title="Interbank gold vs OKX XAU-USDT-SWAP mid">OKX only · no interbank</div>
+        <div class="fp-gap-badge" id="fpGapBadge" title="OKX vs interbank $ Diff">OKX only · $ Diff</div>
         <div class="fp-live-status"><span class="fp-status-dot" id="fpWsDot"></span><span id="fpWsLabel">LIVE WS</span></div>
       </div>
       <div class="fp-tf-tabs">
@@ -6838,12 +6838,22 @@ function drawFpChart() {
         }
       }
     }
-    // Keep cells inside candle high-low (with small pad)
+    // Keep cells inside body ± maxSpan (not full extreme wick) — stops tall misfire columns
     const _hi = _hi0;
     const _lo = _lo0;
-    const pad = Math.max(0.15, (_hi - _lo) * 0.02);
+    const bodyLo0 = Math.min(Number(c.open) || _lo, Number(c.close) || _lo);
+    const bodyHi0 = Math.max(Number(c.open) || _hi, Number(c.close) || _hi);
+    const tfM = fpTfMinutes || 5;
+    const maxSpan = (tfM >= 60) ? 12 : (tfM >= 15) ? 6 : (tfM >= 5) ? 4.5 : 2.5;
+    const midB = (bodyLo0 + bodyHi0) / 2;
+    let cellLo = Math.max(_lo, midB - maxSpan / 2);
+    let cellHi = Math.min(_hi, midB + maxSpan / 2);
+    // Always allow at least body
+    cellLo = Math.min(cellLo, bodyLo0);
+    cellHi = Math.max(cellHi, bodyHi0);
+    const pad = Math.max(0.1, (cellHi - cellLo) * 0.02);
     const rowsIn = rows.filter(function (r) {
-      return r.p >= _lo - pad && r.p <= _hi + pad;
+      return r.p >= cellLo - pad && r.p <= cellHi + pad;
     });
     // If ALL filtered out but we had rows → remap proportionally into candle range
     if (!rowsIn.length && rows.length && _hi > _lo) {
@@ -8925,13 +8935,22 @@ async function fpLoadOkxFootprint(tfMin, limit) {
             if (Array.isArray(v)) { sell = Number(v[0]) || 0; buy = Number(v[1]) || 0; }
             else if (v) { sell = Number(v._b || v.bid || 0); buy = Number(v._a || v.ask || 0); }
             if (sell + buy <= 0) return;
-            // Map into this candle's high-low
+            // Map into candle range, but clamp to body±maxSpan (avoid tall wick columns)
             let px = pk;
             if (okxHi > okxLo + 0.01 && (pk < l - 0.5 || pk > h + 0.5)) {
               const t = Math.max(0, Math.min(1, (pk - okxLo) / (okxHi - okxLo)));
               px = l + t * (h - l);
             }
             px = Math.max(l, Math.min(h, px));
+            {
+              const bodyLo = Math.min(o, c), bodyHi = Math.max(o, c);
+              const maxSpan = (tfMin >= 60) ? 12 : (tfMin >= 15) ? 6 : (tfMin >= 5) ? 4.5 : 2.5;
+              const mid = (bodyLo + bodyHi) / 2;
+              const loB = Math.max(l, mid - maxSpan / 2);
+              const hiB = Math.min(h, mid + maxSpan / 2);
+              if (px < loB) px = loB;
+              if (px > hiB) px = hiB;
+            }
             const k = (typeof rfKey === 'function') ? rfKey(px) : +px.toFixed(2);
             const cell = levels.get(k) || levels.set(k, { _b: 0, _a: 0, bid: 0, ask: 0 }).get(k);
             cell._b += sell; cell._a += buy; cell.bid = cell._b; cell.ask = cell._a;
@@ -8944,10 +8963,29 @@ async function fpLoadOkxFootprint(tfMin, limit) {
       }
     } catch (e) {}
 
-    // No real trades → distribute OKX candle volume across high-low (REAL total volume)
+    // No real trades → distribute volume across BODY (± pad), not full wick.
+    // Full-wick fill created tall "misfire" columns when OKX had a long spike.
     if (!levels.size && vol > 0) {
-      const steps = Math.max(6, Math.min(20, Math.round(range / (FP_TICK_SIZE || 0.2)) + 1));
-      const closeBias = (c - l) / Math.max(range, 0.01);
+      const bodyLo = Math.min(o, c);
+      const bodyHi = Math.max(o, c);
+      const bodyRange = Math.max(bodyHi - bodyLo, FP_TICK_SIZE || 0.2);
+      // Cap vertical cell span so one bar never paints a giant column
+      const maxSpan = (tfMin >= 60) ? 12 : (tfMin >= 15) ? 6 : (tfMin >= 5) ? 4 : 2.5;
+      const pad = Math.min(bodyRange * 0.35, maxSpan * 0.25);
+      let distLo = bodyLo - pad;
+      let distHi = bodyHi + pad;
+      // Keep inside actual OHLC
+      distLo = Math.max(l, distLo);
+      distHi = Math.min(h, distHi);
+      // If wick still huge, compress to centered maxSpan
+      if (distHi - distLo > maxSpan) {
+        const mid = (bodyLo + bodyHi) / 2;
+        distLo = Math.max(l, mid - maxSpan / 2);
+        distHi = Math.min(h, mid + maxSpan / 2);
+      }
+      const distRange = Math.max(distHi - distLo, FP_TICK_SIZE || 0.2);
+      const steps = Math.max(4, Math.min(14, Math.round(distRange / (FP_TICK_SIZE || 0.2)) + 1));
+      const closeBias = (c - distLo) / Math.max(distRange, 0.01);
       let wSum = 0;
       const weights = [];
       for (let s = 0; s < steps; s++) {
@@ -8957,7 +8995,7 @@ async function fpLoadOkxFootprint(tfMin, limit) {
         wSum += w;
       }
       for (let s = 0; s < steps; s++) {
-        const px = l + range * (s / Math.max(1, steps - 1));
+        const px = distLo + distRange * (s / Math.max(1, steps - 1));
         const part = vol * (weights[s] / wSum);
         const k = (typeof rfKey === 'function') ? rfKey(px) : +px.toFixed(2);
         levels.set(k, {
@@ -8986,12 +9024,18 @@ async function fpLoadOkxFootprint(tfMin, limit) {
       _d = vol * (2 * buyShare - 1);
       poc = mid;
     }
-    // NEVER skip a valid OHLC bar without footprint data — minimal cells if vol was 0
+    // NEVER skip a valid OHLC bar — minimal cells near BODY only (not full wick)
     if (!levels.size) {
-      const steps = Math.max(4, Math.min(10, Math.round(range / (FP_TICK_SIZE || 0.2)) + 1));
-      const fallbackVol = Math.max(vol, 1); // at least 1 so cells render
+      const bodyLo = Math.min(o, c), bodyHi = Math.max(o, c);
+      const maxSpan = (tfMin >= 60) ? 12 : (tfMin >= 15) ? 6 : (tfMin >= 5) ? 4 : 2.5;
+      const mid = (bodyLo + bodyHi) / 2;
+      const dLo = Math.max(l, mid - maxSpan / 2);
+      const dHi = Math.min(h, mid + maxSpan / 2);
+      const dRange = Math.max(dHi - dLo, FP_TICK_SIZE || 0.2);
+      const steps = Math.max(3, Math.min(8, Math.round(dRange / (FP_TICK_SIZE || 0.2)) + 1));
+      const fallbackVol = Math.max(vol, 1);
       for (let s = 0; s < steps; s++) {
-        const px = l + range * (s / Math.max(1, steps - 1));
+        const px = dLo + dRange * (s / Math.max(1, steps - 1));
         const part = fallbackVol / steps;
         const k = (typeof rfKey === 'function') ? rfKey(px) : +px.toFixed(2);
         levels.set(k, {
@@ -9003,7 +9047,7 @@ async function fpLoadOkxFootprint(tfMin, limit) {
       }
       _v = fallbackVol;
       _d = fallbackVol * (2 * buyShare - 1);
-      poc = (typeof rfKey === 'function') ? rfKey((h + l) / 2) : +((h + l) / 2).toFixed(2);
+      poc = (typeof rfKey === 'function') ? rfKey(mid) : +mid.toFixed(2);
     }
 
     cvd += _d;
@@ -10758,9 +10802,20 @@ function fpUpdateGapBadge() {
     if (!badge) return;
     if (okx > 500) {
       const n = (fpCandles && fpCandles.length) ? fpCandles.length : 0;
-      badge.textContent = 'OKX ' + okx.toFixed(2) + ' · ' + n + ' bars · no interbank';
+      // $ Diff = |OKX last − interbank gold| (informational only; chart stays OKX)
+      let ib = 0;
+      try {
+        if (typeof state !== 'undefined' && state && state.gold_price > 500) ib = state.gold_price;
+      } catch (e) {}
+      let diffStr = '';
+      if (ib > 500) {
+        const d = okx - ib;
+        const sign = d >= 0 ? '+' : '';
+        diffStr = ' · $ Diff ' + sign + d.toFixed(2);
+      }
+      badge.textContent = 'OKX ' + okx.toFixed(2) + ' · ' + n + ' bars' + diffStr;
       badge.className = 'fp-gap-badge tight';
-      badge.title = 'Footprint uses OKX XAU-USDT-SWAP only (OHLC + volume). Interbank is not used here.';
+      badge.title = 'OKX XAU-USDT-SWAP only. $ Diff = OKX last minus interbank gold.';
     } else {
       badge.textContent = 'Loading OKX…';
       badge.className = 'fp-gap-badge';
