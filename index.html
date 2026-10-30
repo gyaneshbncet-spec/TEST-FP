@@ -869,6 +869,129 @@ h1 { font-size: 17.5px; font-weight: 700; color: #ffffff; }
   to { opacity: 1; transform: translateY(0); }
 }
 
+
+/* ===== GP ALGO / ALGO TRADER ===== */
+
+#algoHistoryPanel {
+  max-height: 48vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 8px;
+}
+#algoRuleBook {
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.algo-overlay.show { z-index: 100080 !important; display: flex !important; }
+
+
+
+.algo-stats {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;
+  padding: 10px; border-radius: 10px; background: #0f131c; border: 1px solid #243044;
+}
+.algo-stat {
+  font-size: 11px; color: #cbd5e1; background: #151822; padding: 6px 10px;
+  border-radius: 8px; border: 1px solid #2a3142;
+}
+.algo-stat b { color: #e2e8f0; margin-right: 4px; }
+
+.algo-panel-wide { max-width: 560px !important; }
+.algo-trade {
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.algo-trade:active { transform: scale(0.98); }
+.algo-trade.is-open { border-color: rgba(251,191,36,0.55) !important; background: rgba(251,191,36,0.06); }
+.algo-trade.focused {
+  border-color: #fbbf24 !important;
+  box-shadow: 0 0 0 1px rgba(251,191,36,0.45);
+}
+.algo-trade .at-rr { color: #a78bfa; font-weight: 700; font-size: 11px; margin-top: 4px; }
+#algoHistBtn.active, #algoRuleBtn.active {
+  border-color: #3b82f6; color: #93c5fd; background: rgba(59,130,246,0.12);
+}
+
+.algo-overlay {
+  display: none; position: fixed; inset: 0; z-index: 100050;
+  background: rgba(0,0,0,0.88); backdrop-filter: blur(6px);
+  justify-content: center; align-items: stretch; padding: 0;
+}
+.algo-overlay.show { display: flex; }
+.algo-panel {
+  width: 100%; max-width: 520px; margin: 0 auto;
+  background: #0b0d12; border: 1px solid #1f2937;
+  display: flex; flex-direction: column; height: 100%; max-height: 100vh;
+  color: #e5e7eb;
+}
+@media (min-width: 768px) {
+  .algo-overlay { padding: 12px; align-items: center; }
+  .algo-panel {
+    height: min(92vh, 820px); max-height: 92vh; border-radius: 14px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.7);
+  }
+}
+.algo-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid #1f2937;
+  background: linear-gradient(135deg, rgba(5,150,105,0.25), rgba(37,99,235,0.15));
+  flex-shrink: 0;
+}
+.algo-head h2 { margin: 0; font-size: 15px; font-weight: 800; color: #f3f4f6; }
+.algo-head p { margin: 2px 0 0; font-size: 11px; color: #94a3b8; }
+.algo-close {
+  width: 36px; height: 36px; border-radius: 50%; border: none;
+  background: #151822; color: #9ca3af; cursor: pointer; font-size: 16px;
+}
+.algo-body { flex: 1; overflow-y: auto; padding: 12px 14px; -webkit-overflow-scrolling: touch; }
+.algo-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.algo-row button, .algo-tf-btn {
+  border: 1px solid #2a3142; background: #151822; color: #e5e7eb;
+  font-size: 12px; font-weight: 700; padding: 8px 12px; border-radius: 8px; cursor: pointer;
+}
+.algo-tf-btn.active { border-color: #10b981; color: #34d399; background: rgba(16,185,129,0.12); }
+.algo-row button.primary {
+  background: linear-gradient(135deg, #059669, #2563eb); border: none; color: #fff;
+}
+.algo-row button.danger { border-color: rgba(239,68,68,0.5); color: #f87171; }
+.algo-status {
+  padding: 10px 12px; border-radius: 10px; background: #12161f; border: 1px solid #243044;
+  font-size: 12px; line-height: 1.45; margin-bottom: 12px; color: #cbd5e1;
+}
+.algo-status b { color: #f3f4f6; }
+.algo-status .ok { color: #34d399; }
+.algo-status .bad { color: #f87171; }
+.algo-status .warn { color: #fbbf24; }
+.algo-rules {
+  font-size: 11px; color: #94a3b8; background: #0f131c; border: 1px dashed #2a3142;
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; line-height: 1.5;
+}
+.algo-log-title {
+  font-size: 12px; font-weight: 800; color: #9ca3af; letter-spacing: 0.5px;
+  text-transform: uppercase; margin: 8px 0 8px;
+}
+.algo-trade {
+  background: #12161f; border: 1px solid #243044; border-radius: 10px;
+  padding: 10px 12px; margin-bottom: 8px; font-size: 12px;
+}
+.algo-trade.long { border-color: rgba(16,185,129,0.45); }
+.algo-trade.short { border-color: rgba(239,68,68,0.45); }
+.algo-trade .at-side { font-weight: 800; font-size: 13px; }
+.algo-trade.long .at-side { color: #34d399; }
+.algo-trade.short .at-side { color: #f87171; }
+.algo-trade .at-meta { color: #94a3b8; margin-top: 4px; font-size: 11px; }
+.algo-trade .at-reason { color: #cbd5e1; margin-top: 6px; font-size: 11.5px; line-height: 1.4; }
+.algo-empty { text-align: center; color: #64748b; padding: 20px; font-size: 12px; }
+.algo-badge-live {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800;
+  color: #34d399; margin-left: 8px;
+}
+.algo-badge-live i {
+  width: 7px; height: 7px; border-radius: 50%; background: #34d399;
+  box-shadow: 0 0 8px #34d399; display: inline-block;
+  animation: livePulse 1.4s ease-in-out infinite;
+}
+
 /* ===== TRADE DESK UI ===== */
 .ftb {
   position: fixed;
@@ -3129,7 +3252,7 @@ canvas#tvCanvas {
         <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
       </svg>
     </span>
-    <span class="sd-text">AI Footprint<span class="sd-sub">Live order flow · OKX volume</span></span>
+    <span class="sd-text">AI Footprint<span class="sd-sub">OKX volume pressure only · not price</span></span>
   </button>
 
   <div class="side-drawer-section">AI Agent</div>
@@ -3141,7 +3264,7 @@ canvas#tvCanvas {
     <span class="sd-ico" style="background:linear-gradient(135deg,#00f2fe,#00e676);color:#060b14;">
       <span style="font-size:11px;font-weight:900;">AV</span>
     </span>
-    <span class="sd-text">AI Visual<span class="sd-sub">Node canvas · live senses · gates</span></span>
+    <span class="sd-text">AI Visual<span class="sd-sub">Decision score · state · size · gates</span></span>
   </button>
 
   <div class="side-drawer-section">Charts</div>
@@ -3161,11 +3284,11 @@ canvas#tvCanvas {
     </span>
     <span class="sd-text">DXY Chart<span class="sd-sub">US Dollar Index</span></span>
   </button>
-  <button class="side-drawer-item" onclick="openMultiView(); closeSideDrawer();" style="background:linear-gradient(135deg,rgba(59,130,246,0.18),rgba(180,131,18,0.12));border:1px solid rgba(59,130,246,0.4);">
-    <span class="sd-ico" style="background:linear-gradient(135deg,#2563eb,#b48312);color:#fff;">
-      <span style="font-size:11px;font-weight:900;">MV</span>
+  <button class="side-drawer-item" onclick="openAlgoTrader({chart:true}); closeSideDrawer();" style="background:linear-gradient(135deg,rgba(16,185,129,0.22),rgba(37,99,235,0.15));border:1px solid rgba(16,185,129,0.5);">
+    <span class="sd-ico" style="background:linear-gradient(135deg,#059669,#2563eb);color:#fff;">
+      <span style="font-size:10px;font-weight:900;">AT</span>
     </span>
-    <span class="sd-text">Multi View<span class="sd-sub">Split · Gold + DXY · dual TF</span></span>
+    <span class="sd-text">GP Algo<span class="sd-sub">5m+ · chart · history · 2R min</span></span>
   </button>
   <button class="side-drawer-item" onclick="openAllChartView(); closeSideDrawer();" style="background:linear-gradient(135deg,rgba(180,131,18,0.22),rgba(124,58,237,0.15));border:1px solid rgba(180,131,18,0.45);">
     <span class="sd-ico" style="background:linear-gradient(135deg,#b48312,#7c3aed);color:#fff;">
@@ -3517,8 +3640,8 @@ canvas#tvCanvas {
   <div class="av-panel">
     <div class="av-head">
       <div>
-        <div class="av-head-title">AI VISUAL <span>//</span> LIVE NODE ENGINE</div>
-        <div class="av-head-steps"><b>intake</b> → <b>senses</b> → <b>core</b> → <b>gates</b></div>
+        <div class="av-head-title">AI VISUAL <span>//</span> DECISION ENGINE</div>
+        <div class="av-head-steps"><b>score</b> → <b>state</b> → <b>size</b> → <b>gates</b></div>
       </div>
       <button class="av-close" type="button" onclick="closeAiVisual()" aria-label="Close">✕</button>
     </div>
@@ -3558,7 +3681,7 @@ canvas#tvCanvas {
             <div class="av-sense-meta" id="avMetaNews">—</div>
           </div>
           <div class="av-sense-node" data-key="aiView" onclick="avSelectSense(this)">
-            <div class="av-sense-title"><span class="av-dot" id="avDotAiView"></span> AI view · 20%</div>
+            <div class="av-sense-title"><span class="av-dot" id="avDotAiView"></span> confluence · 20%</div>
             <div class="av-sense-meta" id="avMetaAiView">—</div>
           </div>
         </div>
@@ -3576,12 +3699,12 @@ canvas#tvCanvas {
           <div class="av-core-scale" id="avCoreScale" title="Live core bias · limits −1…+1">
             <div class="av-core-scale-bar"><div class="av-core-scale-needle" id="avCoreNeedle"></div></div>
             <div class="av-core-scale-labels">
-              <span class="sell-end">−1 SELL</span>
-              <span class="zero-mid">0</span>
-              <span class="buy-end">+1 BUY</span>
+              <span class="sell-end">SELL</span>
+              <span class="zero-mid">50</span>
+              <span class="buy-end">BUY</span>
             </div>
           </div>
-          <div class="av-core-rule" id="avCoreRule">live score · ±1 = max limit only</div>
+          <div class="av-core-rule" id="avCoreRule">Decision 0–100 · size · state</div>
           <div class="av-core-signal" id="avCoreSignal">NEUTRAL</div>
           <div class="av-core-gates" id="avCoreGates">— gates</div>
           <div class="av-council" id="avCouncil"><span>● GOLD DESK</span> ○ STRUCTURE ○ DRIVERS</div>
@@ -3621,8 +3744,8 @@ canvas#tvCanvas {
             </div>
             <div class="av-gate-node">
               <div>
-                <div class="av-gate-symbol">G4 · AI VIEW</div>
-                <div class="av-gate-status" id="avGateAiView">System consensus</div>
+                <div class="av-gate-symbol">G4 · CONFLUENCE</div>
+                <div class="av-gate-status" id="avGateAiView">Senses agreement</div>
               </div>
               <span class="av-badge" id="avBadgeAiView">—</span>
             </div>
@@ -3686,6 +3809,7 @@ canvas#tvCanvas {
       </div>
       <div class="tv-right-group">
         <button class="tv-ai-btn" id="tvAiZonesBtn" type="button" onclick="aiToggleZones()" title="AI Buy / Sell Zones">🤖 Zones</button>
+        <button class="tv-ai-btn" type="button" data-algo-hist-btn onclick="algoToggleHistory()" title="GP Algo trade history — live + backtest">📋 History</button>
         <button class="tv-close" onclick="closeChartModal()">✕</button>
       </div>
     </div>
@@ -3737,6 +3861,8 @@ canvas#tvCanvas {
         <button class="tv-tf" onclick="changeTimeframe('4h', 14400, this)">4H</button>
         <button class="tv-tf" onclick="changeTimeframe('1d', 86400, this)">1D</button>
       </div>
+      <button class="tv-reset-btn" type="button" data-algo-hide-btn onclick="algoToggleHideTrades()" title="Hide/Show closed trade markers on chart (OPEN + live PnL always stay)">Hide Trades</button>
+      <button class="tv-reset-btn" type="button" onclick="algoForceRedrawPnL()" title="Force refresh live open trade PnL on chart">Live PnL</button>
       <button class="tv-reset-btn" onclick="resetChartView()">Reset View</button>
     </div>
 
@@ -3823,22 +3949,22 @@ canvas#tvCanvas {
           <div class="acv-av-core">
             <div class="acv-av-dual">
               <div class="acv-av-score-block">
-                <div class="acv-av-score-label">AI VISUAL</div>
-                <div class="acv-av-score" id="acvAvScore">0.00</div>
+                <div class="acv-av-score-label">DECISION</div>
+                <div class="acv-av-score" id="acvAvScore">0</div>
               </div>
               <div class="acv-av-score-divider"></div>
               <div class="acv-av-score-block">
-                <div class="acv-av-score-label">CORR SCORE</div>
-                <div class="acv-av-score corr" id="acvCorrScore">0.0</div>
+                <div class="acv-av-score-label">CORR / SIZE</div>
+                <div class="acv-av-score corr" id="acvCorrScore">0 · 0×</div>
               </div>
             </div>
-            <div class="acv-av-sig" id="acvAvSig">NEUTRAL</div>
-            <div style="font-size:10px;color:#64748b;margin-top:4px;" id="acvAvGates">0/4 gates</div>
+            <div class="acv-av-sig" id="acvAvSig">NO TRADE</div>
+            <div style="font-size:10px;color:#64748b;margin-top:4px;" id="acvAvGates">0/4 gates · edge 0</div>
           </div>
           <div class="acv-av-gates">
             <div class="acv-av-gate"><b>STRUCTURE</b><span id="acvAvStruct">—</span></div>
             <div class="acv-av-gate"><b>NEWS</b><span id="acvAvNews">—</span></div>
-            <div class="acv-av-gate"><b>AI VIEW</b><span id="acvAvView">—</span></div>
+            <div class="acv-av-gate"><b>CONFLUENCE</b><span id="acvAvView">—</span></div>
             <div class="acv-av-gate"><b>GATES</b><span id="acvAvGateFlags">—</span></div>
           </div>
           <!-- 1H Footprint mini (AI Visual only — not the full Footprint chart) -->
@@ -3870,6 +3996,98 @@ canvas#tvCanvas {
     </div>
   </div>
   <div class="acv-restore-bar" id="acvRestoreBar"></div>
+</div>
+
+
+<!-- ===== GP ALGO PANEL ===== -->
+<div class="algo-overlay" id="algoTraderOverlay">
+  <div class="algo-panel algo-panel-wide">
+    <div class="algo-head">
+      <div>
+        <h2>GP ALGO <span class="algo-badge-live" id="algoLiveBadge" style="display:none"><i></i>ARMED</span></h2>
+        <p>Main Gold chart · 5m+ · TL rejection · min 2R · persistent history</p>
+      </div>
+      <button type="button" class="algo-close" onclick="closeAlgoTrader()" aria-label="Close">✕</button>
+    </div>
+    <div class="algo-body">
+      <div class="algo-row">
+        <button type="button" class="algo-tf-btn" data-tf="5m" data-sec="300" onclick="algoSetTf('5m',300,this)">5m</button>
+        <button type="button" class="algo-tf-btn active" data-tf="15m" data-sec="900" onclick="algoSetTf('15m',900,this)">15m</button>
+        <button type="button" class="algo-tf-btn" data-tf="1h" data-sec="3600" onclick="algoSetTf('1h',3600,this)">1H</button>
+        <button type="button" class="algo-tf-btn" data-tf="4h" data-sec="14400" onclick="algoSetTf('4h',14400,this)">4H</button>
+        <button type="button" class="algo-tf-btn" data-tf="1d" data-sec="86400" onclick="algoSetTf('1d',86400,this)">1D</button>
+      </div>
+
+      <div class="algo-row" style="align-items:center">
+        <label style="font-size:11px;color:#94a3b8;font-weight:700">LOT
+          <select id="algoLotSelect" onchange="algoSetLotSize(this.value)" style="margin-left:4px;background:#151822;color:#e2e8f0;border:1px solid #2a3142;border-radius:6px;padding:6px 8px;font-weight:700">
+            <option value="0.01">0.01</option>
+            <option value="0.05">0.05</option>
+            <option value="0.10">0.10</option>
+            <option value="0.20">0.20</option>
+            <option value="0.50">0.50</option>
+            <option value="1.00" selected>1.00</option>
+            <option value="2.00">2.00</option>
+          </select>
+        </label>
+        <label style="font-size:11px;color:#94a3b8;font-weight:700;display:flex;align-items:center;gap:4px">
+          <input type="checkbox" id="algoMt5Enabled" onchange="mt5SetEnabled(this.checked)" style="accent-color:#10b981">
+          MT5 bridge
+        </label>
+        <label style="font-size:11px;color:#94a3b8;font-weight:700">Symbol
+          <input id="algoMt5Symbol" type="text" value="GOLD.i#" onchange="mt5SetSymbol(this.value)" onblur="mt5SetSymbol(this.value)"
+            style="width:88px;margin-left:4px;background:#151822;color:#e2e8f0;border:1px solid #2a3142;border-radius:6px;padding:6px 8px;font-weight:700;font-size:11px">
+        </label>
+        <button type="button" class="primary" id="algoArmBtn" onclick="algoToggleArm()">ARM GP ALGO</button>
+        <button type="button" class="primary" onclick="algoOpenGoldChart()">OPEN GOLD CHART</button>
+        <button type="button" onclick="algoScanNow('LIVE')">SCAN LIVE</button>
+        <button type="button" class="primary" onclick="algoScanNow('BACKTEST')">BACKTEST HISTORY</button>
+        <button type="button" class="primary" onclick="algoAutoBacktestAllTfs(true)">BACKTEST ALL TF</button>
+        <button type="button" id="algoHistBtn" onclick="algoToggleHistory()">HISTORY</button>
+        <button type="button" onclick="algoToggleRuleBook()">RULE BOOK</button>
+        <button type="button" class="danger" onclick="algoClearHistory()">CLEAR LOG</button>
+      </div>
+
+      <div class="algo-status" id="algoStatusBox">
+        <b>Status:</b> GP Algo · main Gold chart · min 2R<br>
+        <span id="algoStatusDetail">Open Gold chart to plot live OBs + trendlines + trades</span>
+      </div>
+
+      <!-- Rule book (hidden by default) -->
+      <div class="algo-rules" id="algoRuleBook" style="display:none">
+        <b style="color:#e2e8f0">GP ALGO RULE BOOK (aligned to reference)</b><br>
+        ○ <b>TF:</b> 5m / 15m / 1H / 4H / 1D — <b>1m / 3m blocked</b><br>
+        ○ <b>NO RANDOM AREAS</b> — only 2-touch trendline zone or validated OB<br>
+        ○ <b>ENTRY = REJECTION CANDLE ONLY</b> — never mid-body / random area<br>
+        ○ <b>BUY (bull):</b> <b>SUPPORT only</b> — TL ≥2 touches, then <b>next retest</b> · wick <b>sweeps</b> support · close back above<br>
+        &nbsp;&nbsp;+ desk <b>POSITIVE</b> + HTF <b>15m/1H/1D BULL (3+ PASS)</b><br>
+        &nbsp;&nbsp;+ vol ≥ <b>1.25 × SMA(Volume, 10)</b> <i>or</i> footprint absorption<br>
+        ○ <b>SELL (bear):</b> <b>RESISTANCE only</b> — TL ≥2 touches, then <b>next retest</b> · wick <b>sweeps</b> resistance · close back below<br>
+        &nbsp;&nbsp;+ desk <b>NEGATIVE</b> + HTF <b>15m/1H/1D BEAR (3+ PASS)</b><br>
+        &nbsp;&nbsp;+ same volume + rejection-sweep rules<br>
+        ○ <b>NO RANDOM ZONES</b> — zone must sit at recent swing low (buy) / high (sell)<br>
+        ○ <b>Execution:</b> BUY/SELL ENTRY (AUTO) · SL above/below <b>sweep high/low + 1.0–1.5×ATR</b> · TP min <b>1:2</b><br>
+        ○ <b>Multi-open:</b> new trades allowed while one is running (rules still apply)<br>
+        ○ <b>Same-level block:</b> no second entry at same side/zone (±$1.5) while OPEN<br>
+        ○ <b>Auto BT:</b> ARM runs multi-TF backtest (5m–1D) · use BACKTEST ALL TF anytime<br>
+        ○ <b>Price source:</b> <b>interbank gold only</b> (chart candles) — never OKX price (can differ $8+)<br>
+        ○ <b>OKX use:</b> footprint volume / buy-sell pressure only — not for entry, SL, TP, or zones<br>
+        ○ <b>High accuracy stack:</b> interbank candles + support/resist zone + OKX footprint pressure + AI Visual + desk corr + HTF 15m/1H/4H + news<br>
+        ○ <b>Visual:</b> Footprint pressure zone circle + markers on main Gold chart<br>
+        ○ <b>History:</b> Ledger persists · tap trade → focus plot on chart
+      </div>
+
+      <div id="algoHistoryPanel" style="display:none">
+        <div class="algo-log-title" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+          <span>Live + history (backtest) <span id="algoLogCount" style="font-weight:600;color:#64748b"></span></span>
+          <span style="font-weight:500;color:#64748b;font-size:10px">tap trade → plot on chart</span>
+          <button type="button" id="mt5TestBtn" onclick="mt5TestBridge()" style="margin-left:auto;font-size:11px;font-weight:700;padding:6px 10px;border-radius:8px;border:1px solid #2a3142;background:#151822;color:#93c5fd;cursor:pointer">TEST MT5 BRIDGE</button>
+          <span id="mt5BridgeStatus" style="font-size:10px;color:#64748b">bridge: off</span>
+        </div>
+        <div id="algoTradeLog"><div class="algo-empty">No trades yet — history persists in this browser.</div></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="mv-overlay" id="multiViewOverlay">
@@ -5086,10 +5304,37 @@ function applyCandleSeries(bars, interval, asset) {
     }
     getInstantCandleTimer();
   }
-  scanAndStoreOrderBlocks(candleHistory);
-  executeTradingViewRayArchitecture(candleHistory);
+  // Live stitch before paint so forming candle matches interbank tick
+  try {
+    if (asset === 'gold' && state.gold_price > 500) {
+      const stepMsL = (state.tf_seconds || 60) * 1000;
+      const slotL = Math.floor(Date.now() / stepMsL) * stepMsL;
+      let lastL = candleHistory[candleHistory.length - 1];
+      if (lastL && lastL.barSlot === slotL) {
+        lastL.c = state.gold_price;
+        if (state.gold_price > lastL.h) lastL.h = state.gold_price;
+        if (state.gold_price < lastL.l) lastL.l = state.gold_price;
+      } else if (!lastL || lastL.barSlot < slotL) {
+        try { rollLocalCandle(); } catch (eR) {}
+      }
+    }
+  } catch (eS) {}
+  // Paint immediately — structure rebuild deferred so TF switch feels instant
   saveActiveStore();
   triggerRealtimeRender();
+  setTimeout(function () {
+    try {
+      if ((state.chartAsset || 'gold') !== asset || (state.tf_interval || '') !== interval) return;
+      scanAndStoreOrderBlocks(candleHistory);
+      executeTradingViewRayArchitecture(candleHistory);
+      saveActiveStore();
+      triggerRealtimeRender();
+      // Align algo trade MTM with fresh series
+      try {
+        if (typeof algoResolveAllTrades === 'function') algoResolveAllTrades(candleHistory);
+      } catch (eA) {}
+    } catch (e2) {}
+  }, 20);
   return true;
 }
 
@@ -5107,114 +5352,94 @@ function fetchWithTimeout(url, ms, opts) {
     .catch(e => { clearTimeout(t); throw e; });
 }
 
+let _candleFetchGen = 0;
+/** Fast OHLC fetch — short timeout, lean bar count, no blocking deep pages */
+async function fetchJsonTimed(url, ms) {
+  ms = ms || 4000;
+  const ctrl = new AbortController();
+  const t = setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, ms);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  } catch (e) {
+    clearTimeout(t);
+    throw e;
+  }
+}
+
 async function fetchRealCandles(interval, forceClear) {
   const asset = state.chartAsset || 'gold';
   const is3m = (interval === '3m');
-  // Target ≥300 candles on every TF. 3m is built from 1m → need 3× source bars.
-  const CHART_HISTORY_BARS = 300;
-  const bqInterval = is3m ? '1m' : (interval === '1h' ? '1h' : (interval === '4h' ? '4h' : (interval === '1d' ? '1d' : interval)));
-  const limitCount = is3m ? 1500 : Math.max(400, CHART_HISTORY_BARS + 50);
-  if (isFetchingCandles && !forceClear) return;
+  // FAST first paint: ~180 bars. Deep history filled in background if needed.
+  const FAST_BARS = 180;
+  const DEEP_BARS = 300;
+  const bqInterval = is3m ? '1m' : interval;
+  const limitCount = is3m ? 540 : FAST_BARS + 20;
+  const gen = ++_candleFetchGen;
   isFetchingCandles = true;
-  if (forceClear && candleHistory.length === 0) {
-    triggerRealtimeRender();
-  }
+  const stillCurrent = function () {
+    return gen === _candleFetchGen &&
+      (state.chartAsset || 'gold') === asset &&
+      (state.tf_interval || '') === interval;
+  };
   try {
-    const symbol = (asset === 'dxy') ? 'DXY' : 'XAUUSD';
-
-    // 3m: try native 3m interval first (if API supports) for full depth
-    if (is3m) {
+    // If we already have a usable cache and not forced, soft-refresh only
+    if (!forceClear && candleHistory.length >= 40 && candlesMatchAsset(candleHistory, asset)) {
       try {
-        const data3 = await fetchJson(`https://biquote.io/api/${symbol}/ohlc?interval=3m&limit=${CHART_HISTORY_BARS + 50}`);
-        let bars3 = (data3 && data3.bars) ? data3.bars.slice() : [];
-        if (bars3.length > 1 && new Date(bars3[0].openTime) > new Date(bars3[bars3.length - 1].openTime)) bars3.reverse();
-        if (bars3.length >= 200) {
-          const normalized = normalizeBars(bars3, '3m');
-          if (candlesMatchAsset(normalized, asset) && normalized.length >= 150 &&
-              (state.chartAsset || 'gold') === asset && state.tf_interval === interval) {
-            candleHistory = normalized.length > CHART_HISTORY_BARS
-              ? normalized.slice(-CHART_HISTORY_BARS)
-              : normalized;
-            allCandidateDemandOBs = [];
-            allCandidateSupplyOBs = [];
-            storedDemandOBs = [];
-            storedSupplyOBs = [];
-            multiHorizonTrendlines = [];
-            const last = candleHistory[candleHistory.length - 1];
-            if (last) {
-              if (asset === 'dxy') {
-                if (!(state._feed_dxy_pct && state.dxy_price > 50 && (Date.now() - (_dxyLastOk || 0)) < 15000)) {
-                  state.dxy_price = last.c;
-                }
-              } else {
-                state.gold_price = last.c;
-              }
-              getInstantCandleTimer();
-            }
-            scanAndStoreOrderBlocks(candleHistory);
-            executeTradingViewRayArchitecture(candleHistory);
-            saveActiveStore();
-            triggerRealtimeRender();
-            isFetchingCandles = false;
-            return;
-          }
-        }
+        checkTimeframeRollover();
+        rollLocalCandle();
+        triggerRealtimeRender();
       } catch (e) {}
+      // Background soft refresh — don't block UI
+      setTimeout(function () {
+        if (!stillCurrent()) return;
+        fetchRealCandles(interval, true);
+      }, 50);
+      return;
     }
 
+    const symbol = (asset === 'dxy') ? 'DXY' : 'XAUUSD';
+    let bars = [];
     try {
-      const data = await fetchJson(`https://biquote.io/api/${symbol}/ohlc?interval=${bqInterval}&limit=${limitCount}`);
-      let bars = (data && data.bars) ? data.bars.slice() : [];
-      if (bars.length > 1 && new Date(bars[0].openTime) > new Date(bars[bars.length - 1].openTime)) bars.reverse();
-      if (applyCandleSeries(bars, interval, asset)) {
-        // If 3m still short after 1m aggregate, pull an older 1m page and merge
-        if (is3m && candleHistory.length < CHART_HISTORY_BARS && bars.length > 10) {
-          try {
-            const oldest = bars[0];
-            let t0 = oldest.openTime ?? oldest.t ?? oldest.time;
-            if (typeof t0 === 'string' && /^\d+$/.test(t0)) t0 = parseInt(t0, 10);
-            if (typeof t0 === 'number' && t0 < 1e12) t0 = t0 * 1000;
-            const endMs = new Date(t0).getTime();
-            if (endMs > 0) {
-              const dataMore = await fetchJson(
-                `https://biquote.io/api/${symbol}/ohlc?interval=1m&limit=1500&endTime=${endMs}`
-              );
-              let barsMore = (dataMore && dataMore.bars) ? dataMore.bars.slice() : [];
-              if (barsMore.length > 1 && new Date(barsMore[0].openTime) > new Date(barsMore[barsMore.length - 1].openTime)) {
-                barsMore.reverse();
-              }
-              if (barsMore.length > 0) {
-                const merged = barsMore.concat(bars);
-                const seen = new Set();
-                const uniq = [];
-                for (let i = 0; i < merged.length; i++) {
-                  const b = merged[i];
-                  const key = String(b.openTime ?? b.t ?? b.time ?? i);
-                  if (seen.has(key)) continue;
-                  seen.add(key);
-                  uniq.push(b);
-                }
-                applyCandleSeries(uniq, interval, asset);
-              }
-            }
-          } catch (e2) {}
-        }
-        isFetchingCandles = false;
-        return;
-      }
-    } catch (e) {}
-    try {
-      const fallbackInterval = is3m ? '1m' : '15m';
-      const fallbackLimit = is3m ? 1500 : Math.max(400, CHART_HISTORY_BARS + 50);
-      const data2 = await fetchJson(`https://biquote.io/api/${symbol}/ohlc?interval=${fallbackInterval}&limit=${fallbackLimit}`);
-      let bars2 = (data2 && data2.bars) ? data2.bars.slice() : [];
-      if (bars2.length > 1 && new Date(bars2[0].openTime) > new Date(bars2[bars2.length - 1].openTime)) bars2.reverse();
-      applyCandleSeries(bars2, interval, asset);
-    } catch (e) {}
+      const data = await fetchJsonTimed(
+        'https://biquote.io/api/' + symbol + '/ohlc?interval=' + encodeURIComponent(bqInterval) + '&limit=' + limitCount,
+        4000
+      );
+      bars = (data && data.bars) ? data.bars.slice() : [];
+    } catch (e1) {
+      // One quick fallback TF
+      try {
+        const fb = is3m ? '1m' : '15m';
+        const data2 = await fetchJsonTimed(
+          'https://biquote.io/api/' + symbol + '/ohlc?interval=' + fb + '&limit=' + (is3m ? 540 : 200),
+          3500
+        );
+        bars = (data2 && data2.bars) ? data2.bars.slice() : [];
+      } catch (e2) {}
+    }
+    if (!stillCurrent()) return;
+    if (bars.length > 1) {
+      try {
+        const t0 = new Date(bars[0].openTime || bars[0].t || 0).getTime();
+        const t1 = new Date(bars[bars.length - 1].openTime || bars[bars.length - 1].t || 0).getTime();
+        if (t0 > t1) bars.reverse();
+      } catch (eR) {}
+    }
+    if (bars.length >= 10) {
+      applyCandleSeries(bars, interval, asset);
+    } else if (candleHistory.length > 0) {
+      // Keep whatever cache we have + live stitch
+      try { rollLocalCandle(); triggerRealtimeRender(); } catch (e) {}
+    }
+  } catch (e) {
+    console.warn('[chart] fetchRealCandles', interval, e);
   } finally {
-    isFetchingCandles = false;
+    if (gen === _candleFetchGen) isFetchingCandles = false;
   }
 }
+
 
 function mergeOverlappingZones(zones) {
   if (!zones || zones.length <= 1) return zones;
@@ -5791,13 +6016,24 @@ function drawTradingViewChart() {
     }
   });
 
-  multiHorizonTrendlines.forEach(l => {
-    const x1 = getX(l.x1);
-    const y1 = getY(l.y1);
-    const x2 = getX(l.x2);
-    const y2 = getY(l.y2);
-    if (x2 === x1) return;
-    const slope = (y2 - y1) / (x2 - x1);
+  try {
+  (multiHorizonTrendlines || []).forEach(l => {
+    if (!l) return;
+    const nBars = candleHistory.length;
+    if (nBars < 2 || l.x2 === l.x1) return;
+    const slopeP = (l.y2 - l.y1) / (l.x2 - l.x1);
+    if (!isFinite(slopeP)) return;
+    const yAtIdx = function (xi) { return l.y1 + slopeP * (xi - l.x1); };
+    let i1 = Math.max(0, Math.min(nBars - 1, Math.round(Number(l.x1) || 0)));
+    let i2 = Math.max(0, Math.min(nBars - 1, Math.round(Number(l.x2) || 0)));
+    if (i2 < i1) { const tmp = i1; i1 = i2; i2 = tmp; }
+    const iEnd = nBars - 1;
+    const x1 = getX(i1);
+    const y1 = getY(yAtIdx(i1));
+    const xEnd = getX(iEnd);
+    const yEnd = getY(yAtIdx(iEnd));
+    if (!isFinite(x1) || !isFinite(y1) || !isFinite(xEnd) || !isFinite(yEnd)) return;
+    if (Math.abs(xEnd - x1) < 1) return;
     let lineColor = "#f87171";
     if (l.type === "sup") lineColor = "#2dd4bf";
     if (l.type === "base") lineColor = "#3b82f6";
@@ -5805,13 +6041,15 @@ function drawTradingViewChart() {
     ctx.lineWidth = 2.0;
     ctx.beginPath();
     ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
+    ctx.lineTo(xEnd, yEnd);
     ctx.stroke();
-    // Touch markers on both Gold and DXY so trendlines are verifiable
-    l.touches.forEach(tp => {
+    // Touch markers
+    const touches = Array.isArray(l.touches) ? l.touches : [];
+    touches.forEach(tp => {
+      if (!tp) return;
       const tx = getX(tp.i);
       const ty = getY(tp.p);
-      if (tx >= 0 && tx <= chartW) {
+      if (tx >= 0 && tx <= chartW && isFinite(tx) && isFinite(ty)) {
         ctx.fillStyle = lineColor;
         ctx.beginPath();
         if (l.type === "res") {
@@ -5827,17 +6065,38 @@ function drawTradingViewChart() {
         ctx.fill();
       }
     });
-    const futureX = chartW;
-    const futureY = y2 + slope * (futureX - x2);
-    ctx.strokeStyle = lineColor;
-    ctx.lineWidth = 1.4;
-    ctx.setLineDash([5, 4]);
-    ctx.beginPath();
-    ctx.moveTo(x2, y2);
-    ctx.lineTo(futureX, futureY);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    // Dashed extension: MUST use pixel slope (not price/bar slope) or lines skew
+    const dx = xEnd - x1;
+    if (Math.abs(dx) > 1) {
+      const pixelSlope = (yEnd - y1) / dx;
+      const futureX = chartW;
+      const futureY = yEnd + pixelSlope * (futureX - xEnd);
+      if (isFinite(futureY)) {
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = 1.4;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(xEnd, yEnd);
+        ctx.lineTo(futureX, futureY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
   });
+  } catch (eRay) { try { ctx.setLineDash([]); } catch (e) {} }
+
+  // Algo Trader markers (persistent history, gold only)
+  try {
+    if (typeof algoDrawTradesOnChart === 'function') {
+      algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH);
+    }
+  } catch (eAlgo) {}
+  // Gate board — footer corner (structure + rules clear status)
+  try {
+    if (typeof algoDrawGatesOverlay === 'function') {
+      algoDrawGatesOverlay(ctx, chartW, topPad, chartH, h);
+    }
+  } catch (eGate) {}
 
   ctx.textAlign = "center";
   ctx.font = "10px sans-serif";
@@ -6031,6 +6290,67 @@ window.addEventListener("resize", () => {
   }
 });
 
+
+/** Prefetch common TFs into chartStore while idle — next TF switch is instant */
+function prefetchChartTimeframes() {
+  const asset = state.chartAsset || 'gold';
+  const tfs = ['5m', '15m', '1h', '4h'];
+  let i = 0;
+  function next() {
+    if (i >= tfs.length) return;
+    const tf = tfs[i++];
+    try {
+      if (chartStore[asset] && chartStore[asset][tf] && chartStore[asset][tf].candles &&
+          chartStore[asset][tf].candles.length >= 40) {
+        setTimeout(next, 200);
+        return;
+      }
+    } catch (e) {}
+    const symbol = asset === 'dxy' ? 'DXY' : 'XAUUSD';
+    const lim = 200;
+    fetchJsonTimed('https://biquote.io/api/' + symbol + '/ohlc?interval=' + encodeURIComponent(tf) + '&limit=' + lim, 4000)
+      .then(function (data) {
+        let bars = (data && data.bars) ? data.bars.slice() : [];
+        if (bars.length > 1) {
+          const t0 = new Date(bars[0].openTime || 0).getTime();
+          const t1 = new Date(bars[bars.length - 1].openTime || 0).getTime();
+          if (t0 > t1) bars.reverse();
+        }
+        if (bars.length < 20) return;
+        const bakA = state.chartAsset, bakT = state.tf_interval, bakS = state.tf_seconds;
+        const bakC = candleHistory.slice();
+        try {
+          // Normalize offline into store without disrupting open chart series
+          const secMap = { '1m': 60, '3m': 180, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
+          const sec = secMap[tf] || 900;
+          const stepMs = sec * 1000;
+          const normalized = bars.map(function (b) {
+            let t = b.openTime ?? b.t ?? b.time;
+            if (typeof t === 'string' && /^\d+$/.test(t)) t = parseInt(t, 10);
+            if (typeof t === 'number' && t < 1e12) t = t * 1000;
+            const d = new Date(t);
+            if (isNaN(d.getTime())) return null;
+            const o = parseFloat(b.open ?? b.o); const h = parseFloat(b.high ?? b.h);
+            const l = parseFloat(b.low ?? b.l); const c = parseFloat(b.close ?? b.c);
+            const v = parseFloat(b.volume ?? b.v ?? 0);
+            if ([o,h,l,c].some(function (x) { return isNaN(x) || x <= 0; })) return null;
+            const barSlot = Math.floor(d.getTime() / stepMs) * stepMs;
+            const time = tf === '1d' ? ((d.getMonth()+1)+'/'+d.getDate()) : (String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'));
+            return { o:o, h:h, l:l, c:c, v:v, quoteVol:v, time:time, barSlot:barSlot, closeTime: barSlot + stepMs };
+          }).filter(Boolean);
+          if (normalized.length >= 20) {
+            if (!chartStore[asset]) chartStore[asset] = {};
+            const prev = chartStore[asset][tf] || {};
+            chartStore[asset][tf] = Object.assign({}, prev, { candles: normalized.slice(-180) });
+          }
+        } catch (e) {}
+      })
+      .catch(function () {})
+      .finally(function () { setTimeout(next, 400); });
+  }
+  setTimeout(next, 800);
+}
+
 function changeTimeframe(tf, seconds, btn) {
   saveActiveStore();
   state.tf_interval = tf;
@@ -6041,9 +6361,38 @@ function changeTimeframe(tf, seconds, btn) {
   view.zoom = 1.0;
   view.offsetX = 0;
   document.querySelectorAll(".tv-tf").forEach(b => b.classList.remove("active"));
-  btn.classList.add("active");
+  if (btn && btn.classList) {
+    btn.classList.add("active");
+  } else {
+    document.querySelectorAll("#chartModal .tv-tf").forEach(function (b) {
+      const lab = (b.textContent || "").trim().toLowerCase();
+      if (lab === String(tf || "").toLowerCase()) b.classList.add("active");
+    });
+  }
+  // Stitch live forming bar immediately so chart never freezes on last historical close
+  try {
+    if (candleHistory.length > 0) {
+      checkTimeframeRollover();
+      rollLocalCandle();
+    }
+  } catch (e) {}
+  // Paint cached TF instantly
   triggerRealtimeRender();
-  fetchRealCandles(tf, candleHistory.length === 0);
+  // Background network refresh (force only when cache empty/thin)
+  const thin = candleHistory.length < 20;
+  try { fetchRealCandles(tf, thin); } catch (e) {}
+  // Rebuild structure after first paint (non-blocking)
+  if (candleHistory.length >= 15) {
+    setTimeout(function () {
+      try {
+        if ((state.tf_interval || '') !== tf) return;
+        scanAndStoreOrderBlocks(candleHistory);
+        executeTradingViewRayArchitecture(candleHistory);
+        saveActiveStore();
+        triggerRealtimeRender();
+      } catch (e2) {}
+    }, 30);
+  }
 }
 
 function rollLocalCandle() {
@@ -6079,11 +6428,14 @@ function rollLocalCandle() {
     time: timeStr, barSlot: currentBarSlot, closeTime: currentBarSlot + stepMs
   });
   if (candleHistory.length > 300) candleHistory = candleHistory.slice(-300);
-  try { scanAndStoreOrderBlocks(candleHistory); } catch (e) {}
-  try { executeTradingViewRayArchitecture(candleHistory); } catch (e) {}
   try { getInstantCandleTimer(); } catch (e) {}
+  // Structure rebuild is expensive — only on TF load, not every new bar
   try { saveActiveStore(); } catch (e) {}
   try { triggerRealtimeRender(); } catch (e) {}
+  // Bar just closed → immediate LIVE scan on this TF (no wait for rotate)
+  try {
+    if (typeof algoForceLiveScanActiveTf === 'function') algoForceLiveScanActiveTf();
+  } catch (eL) {}
 }
 // Note: history depth capped at 300 bars for all timeframes (see CHART_HISTORY_BARS)
 
@@ -6130,15 +6482,31 @@ function openChartModal(asset) {
   const sr = document.getElementById('sideFab');
   if (sr) sr.style.display = 'none';
   closeAllSidePanels();
+  // Instant: stitch live + paint whatever is in store
+  try {
+    if (candleHistory.length > 0) {
+      checkTimeframeRollover();
+      rollLocalCandle();
+    }
+  } catch (e) {}
   triggerRealtimeRender();
-  if (candleHistory.length > 0 && candlesMatchAsset(candleHistory, state.chartAsset)) {
-    try { scanAndStoreOrderBlocks(candleHistory); } catch (e) {}
-    try { executeTradingViewRayArchitecture(candleHistory); } catch (e) {}
-    fetchRealCandles(state.tf_interval, false);
-  } else {
-    setTimeout(() => fetchRealCandles(state.tf_interval, true), 30);
+  // Network in background — never blocks first frame
+  const thin = !(candleHistory.length > 0 && candlesMatchAsset(candleHistory, state.chartAsset));
+  setTimeout(function () {
+    try { fetchRealCandles(state.tf_interval, thin); } catch (e) {}
+  }, 0);
+  // Structure after paint
+  if (candleHistory.length >= 15) {
+    setTimeout(function () {
+      try {
+        scanAndStoreOrderBlocks(candleHistory);
+        executeTradingViewRayArchitecture(candleHistory);
+        saveActiveStore();
+        triggerRealtimeRender();
+      } catch (e) {}
+    }, 40);
   }
-  try { triggerRealtimeRender(); } catch (e) {}
+  try { prefetchChartTimeframes(); } catch (e) {}
 }
 
 function closeChartModal() {
@@ -7682,6 +8050,10 @@ function tickOneSymbol(sym, pk, pctk, ok, minP, maxP, dig) {
           if (state.gold_price > cur.h) cur.h = state.gold_price;
           if (state.gold_price < cur.l) cur.l = state.gold_price;
         }
+        try { triggerRealtimeRender(); } catch (eT) {}
+        try {
+          if (typeof algoResolveAllTrades === 'function') algoResolveAllTrades(candleHistory);
+        } catch (eA) {}
       }
       paintLiveUI();
     })
@@ -12769,64 +13141,41 @@ function avComputeSenses() {
   const sig       = String(state.signal_text || 'NEUTRAL').toUpperCase();
   const mtf       = avBiasFromTf();
   const quiet     = avIsRangeQuiet();
+  const fpPress   = avGetFootprint1h();
 
-  // ---------- Sense scores (0-1) ----------
-  // Alignment quality (how many TFs agree) — used for GATES only, not directional core
-  const structAlign = avClamp01(
-    0.30 +
-    (mtf.aligned / Math.max(1, mtf.n)) * 0.55 +
-    (Math.abs(score) > 18 ? 0.15 : 0)
-  );
+  // ---------- Session quality (London / NY boost, Asia quiet) ----------
+  let sessionBoost = 0; // -8 .. +8 on decision score
+  let sessionLabel = 'off-hours';
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric', hour12: false, weekday: 'short'
+    }).formatToParts(new Date());
+    const map = {};
+    parts.forEach(p => { map[p.type] = p.value; });
+    let hour = parseInt(map.hour, 10);
+    if (hour === 24) hour = 0;
+    const mins = hour * 60 + (parseInt(map.minute, 10) || 0);
+    const wd = map.weekday;
+    // Approx ET: London ~ 3:00–12:00, NY ~ 8:00–17:00, overlap 8–12
+    if (wd !== 'Sat' && wd !== 'Sun') {
+      if (mins >= 8 * 60 && mins < 12 * 60) {
+        sessionBoost = 8; sessionLabel = 'London–NY overlap';
+      } else if (mins >= 3 * 60 && mins < 8 * 60) {
+        sessionBoost = 5; sessionLabel = 'London open';
+      } else if (mins >= 12 * 60 && mins < 17 * 60) {
+        sessionBoost = 4; sessionLabel = 'NY session';
+      } else if (mins >= 17 * 60 || mins < 3 * 60) {
+        sessionBoost = -6; sessionLabel = 'Asia / thin';
+      }
+    }
+  } catch (e) {}
 
-  // Directional structure for core ring: bull → high, bear → low, mixed → ~0.5
-  const structScore = (function () {
-    const a = mtf.aligned / Math.max(1, mtf.n); // 0..1 agreement ratio
-    if (mtf.direction === 'BULL') return avClamp01(0.50 + a * 0.45 + (score > 10 ? 0.05 : 0));
-    if (mtf.direction === 'BEAR') return avClamp01(0.50 - a * 0.45 - (score < -10 ? 0.05 : 0));
-    return 0.50;
-  })();
-
-  // momScore centered (0.5 = neutral) — follows composite score direction
-  const momScore = avClamp01(0.5 + (score / 100) * 0.5);
-
-  // DXY sense score: weak dollar helps gold (high), strong dollar hurts (low)
-  // Used for sense node / core ring — directional for gold bias
-  const dxyHelp = dxyPct < -0.08 ? 0.88 :
-                  dxyPct < -0.03 ? 0.72 :
-                  dxyPct >  0.08 ? 0.28 :
-                  dxyPct >  0.03 ? 0.40 : 0.55;
-
-  // DXY DRIVER strength (0-1): absolute move — gate must pass for BOTH buy and sell markets
-  // when dollar is actively driving (either direction), not only when it helps gold
-  const dxyDriverStrength = Math.abs(dxyPct) >= 0.08 ? 0.92 :
-                            Math.abs(dxyPct) >= 0.04 ? 0.72 :
-                            Math.abs(dxyPct) >= 0.02 ? 0.55 : 0.35;
-
-  // Yields: rising yields hurt gold
-  const yieldScore = yieldPct > 0.08 ? 0.30 :
-                     yieldPct > 0.03 ? 0.42 :
-                     yieldPct < -0.08 ? 0.85 :
-                     yieldPct < -0.03 ? 0.72 : 0.55;
-
-  // Yield DRIVER strength — active move either way counts for the gate
-  const yieldDriverStrength = Math.abs(yieldPct) >= 0.08 ? 0.90 :
-                              Math.abs(yieldPct) >= 0.04 ? 0.70 :
-                              Math.abs(yieldPct) >= 0.02 ? 0.52 : 0.35;
-
-  // FX basket (EUR weighted higher)
-  const fxBasket = (eurPct * 0.6 + audPct * 0.4);
-  const fxScore  = avClamp01(0.5 + (fxBasket / 100) * 7);
-  // FX DRIVER strength — meaningful basket move either way
-  const fxDriverStrength = Math.abs(fxBasket) >= 0.12 ? 0.90 :
-                           Math.abs(fxBasket) >= 0.06 ? 0.70 :
-                           Math.abs(fxBasket) >= 0.03 ? 0.52 : 0.35;
-
-  // News risk — risk% for top 3 USD high-impact events.
-  // VETO only inside [event−5m … event+5m]. Outside that window news cannot veto.
+  // ---------- News: Clear / Caution / Veto ----------
   let newsScore = 0.72;
   let newsLabel = 'no red event near';
   let newsItems3 = [];
   let newsCanVeto = false;
+  let newsState = 'CLEAR'; // CLEAR | CAUTION | VETO
   try {
     const now = Date.now();
     const src = (typeof redFolderEvents !== 'undefined' && Array.isArray(redFolderEvents))
@@ -12845,12 +13194,14 @@ function avComputeSenses() {
         else riskPct = Math.max(0, Math.round(10 - abs / 60));
         riskPct = Math.max(0, Math.min(100, riskPct));
         const canVeto = (mins <= 5 && mins >= -5);
+        const caution = (mins > 5 && mins <= 60) || (mins < -5 && mins >= -20);
         return {
           title: String(ev.title || 'event').slice(0, 42),
           currency: ev.currency || 'USD',
           mins: mins,
           riskPct: riskPct,
           canVeto: canVeto,
+          caution: caution,
           timeIST: ev.timeIST || ''
         };
       })
@@ -12860,10 +13211,12 @@ function avComputeSenses() {
     const upcoming = ranked.filter(function (x) { return x.mins >= -5; }).slice(0, 3);
     newsItems3 = upcoming.length ? upcoming : ranked.slice(0, 3);
     newsCanVeto = newsItems3.some(function (x) { return x.canVeto; });
+    const anyCaution = newsItems3.some(function (x) { return x.caution || x.canVeto; });
 
     if (newsCanVeto) {
       const peak = newsItems3.reduce(function (m, x) { return Math.max(m, x.riskPct); }, 0);
-      newsScore = peak >= 90 ? 0.12 : 0.22;
+      newsScore = peak >= 90 ? 0.10 : 0.18;
+      newsState = 'VETO';
       const live = newsItems3.find(function (x) { return x.canVeto; });
       if (live) {
         if (live.mins > 0) {
@@ -12872,219 +13225,404 @@ function avComputeSenses() {
           newsLabel = 'VETO · LIVE · ' + live.riskPct + '% · ' + live.title;
         }
       }
+    } else if (anyCaution) {
+      const top = newsItems3.slice().sort(function (a, b) { return b.riskPct - a.riskPct; })[0];
+      newsScore = top.riskPct >= 50 ? 0.38 : 0.48;
+      newsState = 'CAUTION';
+      newsLabel = newsItems3.map(function (x) {
+        const t = x.mins >= 0 ? (Math.round(x.mins) + 'm') : ('+' + Math.round(-x.mins) + 'm ago');
+        return x.riskPct + '% ' + x.title.slice(0, 18) + ' (' + t + ')';
+      }).join(' · ');
     } else if (newsItems3.length) {
       const top = newsItems3.slice().sort(function (a, b) { return b.riskPct - a.riskPct; })[0];
-      newsScore = top.riskPct >= 50 ? 0.48 : (top.riskPct >= 25 ? 0.62 : 0.78);
+      newsScore = top.riskPct >= 25 ? 0.62 : 0.78;
+      newsState = 'CLEAR';
       newsLabel = newsItems3.map(function (x) {
         const t = x.mins >= 0 ? (Math.round(x.mins) + 'm') : ('+' + Math.round(-x.mins) + 'm ago');
         return x.riskPct + '% ' + x.title.slice(0, 18) + ' (' + t + ')';
       }).join(' · ');
     } else {
       newsLabel = (document.getElementById('drawerNewsTitle') || {}).textContent || 'calendar synced';
+      newsState = 'CLEAR';
     }
   } catch (e) {}
 
-  // ---------- Gates + footprint senses ----------
-  const fpPress = avGetFootprint1h();
+  // ---------- Structure quality (0–30 pts) + direction ----------
+  // Higher TF (1h, 1d) get more weight when agreeing
+  let structPts = 0;
+  let structDir = 'MIXED'; // BULL | BEAR | MIXED
+  const structAlign = mtf.aligned / Math.max(1, mtf.n);
+  if (mtf.direction === 'BULL') {
+    structDir = 'BULL';
+    structPts = Math.round(8 + structAlign * 18 + (mtf.aligned >= 4 ? 4 : 0));
+    if (score > 12) structPts += 2;
+  } else if (mtf.direction === 'BEAR') {
+    structDir = 'BEAR';
+    structPts = Math.round(8 + structAlign * 18 + (mtf.aligned >= 4 ? 4 : 0));
+    if (score < -12) structPts += 2;
+  } else {
+    structPts = Math.round(4 + structAlign * 6);
+  }
+  structPts = Math.max(0, Math.min(30, structPts));
 
+  // Directional structure score 0–1 for ring (compat)
+  const structScore = (function () {
+    const a = structAlign;
+    if (mtf.direction === 'BULL') return avClamp01(0.50 + a * 0.45 + (score > 10 ? 0.05 : 0));
+    if (mtf.direction === 'BEAR') return avClamp01(0.50 - a * 0.45 - (score < -10 ? 0.05 : 0));
+    return 0.50;
+  })();
+
+  // ---------- Footprint quality (0–32 pts) ----------
   const fpPressure = (fpPress.vol > 0) ? (fpPress.delta / fpPress.vol) : 0;
   const fpConf = Math.min(1, Math.log10(Math.max(10, fpPress.vol || 10)) / 5);
   const fpSense = avClamp01(0.5 + fpPressure * 0.48 * (0.30 + 0.70 * fpConf));
 
-  const preLeanScore = (
+  let fpPts = 0;
+  let fpQuality = 'THIN';
+  const vol = fpPress.vol || 0;
+  const str = fpPress.strength || 0;
+  if (vol >= 800 && str >= 0.12) {
+    fpPts = 28 + Math.min(4, Math.round(str * 20));
+    fpQuality = 'STRONG';
+  } else if (vol >= 300 && str >= 0.08) {
+    fpPts = 20 + Math.min(6, Math.round(str * 25));
+    fpQuality = 'GOOD';
+  } else if (vol >= 80 && str >= 0.04) {
+    fpPts = 12 + Math.min(6, Math.round(str * 30));
+    fpQuality = 'FAIR';
+  } else if (vol >= 30 && str >= 0.02) {
+    fpPts = 6;
+    fpQuality = 'WEAK';
+  } else {
+    fpPts = 2;
+    fpQuality = 'THIN';
+  }
+  // Side must exist for full credit
+  if (fpPress.side !== 'BUY' && fpPress.side !== 'SELL') {
+    fpPts = Math.min(fpPts, 8);
+    fpQuality = vol > 50 ? 'BALANCED' : 'THIN';
+  }
+  fpPts = Math.max(0, Math.min(32, fpPts));
+
+  // ---------- News environment (0–18 pts) ----------
+  let newsPts = 0;
+  if (newsState === 'CLEAR') newsPts = newsScore >= 0.70 ? 18 : 14;
+  else if (newsState === 'CAUTION') newsPts = 6;
+  else newsPts = 0; // VETO
+  newsPts = Math.max(0, Math.min(18, newsPts));
+
+  // ---------- Lean (direction) from structure + footprint ----------
+  const preLeanScore =
     (structScore - 0.5) * 0.55 +
-    (fpSense - 0.5) * 0.45
-  );
-  const lean = preLeanScore >= 0.04 ? 'BUY' : (preLeanScore <= -0.04 ? 'SELL' : 'NEUTRAL');
+    (fpSense - 0.5) * 0.45;
+  let lean = 'NEUTRAL';
+  if (preLeanScore >= 0.04) lean = 'BUY';
+  else if (preLeanScore <= -0.04) lean = 'SELL';
 
-  // Gates — PASS only when direction matches lean (+ rule thresholds)
-  const gStruct = (structAlign > 0.58) && (
-    lean === 'NEUTRAL' ||
-    (lean === 'BUY' && mtf.direction === 'BULL') ||
-    (lean === 'SELL' && mtf.direction === 'BEAR')
-  );
-  const gFp = !!(fpPress.pass && (
-    lean === 'NEUTRAL' || fpPress.side === lean
-  ));
-  const gNews = newsScore >= 0.35;
-  // AI VIEW computed after other scores — placeholder until below
-  let gAiView = false;
+  // Strong override: if both structure and FP agree strongly
+  if (mtf.direction === 'BULL' && fpPress.side === 'BUY' && fpPts >= 18) lean = 'BUY';
+  if (mtf.direction === 'BEAR' && fpPress.side === 'SELL' && fpPts >= 18) lean = 'SELL';
 
-  const mktOpen = (typeof getGoldMarketSession === 'function')
-    ? getGoldMarketSession().open
-    : true;
-  const envOk = gNews && mktOpen;
-
-  // ---------- Point system (edge) — structure + 1H footprint only ----------
-  let bullPts = 0, bearPts = 0;
-
-  if (mtf.direction === 'BULL') {
-    bullPts += (mtf.aligned >= 4 ? 2 : (mtf.aligned === 3 ? 1 : 0));
-  } else if (mtf.direction === 'BEAR') {
-    bearPts += (mtf.aligned >= 4 ? 2 : (mtf.aligned === 3 ? 1 : 0));
-  }
-
-  // 1H footprint (same thresholds as gauge)
-  if (fpPress.vol >= 50 && fpPress.strength >= 0.06) {
-    if (fpPress.side === 'BUY')  bullPts += (fpPress.strength >= 0.12 && fpPress.vol >= 500) ? 2 : 1;
-    if (fpPress.side === 'SELL') bearPts += (fpPress.strength >= 0.12 && fpPress.vol >= 500) ? 2 : 1;
-  }
-  const edge = bullPts - bearPts;
-
-  // Core ring [-1,+1] — 5 senses with fixed weights (sum = 100%)
-  // Structure 30% · 1H FP 32% · News 18% · AI View 20%
-  const toSigned = (v01) => Math.max(-1, Math.min(1, (v01 - 0.5) * 2));
-
-  // AI VIEW score: agreement of structure + footprints + news (live)
+  // ---------- Confluence (0–20 pts) — agreement of structure + FP + news ----------
   let agreeBuy = 0, agreeSell = 0, agreeN = 0;
   if (mtf.direction === 'BULL') { agreeBuy++; agreeN++; }
   else if (mtf.direction === 'BEAR') { agreeSell++; agreeN++; }
   if (fpPress.side === 'BUY') { agreeBuy++; agreeN++; }
   else if (fpPress.side === 'SELL') { agreeSell++; agreeN++; }
-  if (newsScore >= 0.55) { agreeN++; }
-  else if (newsScore < 0.35) { agreeN++; }
+  if (newsState === 'CLEAR') { agreeN++; if (lean === 'BUY') agreeBuy++; else if (lean === 'SELL') agreeSell++; }
 
   const aiSide = agreeBuy > agreeSell ? 'BUY' : (agreeSell > agreeBuy ? 'SELL' : 'NEUTRAL');
-  const aiAgree = agreeN > 0 ? Math.max(agreeBuy, agreeSell) / Math.max(1, agreeBuy + agreeSell) : 0;
+  const aiAgree = (agreeBuy + agreeSell) > 0
+    ? Math.max(agreeBuy, agreeSell) / Math.max(1, agreeBuy + agreeSell)
+    : 0;
+
+  let confPts = 0;
+  if (aiAgree >= 0.9 && newsState === 'CLEAR') confPts = 20;
+  else if (aiAgree >= 0.66 && newsState !== 'VETO') confPts = 14;
+  else if (aiAgree >= 0.5) confPts = 8;
+  else confPts = 3;
+  // Direction match bonus
+  if ((lean === 'BUY' && aiSide === 'BUY') || (lean === 'SELL' && aiSide === 'SELL')) confPts = Math.min(20, confPts + 2);
+  confPts = Math.max(0, Math.min(20, confPts));
+
   const aiViewSense = avClamp01(
     0.50 +
     (aiSide === 'BUY' ? aiAgree * 0.45 : (aiSide === 'SELL' ? -aiAgree * 0.45 : 0)) +
-    (newsScore >= 0.55 ? 0.05 : (newsScore < 0.35 ? -0.15 : 0))
+    (newsState === 'CLEAR' ? 0.05 : (newsState === 'VETO' ? -0.20 : -0.08))
   );
-  gAiView = (aiAgree >= 0.66 && newsScore >= 0.35 && (aiSide === lean || lean === 'NEUTRAL' || aiSide === 'NEUTRAL'));
 
+  // ---------- Gates (symmetric long/short) ----------
+  const gStruct = (structAlign > 0.55) && (
+    lean === 'NEUTRAL' ||
+    (lean === 'BUY' && mtf.direction === 'BULL') ||
+    (lean === 'SELL' && mtf.direction === 'BEAR')
+  );
+  const gFp = !!(fpPress.pass && vol >= 50 && (
+    lean === 'NEUTRAL' || fpPress.side === lean
+  ));
+  const gNews = newsState !== 'VETO' && newsScore >= 0.35;
+  const gAiView = (aiAgree >= 0.60 && newsState !== 'VETO' && (
+    aiSide === lean || lean === 'NEUTRAL' || aiSide === 'NEUTRAL'
+  ));
   const gatesCleared = [gStruct, gFp, gNews, gAiView].filter(Boolean).length;
 
-  const senseSigned =
+  const mkt = (typeof getGoldMarketSession === 'function')
+    ? getGoldMarketSession()
+    : { open: true };
+  const mktOpen = !!mkt.open;
+  const envOk = gNews && mktOpen && newsState !== 'VETO';
+
+  // ---------- Edge points (structure + FP) ----------
+  let bullPts = 0, bearPts = 0;
+  if (mtf.direction === 'BULL') {
+    bullPts += (mtf.aligned >= 4 ? 2 : (mtf.aligned === 3 ? 1 : 0));
+  } else if (mtf.direction === 'BEAR') {
+    bearPts += (mtf.aligned >= 4 ? 2 : (mtf.aligned === 3 ? 1 : 0));
+  }
+  if (vol >= 50 && str >= 0.06) {
+    if (fpPress.side === 'BUY')  bullPts += (str >= 0.12 && vol >= 500) ? 2 : 1;
+    if (fpPress.side === 'SELL') bearPts += (str >= 0.12 && vol >= 500) ? 2 : 1;
+  }
+  const edge = bullPts - bearPts;
+
+  // ---------- Conflict detection ----------
+  const structOpposesBuy  = (mtf.direction === 'BEAR' && mtf.aligned >= 2);
+  const structOpposesSell = (mtf.direction === 'BULL' && mtf.aligned >= 2);
+  const fpOpposesBuy  = (fpPress.side === 'SELL' && str >= 0.08 && vol >= 150);
+  const fpOpposesSell = (fpPress.side === 'BUY'  && str >= 0.08 && vol >= 150);
+  const hasConflict =
+    (lean === 'BUY'  && (structOpposesBuy || fpOpposesBuy)) ||
+    (lean === 'SELL' && (structOpposesSell || fpOpposesSell)) ||
+    (mtf.direction === 'BULL' && fpPress.side === 'SELL' && str >= 0.10 && vol >= 200) ||
+    (mtf.direction === 'BEAR' && fpPress.side === 'BUY'  && str >= 0.10 && vol >= 200);
+
+  // ---------- Decision Score 0–100 ----------
+  let decisionScore = structPts + fpPts + newsPts + confPts;
+  // Session adjustment
+  decisionScore += sessionBoost;
+  // Conflict hard cap
+  if (hasConflict) decisionScore = Math.min(decisionScore, 42);
+  // Quiet range penalty
+  if (quiet && Math.abs(edge) < 3) decisionScore = Math.min(decisionScore, 38);
+  // Thin footprint penalty when leaning
+  if (lean !== 'NEUTRAL' && fpQuality === 'THIN') decisionScore = Math.min(decisionScore, 45);
+  // Low gates penalty
+  if (gatesCleared <= 1) decisionScore = Math.min(decisionScore, 35);
+  else if (gatesCleared === 2) decisionScore = Math.min(decisionScore, 55);
+  // News caution soft cap
+  if (newsState === 'CAUTION') decisionScore = Math.min(decisionScore, 58);
+  if (newsState === 'VETO') decisionScore = Math.min(decisionScore, 20);
+  if (!mktOpen) decisionScore = 0;
+  decisionScore = Math.max(0, Math.min(100, Math.round(decisionScore)));
+
+  // Signed core for ring visual (compat −1…+1)
+  const toSigned = (v01) => Math.max(-1, Math.min(1, (v01 - 0.5) * 2));
+  let core =
     toSigned(structScore) * 0.30 +
     toSigned(fpSense)     * 0.32 +
     toSigned(newsScore)   * 0.18 +
     toSigned(aiViewSense) * 0.20;
-
   const edgeTilt = Math.max(-0.25, Math.min(0.25, (edge || 0) * 0.05));
-  let core = senseSigned * 0.85 + edgeTilt * 0.15;
-
-  // Structure fight softens core
-  const structOpposesBuy  = (mtf.direction === 'BEAR' && mtf.aligned >= 2);
-  const structOpposesSell = (mtf.direction === 'BULL' && mtf.aligned >= 2);
-  if (structOpposesBuy && core > 0) core *= 0.55;
-  if (structOpposesSell && core < 0) core *= 0.55;
+  core = core * 0.85 + edgeTilt * 0.15;
+  if (structOpposesBuy && core > 0) core *= 0.50;
+  if (structOpposesSell && core < 0) core *= 0.50;
+  if (hasConflict) core *= 0.55;
   core = Math.max(-1, Math.min(1, core));
 
-  // ---------- Final decision ----------
+  // ---------- Final decision state (symmetric) + real-edge filters ----------
+  // Desk composite must not strongly oppose lean (real edge filter)
+  const deskScore = Number(score) || 0;
+  const deskOpposesBuy  = deskScore <= -12;
+  const deskOpposesSell = deskScore >= 12;
+  const deskSupportsBuy  = deskScore >= 8;
+  const deskSupportsSell = deskScore <= -8;
+
+  // Footprint quality gate for ACTIVE only
+  const fpStrongEnough = (fpQuality === 'STRONG' || fpQuality === 'GOOD');
+
+  // Extra edge points from desk alignment
+  if (lean === 'BUY' && deskSupportsBuy) decisionScore = Math.min(100, decisionScore + 4);
+  if (lean === 'SELL' && deskSupportsSell) decisionScore = Math.min(100, decisionScore + 4);
+  if (lean === 'BUY' && deskOpposesBuy) decisionScore = Math.min(decisionScore, 48);
+  if (lean === 'SELL' && deskOpposesSell) decisionScore = Math.min(decisionScore, 48);
+  decisionScore = Math.max(0, Math.min(100, Math.round(decisionScore)));
+
+  let decisionState = 'NO TRADE';
   let finalSignal   = 'NEUTRAL';
   let finalStrength = 'WAIT';
+  let sizeHint      = '0×';
+  let invalidation  = '—';
 
   if (!mktOpen) {
+    decisionState = 'MARKET CLOSED';
     finalSignal   = 'CLOSED';
     finalStrength = 'NO TRADE';
-  } else if (newsScore < 0.35) {
+    sizeHint      = '0×';
+    decisionScore = 0;
+  } else if (newsState === 'VETO') {
+    decisionState = 'NEWS LOCK';
     finalSignal   = 'NEUTRAL';
     finalStrength = 'NEWS RISK';
-  } else if (!envOk) {
+    sizeHint      = '0×';
+  } else if (hasConflict || (lean === 'BUY' && deskOpposesBuy) || (lean === 'SELL' && deskOpposesSell)) {
+    decisionState = 'WATCH';
     finalSignal   = 'NEUTRAL';
-    finalStrength = 'ENV BLOCK';
-  } else if (quiet && Math.abs(edge) < 4) {
+    finalStrength = hasConflict ? 'CONFLICT' : 'DESK OPPOSE';
+    sizeHint      = '0×';
+    invalidation  = hasConflict
+      ? 'Structure vs footprint fight — wait for alignment'
+      : 'Desk composite opposes lean — wait for desk flip';
+  } else if (quiet && Math.abs(edge) < 3 && decisionScore < 55) {
+    decisionState = 'NO TRADE';
     finalSignal   = 'NEUTRAL';
     finalStrength = 'QUIET RANGE';
-  } else if (gatesCleared >= 4 && edge >= 3) {
+    sizeHint      = '0×';
+  } else if (
+    lean === 'BUY' && decisionScore >= 76 && gatesCleared >= 3 &&
+    !structOpposesBuy && fpStrongEnough && !deskOpposesBuy
+  ) {
+    decisionState = 'LONG ACTIVE';
     finalSignal   = 'BUY GOLD';
-    // STRONG needs: high gates + edge, footprint not fighting, STRUCTURE not BEAR majority
-    let buyStrong = gatesCleared >= 5 && edge >= 4
-      && !(fpPress.side === 'SELL' && fpPress.strength >= 0.12 && fpPress.vol >= 200)
-      && !structOpposesBuy;
-    if (fpPress.side === 'BUY' && fpPress.pass && gatesCleared >= 5 && edge >= 4 && !structOpposesBuy) {
-      buyStrong = true;
-    }
-    if (structOpposesBuy) {
-      // Momentum may still lean buy, but structure fights → never STRONG
-      finalStrength = (gatesCleared >= 5 && edge >= 5) ? 'MODERATE' : 'STRUCTURE FIGHT';
-    } else {
-      finalStrength = buyStrong ? 'STRONG' : 'MODERATE';
-    }
-  } else if (gatesCleared >= 4 && edge <= -3) {
+    finalStrength = (gatesCleared >= 4 && fpQuality === 'STRONG' && deskSupportsBuy) ? 'STRONG' : 'MODERATE';
+    sizeHint      = (decisionScore >= 85 && gatesCleared >= 4 && newsState === 'CLEAR' && fpQuality === 'STRONG')
+      ? '1.25×' : '1×';
+    invalidation  = 'Break below recent structure low / FP flips SELL with volume / desk ≤ −12';
+  } else if (
+    lean === 'SELL' && decisionScore >= 76 && gatesCleared >= 3 &&
+    !structOpposesSell && fpStrongEnough && !deskOpposesSell
+  ) {
+    decisionState = 'SHORT ACTIVE';
     finalSignal   = 'SELL GOLD';
-    let sellStrong = gatesCleared >= 5 && edge <= -4
-      && !(fpPress.side === 'BUY' && fpPress.strength >= 0.12 && fpPress.vol >= 200)
-      && !structOpposesSell;
-    if (fpPress.side === 'SELL' && fpPress.pass && gatesCleared >= 5 && edge <= -4 && !structOpposesSell) {
-      sellStrong = true;
-    }
-    if (structOpposesSell) {
-      finalStrength = (gatesCleared >= 5 && edge <= -5) ? 'MODERATE' : 'STRUCTURE FIGHT';
-    } else {
-      finalStrength = sellStrong ? 'STRONG' : 'MODERATE';
-    }
-  } else if (envOk && edge >= 2 && score >= 9) {
+    finalStrength = (gatesCleared >= 4 && fpQuality === 'STRONG' && deskSupportsSell) ? 'STRONG' : 'MODERATE';
+    sizeHint      = (decisionScore >= 85 && gatesCleared >= 4 && newsState === 'CLEAR' && fpQuality === 'STRONG')
+      ? '1.25×' : '1×';
+    invalidation  = 'Break above recent structure high / FP flips BUY with volume / desk ≥ +12';
+  } else if (
+    lean === 'BUY' && decisionScore >= 56 && gatesCleared >= 2 &&
+    !structOpposesBuy && !deskOpposesBuy
+  ) {
+    decisionState = 'LONG SETUP';
     finalSignal   = 'BUY GOLD';
-    finalStrength = (fpPress.side === 'SELL' && fpPress.strength >= 0.15) ? 'CONFLICT' : 'WEAK';
-  } else if (envOk && edge <= -2 && score <= -9) {
+    finalStrength = decisionScore >= 68 ? 'MODERATE' : 'WEAK';
+    sizeHint      = (decisionScore >= 68 && fpStrongEnough) ? '1×' : '0.5×';
+    invalidation  = 'Lose MTF bull majority or FP sells into volume or desk ≤ −12';
+  } else if (
+    lean === 'SELL' && decisionScore >= 56 && gatesCleared >= 2 &&
+    !structOpposesSell && !deskOpposesSell
+  ) {
+    decisionState = 'SHORT SETUP';
     finalSignal   = 'SELL GOLD';
-    finalStrength = (fpPress.side === 'BUY' && fpPress.strength >= 0.15) ? 'CONFLICT' : 'WEAK';
+    finalStrength = decisionScore >= 68 ? 'MODERATE' : 'WEAK';
+    sizeHint      = (decisionScore >= 68 && fpStrongEnough) ? '1×' : '0.5×';
+    invalidation  = 'Lose MTF bear majority or FP buys into volume or desk ≥ +12';
+  } else if (decisionScore >= 40 && lean !== 'NEUTRAL') {
+    decisionState = 'WATCH';
+    finalSignal   = lean === 'BUY' ? 'BUY GOLD' : 'SELL GOLD';
+    finalStrength = 'WAIT SETUP';
+    sizeHint      = '0×';
+    invalidation  = 'Need higher gates / clearer FP (GOOD+) / desk align / news clear';
   } else {
+    decisionState = 'NO TRADE';
     finalSignal   = 'NEUTRAL';
-    finalStrength = gatesCleared >= 4 ? 'WAIT SETUP' : 'GATES LOW';
+    finalStrength = gatesCleared >= 3 ? 'WAIT SETUP' : 'GATES LOW';
+    sizeHint      = '0×';
   }
 
-  // Thesis line
-  let thesis = 'XAU/USD ONLY · ' + finalSignal + ' (' + finalStrength + ') · ';
-  thesis += mtf.direction + ' structure ' + mtf.aligned + '/' + mtf.n + ' · ';
-  thesis += 'score ' + score.toFixed(1) + ' · gates ' + gatesCleared + '/4 · edge ' + edge +
-    ' · FP ' + (fpPress.side || 'FLAT') + ' ' + (typeof avFmtVol === 'function' ? avFmtVol(fpPress.vol) : Math.round(fpPress.vol));
-  if (structOpposesBuy || structOpposesSell) thesis += ' · STRUCTURE FIGHTS SIGNAL';
-  if (quiet) thesis += ' · quiet range';
+  // News caution forces size down even on good setups
+  if (newsState === 'CAUTION' && sizeHint !== '0×') {
+    if (sizeHint === '1.25×') sizeHint = '1×';
+    else if (sizeHint === '1×') sizeHint = '0.5×';
+    else sizeHint = '0×';
+    if (decisionState === 'LONG ACTIVE') decisionState = 'LONG SETUP';
+    if (decisionState === 'SHORT ACTIVE') decisionState = 'SHORT SETUP';
+    finalStrength = 'CAUTION';
+  }
 
-  // ---------- Output object ----------
+  // Asia / thin session: never full size
+  if (sessionBoost <= -4 && sizeHint === '1.25×') sizeHint = '1×';
+  if (sessionBoost <= -4 && sizeHint === '1×' && decisionState.indexOf('ACTIVE') < 0) sizeHint = '0.5×';
+
+  // Thesis — decision ready
+  let thesis = decisionState + ' · ' + decisionScore + '/100 · size ' + sizeHint;
+  thesis += ' · ' + (mtf.direction || 'MIX') + ' struct ' + mtf.aligned + '/' + mtf.n;
+  thesis += ' · FP ' + (fpPress.side || 'FLAT') + ' ' + (typeof avFmtVol === 'function' ? avFmtVol(vol) : Math.round(vol));
+  thesis += ' · news ' + newsState.toLowerCase();
+  thesis += ' · gates ' + gatesCleared + '/4 · edge ' + (edge >= 0 ? '+' : '') + edge;
+  thesis += ' · ' + sessionLabel;
+  if (hasConflict) thesis += ' · CONFLICT';
+  if (quiet) thesis += ' · quiet range';
+  if (invalidation && invalidation !== '—') thesis += ' · inv: ' + invalidation;
+
+  // ---------- Output (compat + new fields) ----------
   _avSenseData = {
     structure: {
       score: structScore,
-      // Structure shows MTF count + avg structure Δ — NOT composite score
+      pts: structPts,
       meta: mtf.aligned + '/' + mtf.n + ' TF ' + mtf.direction.toLowerCase() +
-        ' · Δ ' + (mtf.avgDelta >= 0 ? '+' : '') + (mtf.avgDelta || 0).toFixed(2) + '%',
+        ' · Δ ' + (mtf.avgDelta >= 0 ? '+' : '') + (mtf.avgDelta || 0).toFixed(2) + '%' +
+        ' · ' + structPts + 'pts',
       thesis: 'Structure (MTF): ' + mtf.direction + ' ' + mtf.aligned + '/' + mtf.n +
-        ' · avg structure move ' + (mtf.avgDelta >= 0 ? '+' : '') + (mtf.avgDelta || 0).toFixed(2) +
-        '% · lean ' + (structScore >= 0.58 ? 'BUY (+)' : (structScore <= 0.42 ? 'SELL (−)' : 'flat (0)')) +
+        ' · avg Δ ' + (mtf.avgDelta >= 0 ? '+' : '') + (mtf.avgDelta || 0).toFixed(2) +
+        '% · quality ' + structPts + '/30 · lean ' +
+        (structScore >= 0.58 ? 'BUY' : (structScore <= 0.42 ? 'SELL' : 'flat')) +
         (mtf.detail ? ' · ' + mtf.detail : '') + '.',
       dot: mtf.direction === 'BULL' ? 'green' : (mtf.direction === 'BEAR' ? 'red' : 'amber')
     },
     footprint: {
       score: fpSense,
+      pts: fpPts,
       meta: (fpPress.side || 'FLAT') + ' ' +
-        (typeof avFmtVol === 'function' ? avFmtVol(fpPress.vol) : String(Math.round(fpPress.vol || 0))) +
-        ' · sc ' + (fpSense * 100 - 50 > 0 ? '+' : '') + ((fpSense - 0.5) * 200).toFixed(0) +
-        (fpPress.live ? ' · LIVE' : '') +
-        (fpPress.timeLabel ? ' · ' + fpPress.timeLabel : ''),
+        (typeof avFmtVol === 'function' ? avFmtVol(vol) : String(Math.round(vol || 0))) +
+        ' · ' + fpQuality + ' · ' + fpPts + 'pts' +
+        (fpPress.live ? ' · LIVE' : ''),
       thesis: '1H Footprint (OKX): ' +
         (fpPress.side === 'BUY' ? 'BUY pressure supports gold' :
          fpPress.side === 'SELL' ? 'SELL pressure pressures gold' : 'balanced / thin') +
         ' · buy ' + (typeof avFmtVol === 'function' ? avFmtVol(fpPress.buy) : fpPress.buy) +
         ' / sell ' + (typeof avFmtVol === 'function' ? avFmtVol(fpPress.sell) : fpPress.sell) +
-        ' · gate ' + (gFp ? 'PASS' : 'FAIL') + ' (need side match lean ' + lean + ').',
+        ' · quality ' + fpQuality + ' (' + fpPts + '/32) · gate ' + (gFp ? 'PASS' : 'FAIL') +
+        ' (need side match lean ' + lean + ').',
       dot: fpPress.side === 'BUY' ? 'green' : (fpPress.side === 'SELL' ? 'red' : 'amber')
     },
     news: {
       score: newsScore,
-      meta: newsLabel,
-      thesis: 'News risk: ' + newsLabel + ' · gate ' + (gNews ? 'PASS' : 'FAIL') +
-        (newsCanVeto ? ' · VETO WINDOW ±5m' : ' · no veto outside ±5m') + '.',
-      dot: newsScore < 0.35 ? 'red' : (newsScore < 0.55 ? 'amber' : 'green'),
+      pts: newsPts,
+      meta: newsState + ' · ' + newsLabel,
+      thesis: 'News: ' + newsState + ' · ' + newsLabel +
+        ' · ' + newsPts + '/18 pts · gate ' + (gNews ? 'PASS' : 'FAIL') +
+        (newsCanVeto ? ' · VETO ±5m' : (newsState === 'CAUTION' ? ' · pre/post event caution' : ' · clear')) + '.',
+      dot: newsState === 'VETO' ? 'red' : (newsState === 'CAUTION' ? 'amber' : 'green'),
       items: newsItems3,
-      canVeto: newsCanVeto
+      canVeto: newsCanVeto,
+      state: newsState
     },
     aiView: {
       score: aiViewSense,
+      pts: confPts,
       meta: (gAiView ? 'PASS' : 'FAIL') + ' · ' + aiSide + ' · agree ' +
-        (Math.round(aiAgree * 100)) + '% · lean ' + lean,
-      thesis: 'AI VIEW (live): system lean ' + lean +
-        ' · consensus ' + aiSide + ' (' + Math.round(aiAgree * 100) + '% agree)' +
+        Math.round(aiAgree * 100) + '% · ' + confPts + 'pts',
+      thesis: 'Confluence: lean ' + lean +
+        ' · consensus ' + aiSide + ' (' + Math.round(aiAgree * 100) + '%)' +
         ' · structure ' + mtf.direction +
         ' · 1H ' + (fpPress.side || 'FLAT') +
-        ' · news ' + (gNews ? 'clear' : 'risk') +
-        ' · gate ' + (gAiView ? 'PASS' : 'FAIL') +
-        '. Weights: Structure 30% · 1H FP 32% · News 18% · AI View 20%.',
+        ' · news ' + newsState +
+        ' · ' + confPts + '/20 pts · gate ' + (gAiView ? 'PASS' : 'FAIL') +
+        '. Weights: Structure 30 · FP 32 · News 18 · Confluence 20.',
       dot: gAiView ? (aiSide === 'BUY' ? 'green' : (aiSide === 'SELL' ? 'red' : 'amber')) : 'amber'
     },
     core: core,
+    decisionScore: decisionScore,
+    decisionState: decisionState,
+    sizeHint: sizeHint,
+    invalidation: invalidation,
+    conviction: decisionScore,
+    sessionLabel: sessionLabel,
+    sessionBoost: sessionBoost,
+    hasConflict: hasConflict,
+    lean: lean,
+    newsState: newsState,
+    fpQuality: fpQuality,
     gatesCleared: gatesCleared,
     thesis: thesis,
     sig: sig,
@@ -13181,8 +13719,10 @@ function avPaint() {
   };
   setTxt('avGoldBias', (d.goldPct >= 0 ? '+' : '') + d.goldPct.toFixed(2) + '% · ' + d.sig, d.goldPct >= 0 ? 'av-up' : 'av-down');
   setTxt('avDxyBias', (d.dxyPct >= 0 ? '+' : '') + d.dxyPct.toFixed(2) + '%', d.dxyPct >= 0 ? 'av-up' : 'av-down');
-  setTxt('avScoreTick', (d.core >= 0 ? '+' : '') + d.core.toFixed(2), d.core >= 0.15 ? 'av-up' : (d.core <= -0.15 ? 'av-down' : ''));
-  setTxt('avSignalTick', d.sig, d.sig.indexOf('BUY') >= 0 ? 'av-up' : (d.sig.indexOf('SELL') >= 0 ? 'av-down' : ''));
+  const dsTick = (d.decisionScore != null) ? d.decisionScore : Math.round(Math.abs(d.core || 0) * 100);
+  const stTick = d.decisionState || d.sig || '—';
+  setTxt('avScoreTick', dsTick + '/100', dsTick >= 56 ? 'av-up' : (dsTick <= 35 ? 'av-down' : ''));
+  setTxt('avSignalTick', stTick, stTick.indexOf('LONG') >= 0 || stTick.indexOf('BUY') >= 0 ? 'av-up' : (stTick.indexOf('SHORT') >= 0 || stTick.indexOf('SELL') >= 0 ? 'av-down' : ''));
 
   // Senses
   const map = [
@@ -13201,49 +13741,50 @@ function avPaint() {
 
   try { avRefreshFootprintGauge(true); } catch (e) {}
 
-  // Core ring + GOLD final signal
+  // Core ring + Decision Score (0–100) + state
   const coreEl = document.getElementById('avCoreScore');
   const gatesEl = document.getElementById('avCoreGates');
   const sigEl = document.getElementById('avCoreSignal');
   const ring = document.getElementById('avRingMeter');
   const glow = document.getElementById('avRingGlow');
+  const ds = (d.decisionScore != null) ? d.decisionScore : Math.round(Math.abs(d.core || 0) * 100);
+  const dState = d.decisionState || 'NO TRADE';
   if (coreEl) {
-    const c = d.core || 0;
-    coreEl.textContent = (c > 0 ? '+' : '') + c.toFixed(2);
-    coreEl.className = 'av-core-score' + (c >= 0.15 ? ' buy' : (c <= -0.15 ? ' sell' : ' flat'));
+    // Show Decision Score 0–100 as primary number
+    coreEl.textContent = String(ds);
+    let cls = ' flat';
+    if (dState.indexOf('LONG') >= 0 || (d.finalSignal || '').indexOf('BUY') >= 0) cls = ' buy';
+    else if (dState.indexOf('SHORT') >= 0 || (d.finalSignal || '').indexOf('SELL') >= 0) cls = ' sell';
+    else if (dState.indexOf('CLOSED') >= 0 || dState.indexOf('LOCK') >= 0) cls = ' sell';
+    coreEl.className = 'av-core-score' + cls;
     coreEl.style.color = '';
   }
-  // Scale needle: map core [-1,+1] → left 0%…100%
+  // Scale needle: map decisionScore 0–100 → left 0%…100% (centered neutral at 50)
   const needle = document.getElementById('avCoreNeedle');
   if (needle) {
+    // Prefer signed core for left/right lean on the bar
     const c = Math.max(-1, Math.min(1, d.core || 0));
     needle.style.left = ((c + 1) / 2 * 100).toFixed(1) + '%';
     needle.style.background = c >= 0.15 ? '#00e676' : (c <= -0.15 ? '#ff5252' : '#fbbf24');
   }
   const ruleEl = document.getElementById('avCoreRule');
   if (ruleEl) {
-    const c = d.core || 0;
-    const mag = Math.abs(c);
-    let band = 'FLAT';
-    if (c >= 0.55) band = 'STRONG BUY zone';
-    else if (c >= 0.25) band = 'BUY lean';
-    else if (c >= 0.10) band = 'mild BUY';
-    else if (c <= -0.55) band = 'STRONG SELL zone';
-    else if (c <= -0.25) band = 'SELL lean';
-    else if (c <= -0.10) band = 'mild SELL';
-    ruleEl.textContent = band + ' · live · max ±1';
+    const size = d.sizeHint || '0×';
+    ruleEl.textContent = dState + ' · size ' + size + ' · ' + (d.sessionLabel || '');
   }
   if (gatesEl) {
-    gatesEl.textContent = d.gatesCleared + '/4 gates · edge ' + (d.edge >= 0 ? '+' : '') + d.edge;
+    gatesEl.textContent = d.gatesCleared + '/4 gates · edge ' + (d.edge >= 0 ? '+' : '') + d.edge +
+      (d.hasConflict ? ' · CONFLICT' : '');
   }
   if (sigEl) {
-    const fs = d.finalSignal || 'NEUTRAL';
+    const fs = dState || d.finalSignal || 'NEUTRAL';
     const st = d.finalStrength || '';
-    sigEl.textContent = fs + (st ? ' · ' + st : '');
+    const size = d.sizeHint ? ' · ' + d.sizeHint : '';
+    sigEl.textContent = fs + (st ? ' · ' + st : '') + size;
     sigEl.className = 'av-core-signal';
-    if (fs.indexOf('BUY') >= 0) sigEl.classList.add('buy');
-    else if (fs.indexOf('SELL') >= 0) sigEl.classList.add('sell');
-    else if (fs.indexOf('CLOSED') >= 0) sigEl.classList.add('closed');
+    if (fs.indexOf('LONG') >= 0 || fs.indexOf('BUY') >= 0) sigEl.classList.add('buy');
+    else if (fs.indexOf('SHORT') >= 0 || fs.indexOf('SELL') >= 0) sigEl.classList.add('sell');
+    else if (fs.indexOf('CLOSED') >= 0 || fs.indexOf('LOCK') >= 0) sigEl.classList.add('closed');
     else sigEl.classList.add('neutral');
   }
   // Ring: fill = |core| strength; color = direction (−1 sell red · 0 cyan · +1 buy green)
@@ -13324,8 +13865,10 @@ function avPaint() {
       const n = d.gatesCleared != null ? d.gatesCleared : 0;
       const need = 4;
       const ok = n >= 3;
-      q.textContent = 'QUALIFIED ' + n + '/' + need + ' gates' +
-        (ok ? ' · setup ready' : ' · waiting alignment');
+      const ds = d.decisionScore != null ? d.decisionScore : 0;
+      const st = d.decisionState || '';
+      q.textContent = st + ' · ' + ds + '/100 · size ' + (d.sizeHint || '0×') +
+        ' · gates ' + n + '/' + need;
       q.className = 'av-qualify' + (ok ? ' ok' : (n <= 2 ? ' bad' : ''));
     }
   }
@@ -13333,8 +13876,10 @@ function avPaint() {
   // Council line = final signal
   const council = document.getElementById('avCouncil');
   if (council) {
-    const fs = d.finalSignal || 'NEUTRAL';
-    council.innerHTML = '<span>● ' + fs + '</span> ○ ' + (d.finalStrength || '') + ' ○ gates ' + d.gatesCleared + '/4';
+    const fs = d.decisionState || d.finalSignal || 'NEUTRAL';
+    const size = d.sizeHint || '0×';
+    council.innerHTML = '<span>● ' + fs + '</span> ○ ' + (d.finalStrength || '') +
+      ' ○ size ' + size + ' ○ gates ' + d.gatesCleared + '/4';
   }
 
   // Do NOT redraw wires every paint — it resets CSS flow animation
@@ -14547,22 +15092,42 @@ function acvPaintAv() {
     const sigEl = document.getElementById('acvAvSig');
     const gatesEl = document.getElementById('acvAvGates');
     const thesisEl = document.getElementById('acvAvThesis');
+    const ds = (d.decisionScore != null) ? d.decisionScore : Math.round(Math.abs(d.core || 0) * 100);
+    const dState = d.decisionState || 'NO TRADE';
     if (scoreEl) {
-      const c = d.core || 0;
-      scoreEl.textContent = (c >= 0 ? '+' : '') + c.toFixed(2);
-      scoreEl.className = 'acv-av-score' + (c >= 0.15 ? ' buy' : (c <= -0.15 ? ' sell' : ''));
+      scoreEl.textContent = String(ds);
+      let cls = '';
+      if (dState.indexOf('LONG') >= 0 || (d.finalSignal || '').indexOf('BUY') >= 0) cls = ' buy';
+      else if (dState.indexOf('SHORT') >= 0 || (d.finalSignal || '').indexOf('SELL') >= 0) cls = ' sell';
+      scoreEl.className = 'acv-av-score' + cls;
     }
-    // Front-page correlation (composite) score — second header score
+    // Desk correlation + size hint
     const corrEl = document.getElementById('acvCorrScore');
     if (corrEl) {
       const sc = (typeof state !== 'undefined' && state.smoothed_score != null)
         ? Number(state.smoothed_score) : 0;
-      corrEl.textContent = (sc >= 0 ? '+' : '') + sc.toFixed(1);
+      const size = d.sizeHint || '0×';
+      corrEl.textContent = (sc >= 0 ? '+' : '') + sc.toFixed(1) + ' · ' + size;
       corrEl.className = 'acv-av-score corr' + (sc >= 8 ? ' buy' : (sc <= -8 ? ' sell' : ''));
     }
-    if (sigEl) sigEl.textContent = (d.finalSignal || 'NEUTRAL') + (d.finalStrength ? ' · ' + d.finalStrength : '');
-    if (gatesEl) gatesEl.textContent = (d.gatesCleared != null ? d.gatesCleared : 0) + '/4 gates · edge ' + (d.edge != null ? d.edge : 0);
-    if (thesisEl) thesisEl.textContent = d.thesis || '—';
+    if (sigEl) {
+      const st = d.finalStrength ? ' · ' + d.finalStrength : '';
+      sigEl.textContent = dState + st;
+      sigEl.style.color = dState.indexOf('LONG') >= 0 ? '#00e676'
+        : (dState.indexOf('SHORT') >= 0 ? '#ff5252'
+        : (dState.indexOf('LOCK') >= 0 || dState.indexOf('CLOSED') >= 0 ? '#f87171' : '#94a3b8'));
+    }
+    if (gatesEl) {
+      gatesEl.textContent = (d.gatesCleared != null ? d.gatesCleared : 0) + '/4 gates · edge ' +
+        ((d.edge >= 0 ? '+' : '') + (d.edge != null ? d.edge : 0)) +
+        (d.hasConflict ? ' · CONFLICT' : '') +
+        (d.sessionLabel ? ' · ' + d.sessionLabel : '');
+    }
+    if (thesisEl) {
+      let t = d.thesis || '—';
+      if (d.invalidation && d.invalidation !== '—') t += ' · INV: ' + d.invalidation;
+      thesisEl.textContent = t;
+    }
     const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text || '—'; };
     set('acvAvStruct', d.structure && d.structure.meta);
     set('acvAvNews', d.news && d.news.meta);
@@ -14572,8 +15137,8 @@ function acvPaintAv() {
       (gf.gStruct ? 'S✓' : 'S✗') + ' ' +
       (gf.gFp ? 'FP✓' : 'FP✗') + ' ' +
       (gf.gNews ? 'N✓' : 'N✗') + ' ' +
-      (gf.gAiView ? 'AI✓' : 'AI✗'));
-    // 1H Footprint mini inside AI Visual only
+      (gf.gAiView ? 'C✓' : 'C✗'));
+    // 1H Footprint mini
     const fpMeta = (d.footprint && d.footprint.meta) || '—';
     set('acvAvFp', fpMeta);
     try {
@@ -14586,7 +15151,8 @@ function acvPaintAv() {
       if (sellEl) sellEl.textContent = 'Sell ' + (fp ? fmt(fp.sell) : '—');
       const sideEl = document.getElementById('acvAvFp');
       if (sideEl && fp) {
-        sideEl.textContent = (fp.side || 'FLAT') + ' · ' + fmt(fp.vol) + (fp.live ? ' · LIVE' : '');
+        sideEl.textContent = (fp.side || 'FLAT') + ' · ' + fmt(fp.vol) +
+          (d.fpQuality ? ' · ' + d.fpQuality : '') + (fp.live ? ' · LIVE' : '');
         sideEl.style.color = fp.side === 'BUY' ? '#00e676' : (fp.side === 'SELL' ? '#ff5252' : '#e2e8f0');
       }
     } catch (e2) {}
@@ -14727,6 +15293,2438 @@ window.addEventListener('resize', () => {
   if (!_acvOpen) return;
   acvApplyLayout();
 });
+
+
+
+/* ===== GP ALGO ENGINE ===== */
+const ALGO_TF_ALLOWED = { '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
+const ALGO_LS_KEY = 'gold_algo_trades_v1';
+const ALGO_STATE_KEY = 'gold_algo_state_v1';
+
+let algoState = {
+  hideTrades: false, armed: false,
+  tf: '15m',
+  sec: 900,
+  lastScanAt: 0,
+  lastBarSlot: 0,
+  open: false,
+  focusId: null,
+  histOpen: false,
+  rulesOpen: false
+};
+
+/** Persistent trade log — never relocates, survives refresh */
+function algoLoadTrades() {
+  try {
+    const raw = localStorage.getItem(ALGO_LS_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+}
+
+function algoSaveTrades(list) {
+  try {
+    // Keep last 200 trades max
+    const slim = (list || []).slice(-200);
+    localStorage.setItem(ALGO_LS_KEY, JSON.stringify(slim));
+  } catch (e) {}
+}
+
+function algoLoadState() {
+  try {
+    const s = JSON.parse(localStorage.getItem(ALGO_STATE_KEY) || '{}');
+    if (s.tf && ALGO_TF_ALLOWED[s.tf]) {
+      algoState.tf = s.tf;
+      algoState.sec = ALGO_TF_ALLOWED[s.tf];
+    }
+    if (typeof s.armed === 'boolean') algoState.armed = s.armed;
+  } catch (e) {}
+}
+
+function algoPersistState() {
+  try {
+    localStorage.setItem(ALGO_STATE_KEY, JSON.stringify({
+      tf: algoState.tf, armed: algoState.armed
+    }));
+  } catch (e) {}
+}
+
+function algoIsAllowedTf(tf) {
+  return !!ALGO_TF_ALLOWED[String(tf || '').toLowerCase()];
+}
+
+/** Higher TF biases from gold matrix — need ≥3 aligned for direction */
+function algoHigherTfBias(dir) {
+  // CODE FIX: bias map has 15m, 1h, 1d only (no 4h key in state). Require all 3 aligned.
+  const keys = ['15m', '1h', '1d'];
+  const src = (state.tf_biases_gold && Object.keys(state.tf_biases_gold || {}).length)
+    ? state.tf_biases_gold
+    : (state.tf_biases || {});
+  let bull = 0, bear = 0, n = 0;
+  const detail = [];
+  keys.forEach(k => {
+    const b = src[k];
+    if (!b) return;
+    n++;
+    const t = String(b.text || b.bias || '').toUpperCase();
+    if (t.indexOf('BULL') >= 0) { bull++; detail.push(k.toUpperCase() + ' BULL'); }
+    else if (t.indexOf('BEAR') >= 0) { bear++; detail.push(k.toUpperCase() + ' BEAR'); }
+    else detail.push(k.toUpperCase() + ' —');
+  });
+  try {
+    const w = src['1w'];
+    if (w) {
+      const t = String(w.text || '').toUpperCase();
+      if (t.indexOf('BULL') >= 0) detail.push('1W BULL');
+      else if (t.indexOf('BEAR') >= 0) detail.push('1W BEAR');
+    }
+  } catch (e) {}
+  const need = 3;
+  if (dir === 'BUY') return { ok: n >= 3 && bull >= need, count: bull, n: n, detail: detail.join(', ') };
+  if (dir === 'SELL') return { ok: n >= 3 && bear >= need, count: bear, n: n, detail: detail.join(', ') };
+  return { ok: false, count: 0, n: n, detail: detail.join(', ') };
+}
+
+function algoCandleVol(c) {
+  return Math.abs(Number(c.quoteVol) || Number(c.v) || Number(c.volume) || Number(c._v) || 0);
+}
+
+/** Strong rejection candle only — not a random bar.
+ * BUY: long lower wick (sweep), closes in upper half.
+ * SELL: long upper wick (sweep), closes in lower half.
+ */
+function algoIsRejection(c, side) {
+  const range = Math.max(1e-9, c.h - c.l);
+  const body = Math.abs(c.c - c.o);
+  const upper = c.h - Math.max(c.o, c.c);
+  const lower = Math.min(c.o, c.c) - c.l;
+  // Reject doji-noise / full-body impulse bars (not absorption)
+  if (body / range > 0.72) return false;
+  if (side === 'BUY') {
+    const lowerShare = lower / range;
+    const closePos = (c.c - c.l) / range;
+    // lower wick ≥ 30% of range, close in upper 50%+
+    return lowerShare >= 0.30 && closePos >= 0.50;
+  }
+  const upperShare = upper / range;
+  const closePos = (c.c - c.l) / range;
+  // upper wick ≥ 30% of range, close in lower 50%-
+  return upperShare >= 0.30 && closePos <= 0.50;
+}
+
+/** True only if this rejection candle's wick actually sweeps the zone price */
+function algoWickSweepsZone(c, side, zonePx, atr) {
+  if (!(zonePx > 0) || !c) return false;
+  const tol = Math.max(atr * 0.12, 0.4);
+  if (side === 'BUY') {
+    // Support sweep: low reaches zone (or slightly through), close finishes above
+    return c.l <= zonePx + tol && c.c > zonePx;
+  }
+  // Resistance sweep: high reaches zone (or slightly through), close finishes below
+  return c.h >= zonePx - tol && c.c < zonePx;
+}
+
+function algoNearLine(c, line, i, atr) {
+  if (!line || line.x2 === line.x1) return false;
+  const slope = (line.y2 - line.y1) / (line.x2 - line.x1);
+  const px = line.y1 + slope * (i - line.x1);
+  // Tight band: bar must actually reach the line (no random nearby area)
+  const tol = Math.max(atr * 0.45, 1.0);
+  return (c.l <= px + tol && c.h >= px - tol);
+}
+
+/** Recent swing range — zone must sit at real support/resistance, not mid-air */
+function algoRecentRange(data, i, lookback) {
+  lookback = lookback || 40;
+  let hi = -Infinity, lo = Infinity;
+  const a = Math.max(0, i - lookback);
+  for (let k = a; k <= i; k++) {
+    if (data[k].h > hi) hi = data[k].h;
+    if (data[k].l < lo) lo = data[k].l;
+  }
+  if (!isFinite(hi) || !isFinite(lo) || hi <= lo) return null;
+  return { hi: hi, lo: lo, span: hi - lo };
+}
+
+/** SELL zone = upper band of recent range; BUY zone = lower band */
+function algoZoneInContext(side, zonePx, rng, atr) {
+  if (!rng || !(rng.span > 0)) return false;
+  const band = Math.max(rng.span * 0.32, atr * 1.2);
+  if (side === 'BUY') {
+    // Support must be near recent lows (lower ~32% of swing)
+    return zonePx <= rng.lo + band;
+  }
+  // Resistance must be near recent highs (upper ~32% of swing)
+  return zonePx >= rng.hi - band;
+}
+
+/** Volume interest: prefer real volume; fallback to range proxy when feed has no volume */
+function algoVolMetrics(data, i) {
+  // RELAXED volume threshold (fix): relative multiplier vs SMA(Volume, 10)
+  // instead of beating EVERY one of the last 5 candles (missed trades on spike bars).
+  // Also accept strong opposing footprint delta absorption as alternate validation.
+  const look = 10;
+  const vols = [];
+  for (let k = i - look; k < i; k++) {
+    if (k >= 0) vols.push(algoCandleVol(data[k]));
+  }
+  if (vols.length < 5) return { ok: false, vol: 0, avg5: 0, ratio: 0, usedProxy: false, viaFp: false };
+  const volRaw = algoCandleVol(data[i]);
+  const sumV = vols.reduce(function (a, b) { return a + b; }, 0);
+  let vol = volRaw;
+  let usedProxy = false;
+  // Gold CFD feeds often have flat/near-zero volume on 5m — use range as interest proxy
+  const avgRaw = sumV / Math.max(1, vols.length);
+  if ((sumV < 1e-3 && volRaw < 1e-3) || avgRaw < 0.05) {
+    usedProxy = true;
+    for (let k = 0; k < vols.length; k++) {
+      const c = data[i - look + k];
+      if (c) vols[k] = Math.max(0.01, (c.h - c.l));
+    }
+    vol = Math.max(0.01, data[i].h - data[i].l);
+  }
+  const sma = vols.reduce(function (a, b) { return a + b; }, 0) / vols.length;
+  const ratio = sma > 0 ? vol / sma : 0;
+  // Relative interest vs SMA10 — 1.15× (rejection wicks often just above average)
+  const MULT = 1.15;
+  let ok = sma > 0 && vol >= sma * MULT;
+  let viaFp = false;
+  // Alternate: negative footprint delta absorption (sell pressure absorbing at resistance, etc.)
+  if (!ok) {
+    try {
+      if (typeof avGetFootprint1h === 'function') {
+        const fp = avGetFootprint1h();
+        if (fp && fp.vol > 0 && Math.abs(fp.delta || 0) / fp.vol >= 0.22) {
+          ok = true;
+          viaFp = true;
+        }
+      }
+    } catch (eFp) {}
+  }
+  // Proxy range: still require relative strength vs SMA
+  if (usedProxy && !viaFp) {
+    ok = sma > 0 && vol >= sma * 1.25;
+  }
+  return { ok: ok, vol: vol, avg5: sma, ratio: ratio, usedProxy: usedProxy, viaFp: viaFp };
+}
+
+/** Local momentum from candles (for backtest — does not depend on live desk only) */
+function algoLocalLean(data, i) {
+  if (i < 8) return 'NEUTRAL';
+  const c0 = data[i - 8].c;
+  const c1 = data[i].c;
+  const pct = ((c1 - c0) / Math.max(1e-9, c0)) * 100;
+  // Gold: 0.05% over ~8 bars is meaningful structure lean
+  if (pct > 0.05) return 'BUY';
+  if (pct < -0.05) return 'SELL';
+  return 'NEUTRAL';
+}
+
+/**
+ * Scan one bar index. mode: 'LIVE' | 'BACKTEST'
+ */
+
+/**
+ * Multi-source confluence for high accuracy:
+ * candles + support/resist zones (caller) + AI Footprint + AI Visual decision + desk + HTF
+ * Returns 0–100 score and pass flag.
+ */
+function algoConfluencePack(side, mode, localLean) {
+  let score = 0;
+  const bits = [];
+  const desk = Number(state.smoothed_score) || 0;
+  localLean = localLean || 'NEUTRAL';
+
+  // 1) Desk / correlation — LIVE uses live desk; BACKTEST uses bar local lean (live desk is not that bar's price regime)
+  if (mode === 'LIVE') {
+    if (side === 'BUY' && desk > 0) {
+      score += Math.min(20, 8 + desk * 0.12);
+      bits.push('desk+' + desk.toFixed(1));
+    } else if (side === 'SELL' && desk < 0) {
+      score += Math.min(20, 8 + Math.abs(desk) * 0.12);
+      bits.push('desk' + desk.toFixed(1));
+    } else {
+      bits.push('desk×');
+    }
+  } else {
+    if ((side === 'BUY' && localLean === 'BUY') || (side === 'SELL' && localLean === 'SELL')) {
+      score += 16;
+      bits.push('local ' + localLean);
+    } else {
+      bits.push('local×');
+    }
+  }
+
+  // 2) HTF bias 15m/1H/1D (max 22) — strict 3+ from matrix
+  const bias = algoHigherTfBias(side === 'BUY' ? 'BUY' : 'SELL');
+  if (bias.ok) {
+    score += 22;
+    bits.push('HTF3+');
+  } else if (bias.count >= 2) {
+    score += 8;
+    bits.push('HTF2');
+  } else {
+    bits.push('HTF×');
+  }
+
+  // 3) AI Footprint — LIVE only (OKX pressure). Never apply live FP to historical bars.
+  let fp = null;
+  if (mode === 'LIVE') {
+    try {
+      if (typeof avGetFootprint1h === 'function') fp = avGetFootprint1h();
+    } catch (e) {}
+    if (fp && fp.vol > 0) {
+      const align = (side === 'BUY' && fp.side === 'BUY') || (side === 'SELL' && fp.side === 'SELL');
+      const oppose = (side === 'BUY' && fp.side === 'SELL') || (side === 'SELL' && fp.side === 'BUY');
+      if (align && fp.pass) {
+        score += Math.min(28, 14 + (fp.strength || 0) * 20 + Math.min(8, Math.log10(Math.max(10, fp.vol)) * 2));
+        bits.push('FP ' + fp.side + ' ' + ((fp.strength || 0) * 100).toFixed(0) + '%');
+      } else if (align) {
+        score += 10;
+        bits.push('FP soft ' + fp.side);
+      } else if (oppose && (fp.strength || 0) >= 0.08 && fp.vol >= 100) {
+        score -= 18;
+        bits.push('FP oppose');
+      } else {
+        bits.push('FP ' + (fp.side || 'FLAT'));
+      }
+    } else {
+      // Missing FP must not veto — feed may lag
+      bits.push('FP n/a');
+    }
+  } else {
+    bits.push('FP skip(hist)');
+  }
+
+  // 4) AI Visual — LIVE only (decision is current, not historical)
+  let d = null;
+  if (mode === 'LIVE') {
+    try {
+      if (typeof avComputeSenses === 'function') d = avComputeSenses();
+    } catch (e) {}
+    if (d) {
+      const st = String(d.decisionState || '');
+      const sig = String(d.finalSignal || '');
+      const ds = Number(d.decisionScore) || 0;
+      if (side === 'BUY' && (st.indexOf('LONG') >= 0 || sig.indexOf('BUY') >= 0)) {
+        score += Math.min(25, 10 + ds * 0.15);
+        bits.push('AI ' + st);
+      } else if (side === 'SELL' && (st.indexOf('SHORT') >= 0 || sig.indexOf('SELL') >= 0)) {
+        score += Math.min(25, 10 + ds * 0.15);
+        bits.push('AI ' + st);
+      } else if (st.indexOf('LOCK') >= 0 || st.indexOf('CLOSED') >= 0) {
+        score -= 25;
+        bits.push('AI LOCK');
+      } else if (st.indexOf('CONFLICT') >= 0 || d.hasConflict) {
+        score -= 12;
+        bits.push('AI conflict');
+      } else {
+        bits.push('AI ' + (st || 'flat'));
+      }
+      if (d.newsState === 'VETO') { score -= 30; bits.push('NEWS VETO'); }
+      else if (d.newsState === 'CAUTION') { score -= 6; bits.push('NEWS caution'); }
+      else if (d.newsState === 'CLEAR') { score += 5; bits.push('NEWS clear'); }
+    } else {
+      bits.push('AI n/a');
+    }
+  } else {
+    // BACKTEST: structure already required by caller; award structure conf points
+    score += 20;
+    bits.push('struct hist');
+  }
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  // LIVE: desk+HTF+FP/AI stack. BACKTEST: structure+local+HTF only.
+  // BACKTEST need 34 so local(16)+struct(18) can pass when HTF flat; HTF3+ still boosts.
+  const need = mode === 'LIVE' ? 48 : 34;
+  const veto = !!(d && d.newsState === 'VETO');
+  return {
+    ok: score >= need && !veto,
+    score: score,
+    need: need,
+    bits: bits.join(' · '),
+    fp: fp,
+    decision: d
+  };
+}
+
+
+function algoScanBar(data, i, tf, lines, demand, supply, mode) {
+  const out = [];
+  if (i < 10 || i >= data.length) return out;
+  // PRICE SOURCE: interbank gold candles only (data = candleHistory).
+  // Never use OKX/swap price for entry/SL/TP/zones — OKX can differ $8+ from interbank.
+  // OKX is used only via avGetFootprint1h() for buy/sell volume pressure.
+  const c = data[i];
+  if (!c || !(c.h > 0)) return out;
+  // Sanity: gold interbank typically 1500–5000; reject absurd crypto-scaled values
+  if (c.c < 500 || c.c > 10000) return out;
+
+  let atrSum = 0;
+  const ap = Math.min(14, i);
+  for (let k = i - ap + 1; k <= i; k++) atrSum += Math.max(0.01, data[k].h - data[k].l);
+  const atr = Math.max(1.0, atrSum / ap);
+
+  const vm = algoVolMetrics(data, i);
+  if (!vm.ok) return out;
+
+  const deskLive = Number(state.smoothed_score) || 0;
+  const local = algoLocalLean(data, i);
+  const buyBias = algoHigherTfBias('BUY');
+  const sellBias = algoHigherTfBias('SELL');
+
+  // Reference model (strict — not relaxed):
+  // LIVE:  desk corr sign + HTF 15m/1h/1d all aligned (3+)
+  // BACKTEST: same HTF regime filter + local bar lean for direction
+  //   (cannot use live desk on a bar from hours ago — that was a code bug)
+  // LIVE: desk sign must match. BACKTEST: local candle lean must match side.
+  const buyDeskOk = mode === 'LIVE' ? (deskLive > 0) : (local === 'BUY');
+  const sellDeskOk = mode === 'LIVE' ? (deskLive < 0) : (local === 'SELL');
+  // LIVE + BACKTEST: HTF ≥2/3 (desk still required on LIVE)
+  const buyBiasOk = buyBias.ok || buyBias.count >= 2;
+  const sellBiasOk = sellBias.ok || sellBias.count >= 2;
+  // HTF not ready yet → BACKTEST may still use local lean + structure (not both sides)
+  const htfUnknown = (buyBias.n < 3) || (buyBias.count === 0 && sellBias.count === 0);
+  const buyDirOk = buyDeskOk && (buyBiasOk || (mode !== 'LIVE' && htfUnknown));
+  const sellDirOk = sellDeskOk && (sellBiasOk || (mode !== 'LIVE' && htfUnknown));
+
+  function pushTrade(side, reason, zonePx, zoneKind) {
+    const barSlot = c.barSlot || (c.closeTime ? (c.closeTime - (ALGO_TF_ALLOWED[tf] || 900) * 1000) : (Date.now() - (data.length - i) * (ALGO_TF_ALLOWED[tf] || 900) * 1000));
+    const id = 'GP-' + side[0] + '-' + tf + '-' + barSlot + '-' + Math.round(zonePx * 100);
+    // Entry/SL/TP always interbank candle prices (never OKX mark price)
+    // SL: beyond sweep extreme + 1.0–1.5×ATR buffer (protects stop-runs that wick the level)
+    const entry = Number(c.c);
+    const SL_BUF = 1.25; // mid of 1.0–1.5×ATR
+    let sl, tp, risk;
+    if (side === 'BUY') {
+      const sweepLow = Math.min(c.l, zonePx);
+      sl = sweepLow - atr * SL_BUF;
+      risk = Math.max(atr * 0.35, entry - sl);
+      if (risk < atr * 0.35) {
+        risk = atr * 0.35;
+        sl = entry - risk;
+      }
+      tp = entry + risk * 2;
+    } else {
+      const sweepHigh = Math.max(c.h, zonePx);
+      sl = sweepHigh + atr * SL_BUF;
+      risk = Math.max(atr * 0.35, sl - entry);
+      if (risk < atr * 0.35) {
+        risk = atr * 0.35;
+        sl = entry + risk;
+      }
+      tp = entry - risk * 2;
+    }
+    out.push({
+      id: id,
+      side: side,
+      tf: tf,
+      price: entry,
+      entry: entry,
+      sl: Number(sl.toFixed(2)),
+      tp: Number(tp.toFixed(2)),
+      risk: Number(risk.toFixed(2)),
+      rr: 2,
+      zone: Number(zonePx),
+      zoneKind: zoneKind,
+      time: c.time || '',
+      barSlot: barSlot,
+      barIndex: i,
+      ts: Date.now(),
+      vol: vm.vol,
+      avg5: vm.avg5,
+      volRatio: vm.ratio,
+      desk: deskLive,
+      reason: reason,
+      status: 'OPEN',
+      source: mode || 'LIVE',
+      asset: 'gold',
+      lots: (typeof algoGetLotSize === 'function' ? algoGetLotSize() : 1),
+      outcome: null,
+      exit: null,
+      pnl: null,
+      hitBar: null
+    });
+  }
+
+
+  // Multi-source confluence (Footprint + AI Visual + desk + HTF + news)
+  const confBuy = algoConfluencePack('BUY', mode, local);
+  const confSell = algoConfluencePack('SELL', mode, local);
+
+  // ========== BULL → BUY only at SUPPORT (teal lines / demand OB) ==========
+  // RULE: rejection candle ONLY · wick must SWEEP the zone · never random mid-range
+  // NEVER buy on red resistance lines or supply OBs
+  if (buyDirOk && algoIsRejection(c, 'BUY') && confBuy.ok) {
+    let tookBuy = false;
+    // Prefer validated 2-touch+ support trendlines (retest after base is set)
+    for (let li = 0; li < lines.length; li++) {
+      const l = lines[li];
+      if (!l || l.type !== 'sup') continue; // teal support ONLY
+      const touches = (l.touches && l.touches.length) || (l.touchCount || 0);
+      if (touches < 2) continue; // structure not validated
+      const tIdx = (l.touches || []).map(function (t) { return t.i; }).sort(function (a, b) { return a - b; });
+      const secondTouchI = tIdx.length >= 2 ? tIdx[1] : -1;
+      // Allow 2nd-touch bar itself if HIGH rejection; later retests use std rejection
+      if (secondTouchI >= 0 && i < secondTouchI) continue;
+      const needHighBuy = (secondTouchI >= 0 && i === secondTouchI);
+      if (needHighBuy && !algoIsRejection(c, 'BUY', 'high')) continue;
+      if (!algoNearLine(c, l, i, atr)) continue;
+      const slope = (l.y2 - l.y1) / (l.x2 - l.x1);
+      const px = l.y1 + slope * (i - l.x1);
+      const mid = (c.h + c.l) / 2;
+      // Support line must sit in LOWER half of this rejection bar
+      if (px > mid + atr * 0.15) continue;
+      // MUST sweep the line with lower wick + close back above (rejection at zone)
+      if (!algoWickSweepsZone(c, 'BUY', px, atr)) continue;
+      const rng = algoRecentRange(data, i, 40);
+      if (!algoZoneInContext('BUY', px, rng, atr)) continue; // not mid-air
+      if (rng && px > c.c + atr * 3) continue; // abandoned far above
+      pushTrade('BUY',
+        'BUY @ SUPPORT (teal TL) · ≥2 touches · rejection sweep · vol ' + vm.ratio.toFixed(2) + '×' +
+        (vm.usedProxy ? ' (range)' : '') + ' · desk ' + deskLive.toFixed(1) + ' · HTF bull ' + buyBias.count + '/' + buyBias.n,
+        px, 'SUPPORT_TL');
+      if (out.length) out[out.length - 1].reason += ' · conf ' + confBuy.score + '/100 · ' + confBuy.bits;
+      if (out.length) out[out.length - 1].conf = confBuy.score;
+      tookBuy = true;
+      break;
+    }
+    // Demand OB only if no TL hit — still requires rejection wick into the block
+    if (!tookBuy) {
+      for (let oi = 0; oi < demand.length; oi++) {
+        const ob = demand[oi];
+        if (ob == null || ob.bottom == null || ob.top == null) continue;
+        // OB must be recent enough (not ancient random block)
+        if (ob.startIndex != null && (i - ob.startIndex) > 120) continue;
+        const zMid = (ob.top + ob.bottom) / 2;
+        const mid = (c.h + c.l) / 2;
+        if (zMid > mid + atr * 0.25) continue; // zone not in lower half of bar
+        // Wick must enter the demand block
+        if (c.l > ob.top + atr * 0.15) continue;
+        if (c.h < ob.bottom - atr * 0.2) continue;
+        // Sweep-and-close: close back ABOVE block bottom (absorption)
+        if (c.c <= ob.bottom) continue;
+        if (!algoWickSweepsZone(c, 'BUY', zMid, atr) && !(c.l <= ob.top && c.c > ob.bottom)) continue;
+        const rngB = algoRecentRange(data, i, 40);
+        if (!algoZoneInContext('BUY', zMid, rngB, atr)) continue;
+        pushTrade('BUY',
+          'BUY @ SUPPORT (demand OB) · rejection sweep · vol ' + vm.ratio.toFixed(2) + '× · desk ' +
+          deskLive.toFixed(1) + ' · HTF bull ' + buyBias.count + '/' + buyBias.n,
+          zMid, 'SUPPORT_OB');
+        if (out.length) out[out.length - 1].reason += ' · conf ' + confBuy.score + '/100 · ' + confBuy.bits;
+        if (out.length) out[out.length - 1].conf = confBuy.score;
+        break;
+      }
+    }
+  }
+
+  // ========== BEAR → SELL only at RESISTANCE (red lines / supply OB) ==========
+  // RULE: rejection candle ONLY · wick must SWEEP the zone · never random mid-range
+  // NEVER sell on teal/blue support lines or demand OBs
+  if (sellDirOk && algoIsRejection(c, 'SELL') && confSell.ok && !out.some(function (t) { return t.side === 'BUY'; })) {
+    let tookSell = false;
+    for (let li = 0; li < lines.length; li++) {
+      const l = lines[li];
+      if (!l || l.type !== 'res') continue; // red resistance ONLY
+      const touches = (l.touches && l.touches.length) || (l.touchCount || 0);
+      if (touches < 2) continue;
+      const tIdxS = (l.touches || []).map(function (t) { return t.i; }).sort(function (a, b) { return a - b; });
+      const secondTouchIS = tIdxS.length >= 2 ? tIdxS[1] : -1;
+      // Allow 2nd-touch bar itself if HIGH rejection; later retests use std rejection
+      if (secondTouchIS >= 0 && i < secondTouchIS) continue;
+      const needHighSell = (secondTouchIS >= 0 && i === secondTouchIS);
+      if (needHighSell && !algoIsRejection(c, 'SELL', 'high')) continue;
+      if (!algoNearLine(c, l, i, atr)) continue;
+      const slope = (l.y2 - l.y1) / (l.x2 - l.x1);
+      const px = l.y1 + slope * (i - l.x1);
+      const mid = (c.h + c.l) / 2;
+      // Resistance line must sit in UPPER half of this rejection bar
+      if (px < mid - atr * 0.15) continue;
+      // MUST sweep the line with upper wick + close back below
+      if (!algoWickSweepsZone(c, 'SELL', px, atr)) continue;
+      const rngS = algoRecentRange(data, i, 40);
+      if (!algoZoneInContext('SELL', px, rngS, atr)) continue;
+      if (c.c < px - atr * 2.5) continue; // already crashed through
+      pushTrade('SELL',
+        'SELL @ RESISTANCE (red TL) · ≥2 touches · rejection sweep · vol ' + vm.ratio.toFixed(2) + '×' +
+        (vm.usedProxy ? ' (range)' : '') + ' · desk ' + deskLive.toFixed(1) + ' · HTF bear ' + sellBias.count + '/' + sellBias.n,
+        px, 'RESIST_TL');
+      if (out.length) out[out.length - 1].reason += ' · conf ' + confSell.score + '/100 · ' + confSell.bits;
+      if (out.length) out[out.length - 1].conf = confSell.score;
+      tookSell = true;
+      break;
+    }
+    if (!tookSell) {
+      for (let oi = 0; oi < supply.length; oi++) {
+        const ob = supply[oi];
+        if (ob == null || ob.bottom == null || ob.top == null) continue;
+        if (ob.startIndex != null && (i - ob.startIndex) > 120) continue;
+        const zMid = (ob.top + ob.bottom) / 2;
+        const mid = (c.h + c.l) / 2;
+        if (zMid < mid - atr * 0.25) continue;
+        // Wick must enter the supply block
+        if (c.h < ob.bottom - atr * 0.15) continue;
+        if (c.l > ob.top + atr * 0.2) continue;
+        // Sweep-and-close: close back BELOW block top
+        if (c.c >= ob.top) continue;
+        if (!algoWickSweepsZone(c, 'SELL', zMid, atr) && !(c.h >= ob.bottom && c.c < ob.top)) continue;
+        const rngSO = algoRecentRange(data, i, 40);
+        if (!algoZoneInContext('SELL', zMid, rngSO, atr)) continue;
+        if (c.c < zMid - atr * 2.5) continue;
+        pushTrade('SELL',
+          'SELL @ RESISTANCE (supply OB) · rejection sweep · vol ' + vm.ratio.toFixed(2) + '× · desk ' +
+          deskLive.toFixed(1) + ' · HTF bear ' + sellBias.count + '/' + sellBias.n,
+          zMid, 'RESIST_OB');
+        if (out.length) out[out.length - 1].reason += ' · conf ' + confSell.score + '/100 · ' + confSell.bits;
+        if (out.length) out[out.length - 1].conf = confSell.score;
+        break;
+      }
+    }
+  }
+
+  // Safety: drop inverted SL/TP geometry
+  for (let ti = out.length - 1; ti >= 0; ti--) {
+    const t = out[ti];
+    if (t.side === 'BUY' && !(t.sl < t.entry && t.tp > t.entry)) out.splice(ti, 1);
+    else if (t.side === 'SELL' && !(t.sl > t.entry && t.tp < t.entry)) out.splice(ti, 1);
+  }
+
+  return out;
+}
+
+/**
+ * Core scan — LIVE: last closed bar. BACKTEST: walk history.
+ */
+function algoScanSignals(candles, tf, mode, structOpt) {
+  const out = [];
+  mode = mode || 'LIVE';
+  if (!algoIsAllowedTf(tf)) return out;
+  if (!Array.isArray(candles) || candles.length < 30) return out;
+
+  const data = candles;
+  const n = data.length;
+  // Prefer explicit structure from algoScanTf (built on these candles).
+  // Critical: do NOT rely on globals that may have been restored to another TF.
+  const lines = (structOpt && Array.isArray(structOpt.lines))
+    ? structOpt.lines
+    : ((typeof multiHorizonTrendlines !== 'undefined' && Array.isArray(multiHorizonTrendlines))
+      ? multiHorizonTrendlines : []);
+  const demand = (structOpt && Array.isArray(structOpt.demand))
+    ? structOpt.demand
+    : ((typeof storedDemandOBs !== 'undefined') ? storedDemandOBs : []);
+  const supply = (structOpt && Array.isArray(structOpt.supply))
+    ? structOpt.supply
+    : ((typeof storedSupplyOBs !== 'undefined') ? storedSupplyOBs : []);
+
+  if (mode === 'LIVE') {
+    // Last 2 closed bars (n-2, n-3) — catch rejection as soon as bar closes
+    // Forming bar (n-1) is never used for entry
+    for (let i = n - 2; i >= n - 3 && i >= 10; i--) {
+      const found = algoScanBar(data, i, tf, lines, demand, supply, 'LIVE');
+      for (let j = 0; j < found.length; j++) {
+        found[j].source = 'LIVE';
+        out.push(found[j]);
+      }
+    }
+    return out;
+  }
+
+  // BACKTEST: scan closed bars (skip last forming)
+  const start = Math.max(15, n - 220);
+  const end = n - 2;
+  for (let i = start; i <= end; i++) {
+    const found = algoScanBar(data, i, tf, lines, demand, supply, 'BACKTEST');
+    for (let j = 0; j < found.length; j++) out.push(found[j]);
+  }
+  return out;
+}
+
+
+/** Gold 1 lot: PnL in $ per $1 price move (display unit). 1 lot fixed. */
+function algoPnlPoints(side, entry, exitPx, lots) {
+  lots = (lots != null) ? Number(lots) : 1;
+  const diff = Number(exitPx) - Number(entry);
+  const signed = side === 'BUY' ? diff : -diff;
+  return signed * lots;
+}
+
+/**
+ * Resolve OPEN trade against later candles: which hits first — SL or TP.
+ * Returns updated trade fields (does not mutate input).
+ */
+function algoCandlesForTradeTf(tf) {
+  tf = String(tf || '15m').toLowerCase();
+  try {
+    if ((state.chartAsset || 'gold') === 'gold' &&
+        (state.tf_interval || '') === tf &&
+        typeof candleHistory !== 'undefined' &&
+        candleHistory && candleHistory.length >= 10 &&
+        (!candlesMatchAsset || candlesMatchAsset(candleHistory, 'gold'))) {
+      return candleHistory;
+    }
+  } catch (e) {}
+  try {
+    const s = chartStore.gold && chartStore.gold[tf];
+    if (s && s.candles && s.candles.length >= 10) return s.candles;
+  } catch (e) {}
+  return null;
+}
+
+/**
+ * Resolve OPEN trade against later candles (same TF preferred).
+ * Closed trades never reopen. Wrong-TF series will not false-SL.
+ */
+function algoResolveTradeOnCandles(t, candles) {
+  if (!t) return t;
+  if (t.outcome === 'TP' || t.outcome === 'SL') return t;
+  if (t.status === 'TP' || t.status === 'SL') {
+    return Object.assign({}, t, { outcome: t.status });
+  }
+
+  const entry = Number(t.entry);
+  const sl = Number(t.sl);
+  const tp = Number(t.tp);
+  if (!(entry > 0) || !(sl > 0) || !(tp > 0)) {
+    return Object.assign({}, t, { status: 'OPEN', outcome: null });
+  }
+
+  let series = candles;
+  const tf = String(t.tf || '');
+  if (tf) {
+    const own = algoCandlesForTradeTf(tf);
+    if (own && own.length >= 10) series = own;
+  }
+
+  const isBuy = t.side === 'BUY';
+  // Broken geometry → leave OPEN
+  if (isBuy && !(sl < entry && tp > entry)) {
+    return Object.assign({}, t, { status: 'OPEN', outcome: null });
+  }
+  if (!isBuy && !(sl > entry && tp < entry)) {
+    return Object.assign({}, t, { status: 'OPEN', outcome: null });
+  }
+
+  const mtmOnly = function () {
+    const livePx = (typeof state !== 'undefined' && state.gold_price > 500)
+      ? state.gold_price
+      : (series && series.length ? series[series.length - 1].c : 0);
+    if (livePx > 0) {
+      const mtm = algoPnlPoints(t.side, entry, livePx, t.lots || 1);
+      return Object.assign({}, t, {
+        status: 'OPEN', outcome: null, exit: null, pnl: Number(mtm.toFixed(2)), mtm: true
+      });
+    }
+    return Object.assign({}, t, { status: 'OPEN', outcome: null });
+  };
+
+  if (!series || series.length < 2) return mtmOnly();
+
+  let start = -1;
+  if (t.barSlot) {
+    for (let i = 0; i < series.length; i++) {
+      if (series[i].barSlot === t.barSlot) { start = i + 1; break; }
+    }
+  }
+  if (start < 0 && t.barIndex != null && Number(t.barIndex) >= 0) {
+    start = Number(t.barIndex) + 1;
+  }
+  if (start < 0) {
+    let best = -1, bestD = 1e9;
+    for (let i = 0; i < series.length; i++) {
+      const d = Math.abs(series[i].c - entry);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    // Only accept tight match — otherwise MTM only (do not false-scan)
+    if (best >= 0 && bestD <= 3.0) start = best + 1;
+    else return mtmOnly();
+  }
+  if (start < 1) start = 1;
+
+  for (let i = start; i < series.length; i++) {
+    const c = series[i];
+    if (!c) continue;
+    let hitSL = false, hitTP = false;
+    if (isBuy) {
+      hitSL = c.l <= sl;
+      hitTP = c.h >= tp;
+    } else {
+      hitSL = c.h >= sl;
+      hitTP = c.l <= tp;
+    }
+    if (hitSL && hitTP) {
+      // Closer extreme to open is assumed hit first
+      const open = c.o || entry;
+      const distSL = Math.abs(open - sl);
+      const distTP = Math.abs(open - tp);
+      if (distSL <= distTP) {
+        const pnl = algoPnlPoints(t.side, entry, sl, t.lots || 1);
+        return Object.assign({}, t, {
+          status: 'SL', outcome: 'SL', exit: sl, pnl: Number(pnl.toFixed(2)),
+          hitBar: c.barSlot || i, resolvedAt: Date.now()
+        });
+      }
+      const pnl = algoPnlPoints(t.side, entry, tp, t.lots || 1);
+      return Object.assign({}, t, {
+        status: 'TP', outcome: 'TP', exit: tp, pnl: Number(pnl.toFixed(2)),
+        hitBar: c.barSlot || i, resolvedAt: Date.now()
+      });
+    }
+    if (hitSL) {
+      const pnl = algoPnlPoints(t.side, entry, sl, t.lots || 1);
+      return Object.assign({}, t, {
+        status: 'SL', outcome: 'SL', exit: sl, pnl: Number(pnl.toFixed(2)),
+        hitBar: c.barSlot || i, resolvedAt: Date.now()
+      });
+    }
+    if (hitTP) {
+      const pnl = algoPnlPoints(t.side, entry, tp, t.lots || 1);
+      return Object.assign({}, t, {
+        status: 'TP', outcome: 'TP', exit: tp, pnl: Number(pnl.toFixed(2)),
+        hitBar: c.barSlot || i, resolvedAt: Date.now()
+      });
+    }
+  }
+  return mtmOnly();
+}
+
+/** Resolve each trade on its own TF — stops false SL when chart TF differs */
+function algoResolveAllTrades(candles) {
+  const log = algoLoadTrades();
+  if (!log.length) return { tp: 0, sl: 0, open: 0, winRate: 0, totalPnl: 0 };
+  let changed = false;
+  const next = log.map(function (t) {
+    if (!t) return t;
+    if (t.outcome === 'TP' || t.outcome === 'SL') return t;
+    const series = algoCandlesForTradeTf(t.tf) || candles || [];
+    const r = algoResolveTradeOnCandles(t, series);
+    if (!r) return t;
+    if (r.outcome !== t.outcome || r.status !== t.status ||
+        Number(r.pnl) !== Number(t.pnl) || r.exit !== t.exit) {
+      changed = true;
+    }
+    return r;
+  });
+  if (changed) {
+    // SL/TP hit → close on MT5 when market touched level (auto)
+    try {
+      for (let i = 0; i < next.length; i++) {
+        const a = log[i], b = next[i];
+        if (!b || !a) continue;
+        const wasOpen = !(a.outcome === 'TP' || a.outcome === 'SL' || a.status === 'TP' || a.status === 'SL');
+        const nowClosed = (b.outcome === 'TP' || b.outcome === 'SL');
+        if (wasOpen && nowClosed && !b.mt5Closed && typeof mt5SendClose === 'function') {
+          mt5SendClose(b, b.outcome);
+        }
+      }
+    } catch (eC) {}
+    algoSaveTrades(next);
+  }
+  return algoComputeStats(next);
+}
+
+function algoComputeStats(list) {
+  list = list || algoLoadTrades();
+  let tp = 0, sl = 0, open = 0, totalPnl = 0, openPnl = 0;
+  list.forEach(function (t) {
+    if (!t) return;
+    if (t.outcome === 'TP' || t.status === 'TP') {
+      tp++;
+      if (t.pnl != null) totalPnl += Number(t.pnl) || 0;
+    } else if (t.outcome === 'SL' || t.status === 'SL') {
+      sl++;
+      if (t.pnl != null) totalPnl += Number(t.pnl) || 0;
+    } else {
+      open++;
+      if (t.pnl != null) openPnl += Number(t.pnl) || 0;
+    }
+  });
+  const closed = tp + sl;
+  return {
+    tp: tp, sl: sl, open: open, closed: closed,
+    winRate: closed > 0 ? (tp / closed) * 100 : 0,
+    totalPnl: totalPnl, openPnl: openPnl, lots: 1
+  };
+}
+
+function algoMergeNewTrades(candidates) {
+  const log = algoLoadTrades();
+  const ids = new Set(log.map(function (t) { return t && t.id; }).filter(Boolean));
+  let added = 0;
+  function nearDup(t) {
+    const z = Number(t.zone) || Number(t.entry) || 0;
+    const side = t.side;
+    const slot = Number(t.barSlot) || 0;
+    const tf = String(t.tf || '');
+    for (let i = 0; i < log.length; i++) {
+      const e = log[i];
+      if (!e || e.side !== side) continue;
+      if (String(e.tf || '') !== tf) continue;
+      const ez = Number(e.zone) || Number(e.entry) || 0;
+      if (Math.abs(ez - z) > 1.5) continue;
+      const es = Number(e.barSlot) || 0;
+      const step = (ALGO_TF_ALLOWED[tf] || 900) * 1000;
+      if (slot && es && Math.abs(slot - es) <= step * 3) return true;
+      const open = !(e.outcome === 'TP' || e.outcome === 'SL' || e.status === 'TP' || e.status === 'SL');
+      if (open && Math.abs(ez - z) <= 1.5) return true;
+    }
+    return false;
+  }
+  (candidates || []).forEach(function (t) {
+    if (!t || !t.id || ids.has(t.id)) return;
+    if (nearDup(t)) return;
+    const lotN = (t.lots != null) ? Number(t.lots) : algoGetLotSize();
+    const row = Object.assign({}, t, {
+      status: t.status || 'OPEN',
+      outcome: t.outcome || null,
+      lots: lotN,
+      rr: t.rr != null ? t.rr : 2,
+      ts: t.ts || Date.now(),
+      source: t.source || 'BACKTEST'
+    });
+    log.push(row);
+    ids.add(t.id);
+    added++;
+    // Live / scan entries → MT5 OPEN (async, non-blocking)
+    try {
+      if (String(row.source).toUpperCase() !== 'BACKTEST' && typeof mt5SendOpen === 'function') {
+        mt5SendOpen(row).then(function () {
+          try { algoSaveTrades(log); } catch (eS) {}
+        });
+      }
+    } catch (eM) {}
+  });
+  if (added) algoSaveTrades(log);
+  return added;
+}
+
+function algoIsOpenTrade(t) {
+  if (!t) return false;
+  if (t.outcome === 'TP' || t.outcome === 'SL') return false;
+  if (t.status === 'TP' || t.status === 'SL') return false;
+  return true;
+}
+
+function algoRenderLog(filter) {
+  const box = document.getElementById('algoTradeLog');
+  const cnt = document.getElementById('algoLogCount');
+  if (!box) return;
+  filter = filter || algoState.histFilter || 'ALL';
+  algoState.histFilter = filter;
+
+  try { algoResolveAllTrades(typeof candleHistory !== 'undefined' ? candleHistory : []); } catch (e) {}
+
+  let log = algoLoadTrades().slice();
+  log.sort(function (a, b) {
+    const ao = algoIsOpenTrade(a) ? 1 : 0;
+    const bo = algoIsOpenTrade(b) ? 1 : 0;
+    if (ao !== bo) return bo - ao;
+    return (Number(b.ts) || 0) - (Number(a.ts) || 0);
+  });
+
+  const st = algoComputeStats(log);
+  if (cnt) cnt.textContent = '(' + log.length + ')';
+
+  const filters = ['ALL', 'OPEN', 'TP', 'SL', '5m', '15m', '1h', '4h', '1d'];
+  let filterHtml = '<div class="algo-hist-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">';
+  filters.forEach(function (f) {
+    const active = filter === f;
+    let n = 0;
+    if (f === 'ALL') n = log.length;
+    else if (f === 'OPEN') n = st.open;
+    else if (f === 'TP') n = st.tp;
+    else if (f === 'SL') n = st.sl;
+    else {
+      const fl = f.toLowerCase();
+      n = log.filter(function (t) { return String(t.tf || '').toLowerCase() === fl; }).length;
+    }
+    filterHtml += '<button type="button" class="algo-hist-fbtn" data-f="' + f + '" style="font-size:11px;padding:5px 10px;border-radius:8px;cursor:pointer;border:1px solid ' +
+      (active ? '#3b82f6' : '#2a3142') + ';background:' + (active ? 'rgba(59,130,246,0.18)' : '#151822') +
+      ';color:' + (active ? '#93c5fd' : '#94a3b8') + '">' + f.toUpperCase() + ' ' + n + '</button>';
+  });
+  filterHtml += '</div>';
+
+  let statsHtml = '<div class="algo-stats" id="algoStatsBox">' +
+    '<div class="algo-stat"><b>1 LOT</b> fixed</div>' +
+    '<div class="algo-stat"><b>TP</b> ' + st.tp + '</div>' +
+    '<div class="algo-stat"><b>SL</b> ' + st.sl + '</div>' +
+    '<div class="algo-stat"><b>OPEN</b> ' + st.open +
+      (st.openPnl ? (' · ' + (st.openPnl >= 0 ? '+' : '') + st.openPnl.toFixed(1)) : '') + '</div>' +
+    '<div class="algo-stat"><b>WIN</b> ' + st.winRate.toFixed(1) + '%</div>' +
+    '<div class="algo-stat"><b>Closed PnL</b> ' + (st.totalPnl >= 0 ? '+' : '') + st.totalPnl.toFixed(2) + '</div>' +
+    '</div>';
+
+  const filtered = log.filter(function (t) {
+    if (filter === 'OPEN') return algoIsOpenTrade(t);
+    if (filter === 'TP') return t.outcome === 'TP' || t.status === 'TP';
+    if (filter === 'SL') return t.outcome === 'SL' || t.status === 'SL';
+    if (filter === '5m' || filter === '15m' || filter === '1h' || filter === '4h' || filter === '1d') {
+      return String(t.tf || '').toLowerCase() === filter;
+    }
+    return true;
+  });
+
+  if (!filtered.length) {
+    box.innerHTML = statsHtml + filterHtml +
+      '<div class="algo-empty">' +
+      (log.length ? ('No ' + filter + ' trades.') : 'No trades yet — run BACKTEST HISTORY.') +
+      '</div>';
+  } else {
+    box.innerHTML = statsHtml + filterHtml + filtered.map(function (t) {
+      const isOpen = algoIsOpenTrade(t);
+      const cls = (t.side === 'BUY' ? 'long' : 'short') +
+        (algoState.focusId === t.id ? ' focused' : '') +
+        (isOpen ? ' is-open' : '');
+      const when = t.ts ? new Date(t.ts).toLocaleString() : (t.time || '');
+      const rr = (t.rr != null ? t.rr : 2);
+      const lots = (t.lots != null) ? t.lots : 1;
+      const sltp = (t.sl != null && t.tp != null)
+        ? ('SL ' + Number(t.sl).toFixed(2) + ' · TP ' + Number(t.tp).toFixed(2) + ' · RR 1:' + rr + ' · ' + lots + ' lot')
+        : ('RR 1:' + rr + ' · ' + lots + ' lot');
+      const src = t.source || 'LIVE';
+      let outcome = '';
+      if (t.outcome === 'TP' || t.status === 'TP') {
+        outcome = '<span style="color:#34d399;font-weight:800"> ✓ TP HIT</span> · PnL ' +
+          ((t.pnl >= 0 ? '+' : '') + Number(t.pnl || 0).toFixed(2)) +
+          (t.exit != null ? (' · exit ' + Number(t.exit).toFixed(2)) : '');
+      } else if (t.outcome === 'SL' || t.status === 'SL') {
+        outcome = '<span style="color:#f87171;font-weight:800"> ✗ SL HIT</span> · PnL ' +
+          ((t.pnl >= 0 ? '+' : '') + Number(t.pnl || 0).toFixed(2)) +
+          (t.exit != null ? (' · exit ' + Number(t.exit).toFixed(2)) : '');
+      } else {
+        const mtm = t.pnl != null ? ((t.pnl >= 0 ? '+' : '') + Number(t.pnl).toFixed(2)) : '—';
+        outcome = '<span style="color:#fbbf24;font-weight:800"> ● OPEN</span> · MTM ' + mtm;
+      }
+      const safeId = String(t.id).replace(/'/g, '');
+      return '<div class="algo-trade ' + cls + '" data-algo-id="' + safeId + '">' +
+        '<div class="at-side">' + t.side + ' GOLD · ' + (t.tf || '').toUpperCase() +
+        ' @ ' + (Number(t.entry) || 0).toFixed(2) + ' · ' + lots + ' LOT · ' + src + '</div>' +
+        '<div class="at-rr">' + sltp + '</div>' +
+        '<div class="at-rr">' + outcome + '</div>' +
+        '<div class="at-meta">' + when + ' · vol ' + (t.volRatio ? t.volRatio.toFixed(2) + '×' : '—') +
+        ' · ' + (t.zoneKind || '') + '</div>' +
+        '<div class="at-reason">' + (t.reason || '') + '</div></div>';
+    }).join('');
+  }
+
+  box.querySelectorAll('.algo-hist-fbtn').forEach(function (btn) {
+    btn.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      algoRenderLog(btn.getAttribute('data-f') || 'ALL');
+    });
+  });
+  box.querySelectorAll('.algo-trade[data-algo-id]').forEach(function (row) {
+    row.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      const id = row.getAttribute('data-algo-id');
+      if (id) algoFocusTrade(id);
+    });
+  });
+}
+
+function algoToggleHistory() {
+  try {
+    openAlgoTrader({ history: true });
+    const overlay = document.getElementById('algoTraderOverlay');
+    if (overlay) {
+      overlay.classList.add('show');
+      overlay.style.display = 'flex';
+      overlay.style.zIndex = '100080';
+      overlay.style.pointerEvents = 'auto';
+    }
+    algoState.histOpen = true;
+    const pan = document.getElementById('algoHistoryPanel');
+    if (pan) {
+      pan.style.display = 'block';
+      pan.style.maxHeight = '58vh';
+      pan.style.overflowY = 'auto';
+      try { pan.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e0) {}
+    }
+    const btn = document.getElementById('algoHistBtn');
+    if (btn) btn.classList.add('active');
+    document.querySelectorAll('[data-algo-hist-btn]').forEach(function (b) {
+      b.classList.add('active');
+    });
+    // Paint ledger immediately — resolve in background so tap feels instant
+    try { algoRenderLog(algoState.histFilter || 'ALL'); } catch (eR0) {}
+    setTimeout(function () {
+      try { algoResolveAllTrades(typeof candleHistory !== 'undefined' ? candleHistory : []); } catch (eR) {}
+      try { algoRenderLog(algoState.histFilter || 'ALL'); } catch (eR2) {}
+    }, 30);
+    const st = algoComputeStats();
+    const tfs = {};
+    try {
+      algoLoadTrades().forEach(function (t) {
+        const k = String(t.tf || '?').toUpperCase();
+        tfs[k] = (tfs[k] || 0) + 1;
+      });
+    } catch (eT) {}
+    const tfStr = Object.keys(tfs).map(function (k) { return k + ':' + tfs[k]; }).join(' ') || 'empty';
+    algoUpdateStatus('<span class="ok">History · OPEN ' + st.open + ' · TP ' + st.tp + ' · SL ' + st.sl +
+      ' · TF ' + tfStr + ' · tap trade → chart</span>');
+  } catch (e) {
+    console.warn('[GP Algo] history', e);
+    try {
+      openAlgoTrader({ history: true });
+      algoRenderLog();
+    } catch (e2) {}
+  }
+}
+
+
+function algoToggleHideTrades() {
+  algoState.hideTrades = !algoState.hideTrades;
+  try { localStorage.setItem('gp_algo_hide_trades', algoState.hideTrades ? '1' : '0'); } catch (e) {}
+  document.querySelectorAll('[data-algo-hide-btn]').forEach(function (b) {
+    b.textContent = algoState.hideTrades ? 'Show Trades' : 'Hide Trades';
+    b.classList.toggle('active', !!algoState.hideTrades);
+  });
+  try { drawTradingViewChart(); } catch (e) {}
+}
+
+/** Force resolve OPEN trades MTM + redraw markers / live PnL HUD on chart */
+function algoForceRedrawPnL() {
+  try {
+    if (candleHistory && candleHistory.length >= 2) {
+      algoResolveAllTrades(candleHistory);
+    }
+  } catch (e) {}
+  try {
+    if (typeof drawTradingViewChart === 'function') drawTradingViewChart();
+  } catch (e2) {}
+  try { algoRenderLog(); } catch (e3) {}
+  const st = algoComputeStats();
+  algoUpdateStatus('<span class="ok">Chart PnL refresh · OPEN ' + st.open +
+    ' · ledger ' + algoLoadTrades().length + '</span>');
+}
+
+function algoLoadHidePref() {
+  try {
+    algoState.hideTrades = localStorage.getItem('gp_algo_hide_trades') === '1';
+  } catch (e) {}
+}
+
+
+function algoToggleRuleBook() {
+  const overlay = document.getElementById('algoTraderOverlay');
+  if (overlay && !overlay.classList.contains('show')) {
+    openAlgoTrader({ rules: true });
+    return;
+  }
+  algoState.rulesOpen = !algoState.rulesOpen;
+  const el = document.getElementById('algoRuleBook');
+  if (el) {
+    el.style.display = algoState.rulesOpen ? 'block' : 'none';
+    if (algoState.rulesOpen) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+/** Tap history trade → open main Gold chart and jump to that bar + highlight */
+function algoFocusTrade(id) {
+  const log = algoLoadTrades();
+  const t = log.find(x => x && x.id === id);
+  if (!t) return;
+  algoState.focusId = id;
+  algoRenderLog();
+  // Ensure main gold chart open on trade TF if allowed
+  const tf = (t.tf && ALGO_TF_ALLOWED[t.tf]) ? t.tf : algoState.tf;
+  algoState.tf = tf;
+  algoState.sec = ALGO_TF_ALLOWED[tf];
+  try {
+    state.chartAsset = 'gold';
+    state.tf_interval = tf;
+    state.tf_seconds = ALGO_TF_ALLOWED[tf];
+  } catch (e) {}
+  // Open chart if closed
+  const modal = document.getElementById('chartModal');
+  const isOpen = modal && (modal.style.display === 'flex' || modal.classList.contains('show'));
+  if (!isOpen) {
+    try { openChartModal('gold'); } catch (e) {}
+  }
+  try {
+    if (typeof changeTimeframe === 'function') changeTimeframe(tf, ALGO_TF_ALLOWED[tf], null);
+  } catch (e) {}
+  // After candles ready, pan to bar
+  const tryFocus = () => {
+    try {
+      if (!candleHistory || !candleHistory.length) return false;
+      let idx = -1;
+      if (t.barSlot) {
+        for (let i = 0; i < candleHistory.length; i++) {
+          if (candleHistory[i].barSlot === t.barSlot) { idx = i; break; }
+        }
+      }
+      if (idx < 0 && t.entry) {
+        let best = -1, bestD = 1e9;
+        for (let i = 0; i < candleHistory.length; i++) {
+          const d = Math.abs(candleHistory[i].c - t.entry);
+          if (d < bestD) { bestD = d; best = i; }
+        }
+        if (best >= 0 && bestD < 8) idx = best;
+      }
+      if (idx < 0) return false;
+      // Center bar in view
+      const canvas = document.getElementById('tvCanvas');
+      const wrap = canvas && canvas.parentElement;
+      if (!wrap || typeof view === 'undefined') return false;
+      const w = wrap.clientWidth || 400;
+      const scaleWidth = w > 600 ? 84 : 76;
+      const chartW = w - scaleWidth;
+      const defaultVisibleBars = w > 768 ? 75 : 45;
+      const baseCandleW = (chartW - 20) / defaultVisibleBars;
+      const candleW = baseCandleW * (view.zoom || 1);
+      const totalContentWidth = candleHistory.length * candleW;
+      const anchorOffset = (chartW - 20) - totalContentWidth;
+      // target: getX(idx) ≈ chartW * 0.55
+      const targetX = chartW * 0.55;
+      const withoutOff = 10 + anchorOffset + (idx * candleW) + (candleW / 2);
+      view.offsetX = targetX - withoutOff;
+      drawTradingViewChart();
+      algoUpdateStatus('<span class="ok">Focused trade ' + t.side + ' @ ' + Number(t.entry).toFixed(2) + ' · RR 1:' + (t.rr || 2) + '</span>');
+      // Hide panel so main Gold chart with entry/SL/TP is visible
+      try {
+        const ov = document.getElementById('algoTraderOverlay');
+        if (ov) ov.classList.remove('show');
+        algoState.open = false;
+      } catch (e2) {}
+      return true;
+    } catch (e) { return false; }
+  };
+  setTimeout(() => { if (!tryFocus()) setTimeout(tryFocus, 600); }, 350);
+  setTimeout(tryFocus, 1200);
+}
+
+function algoUpdateStatus(extra) {
+  const el = document.getElementById('algoStatusDetail');
+  const box = document.getElementById('algoStatusBox');
+  const badge = document.getElementById('algoLiveBadge');
+  const armBtn = document.getElementById('algoArmBtn');
+  if (badge) badge.style.display = algoState.armed ? 'inline-flex' : 'none';
+  if (armBtn) armBtn.textContent = algoState.armed ? 'DISARM GP ALGO' : 'ARM GP ALGO';
+  const tfOk = algoIsAllowedTf(algoState.tf);
+  const desk = Number(state.smoothed_score) || 0;
+  const buyB = algoHigherTfBias('BUY');
+  const sellB = algoHigherTfBias('SELL');
+  let html = '<b>TF:</b> ' + algoState.tf.toUpperCase() + (tfOk ? ' <span class="ok">allowed</span>' : ' <span class="bad">blocked</span>');
+  html += ' · <b>Armed:</b> ' + (algoState.armed ? '<span class="ok">YES</span>' : 'no');
+  html += ' · <b>Desk:</b> ' + (desk >= 0 ? '+' : '') + desk.toFixed(1);
+  html += '<br><b>Bias bull:</b> ' + buyB.count + '/' + buyB.n + (buyB.ok ? ' <span class="ok">OK</span>' : ' <span class="warn">need ≥3</span>');
+  html += ' · <b>Bias bear:</b> ' + sellB.count + '/' + sellB.n + (sellB.ok ? ' <span class="ok">OK</span>' : ' <span class="warn">need ≥3</span>');
+  if (extra) html += '<br>' + extra;
+  if (el) el.innerHTML = html;
+}
+
+function openAlgoTrader(opts) {
+  opts = opts || {};
+  algoLoadState(); try { algoLoadHidePref(); } catch(e) {} try { mt5LoadPrefs(); } catch(eM) {}
+  const el = document.getElementById('algoTraderOverlay');
+  if (el) {
+    el.classList.add('show');
+    el.style.display = 'flex';
+    el.style.zIndex = '100080'; /* above chartModal 100060 */
+    el.style.pointerEvents = 'auto';
+    el.style.visibility = 'visible';
+    el.style.opacity = '1';
+  }
+  algoState.open = true;
+  document.querySelectorAll('.algo-tf-btn').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('data-tf') === algoState.tf);
+  });
+  try { closeSideDrawer(); } catch (e) {}
+
+  // History forced open (or restore previous open state)
+  if (opts.history || algoState.histOpen) {
+    algoState.histOpen = true;
+    const pan = document.getElementById('algoHistoryPanel');
+    const btn = document.getElementById('algoHistBtn');
+    if (pan) pan.style.display = 'block';
+    if (btn) btn.classList.add('active');
+    document.querySelectorAll('[data-algo-hist-btn]').forEach(function (b) {
+      b.classList.add('active');
+    });
+    algoRenderLog();
+  }
+  // Rules forced open
+  if (opts.rules) {
+    algoState.rulesOpen = true;
+    const rb = document.getElementById('algoRuleBook');
+    if (rb) rb.style.display = 'block';
+  }
+
+  if (!opts.history && !opts.rules) {
+    // Keep history visible if it was open
+    const pan = document.getElementById('algoHistoryPanel');
+    if (algoState.histOpen && pan) pan.style.display = 'block';
+    algoRenderLog();
+  }
+  algoUpdateStatus(opts.history
+    ? '<span class="ok">Trade ledger open — tap a trade to plot on Gold chart</span>'
+    : (opts.rules ? 'Rule book open' : 'GP Algo ready · HISTORY = ledger · OPEN GOLD CHART = main chart'));
+
+  // Only auto-open chart when explicitly requested (drawer open with chart:true)
+  if (opts.chart) {
+    setTimeout(function () {
+      try { algoOpenGoldChart(); } catch (e) {}
+    }, 150);
+  }
+}
+
+function closeAlgoTrader() {
+  const el = document.getElementById('algoTraderOverlay');
+  if (el) {
+    el.classList.remove('show');
+    el.style.display = 'none';
+  }
+  algoState.open = false;
+}
+
+function algoSetTf(tf, sec, btn) {
+  if (!algoIsAllowedTf(tf)) {
+    algoUpdateStatus('<span class="bad">Blocked: only 5m and above</span>');
+    return;
+  }
+  algoState.tf = tf;
+  algoState.sec = sec || ALGO_TF_ALLOWED[tf];
+  document.querySelectorAll('.algo-tf-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  algoPersistState();
+  algoUpdateStatus('TF set to ' + tf.toUpperCase());
+}
+
+function algoToggleArm() {
+  if (!algoIsAllowedTf(algoState.tf)) {
+    algoUpdateStatus('<span class="bad">Cannot arm on blocked TF</span>');
+    return;
+  }
+  algoState.armed = !algoState.armed;
+  algoPersistState();
+  algoUpdateStatus(algoState.armed ? '<span class="ok">Armed — multi-TF BT + live scan active</span>' : 'Disarmed');
+  if (algoState.armed) {
+    try {
+      algoState.histOpen = true;
+      const pan = document.getElementById('algoHistoryPanel');
+      if (pan) pan.style.display = 'block';
+      const btn = document.getElementById('algoHistBtn');
+      if (btn) btn.classList.add('active');
+    } catch (eH) {}
+    // Live scan current TF + auto BACKTEST all TFs in background
+    try { algoScanNow('LIVE'); } catch (e) {}
+    setTimeout(function () {
+      try { algoAutoBacktestAllTfs(true); } catch (e2) {}
+    }, 400);
+  }
+}
+
+function algoClearHistory() {
+  if (!confirm('Clear all algo trade history? This cannot be undone.')) return;
+  algoSaveTrades([]);
+  algoRenderLog();
+  algoUpdateStatus('History cleared');
+  try { if (typeof drawTradingViewChart === 'function') drawTradingViewChart(); } catch (e) {}
+}
+
+function algoOpenGoldChart() {
+  // Always open main Gold chart — never fail silently
+  try {
+    if (!algoState.tf || !algoIsAllowedTf(algoState.tf)) {
+      algoState.tf = '15m';
+      algoState.sec = 900;
+    }
+    state.chartAsset = 'gold';
+    state.tf_interval = algoState.tf;
+    state.tf_seconds = algoState.sec || ALGO_TF_ALLOWED[algoState.tf] || 900;
+  } catch (e) {}
+
+  // Hide GP Algo panel so it does not cover chart (z-index was higher)
+  try {
+    const el = document.getElementById('algoTraderOverlay');
+    if (el) {
+      el.classList.remove('show');
+      el.style.display = 'none';
+    }
+    algoState.open = false;
+  } catch (e) {}
+
+  // Open chart modal FIRST
+  try {
+    if (typeof openChartModal === 'function') {
+      openChartModal('gold');
+    } else {
+      const m = document.getElementById('chartModal');
+      if (m) m.style.display = 'flex';
+    }
+  } catch (e) {
+    try {
+      const m = document.getElementById('chartModal');
+      if (m) m.style.display = 'flex';
+    } catch (e2) {}
+  }
+
+  // Ensure visible + above overlays
+  try {
+    const m = document.getElementById('chartModal');
+    if (m) {
+      m.style.display = 'flex';
+      m.style.zIndex = '100060';
+    }
+  } catch (e) {}
+
+  // TF + data (null-safe changeTimeframe)
+  try {
+    const tf = algoState.tf || '15m';
+    const sec = algoState.sec || ALGO_TF_ALLOWED[tf] || 900;
+    if (typeof changeTimeframe === 'function') {
+      changeTimeframe(tf, sec, null);
+    } else if (typeof fetchRealCandles === 'function') {
+      fetchRealCandles(tf, true);
+    }
+  } catch (e) {}
+
+  setTimeout(function () { try { drawTradingViewChart(); } catch (e) {} }, 100);
+  setTimeout(function () { try { drawTradingViewChart(); } catch (e) {} }, 500);
+  try {
+    algoUpdateStatus('<span class="ok">Gold ' + String(algoState.tf || '15m').toUpperCase() + ' chart open</span>');
+  } catch (e) {}
+}
+
+/** Offline normalize — does NOT read/write state.tf_seconds or candleHistory */
+function algoNormalizeBarsOffline(bars, interval) {
+  if (!Array.isArray(bars) || !bars.length) return [];
+  const sec = ALGO_TF_ALLOWED[String(interval).toLowerCase()] || 900;
+  const stepMs = sec * 1000;
+  return bars.map(function (b) {
+    let t = b.openTime ?? b.t ?? b.time ?? b[0];
+    if (typeof t === 'string' && /^\d+$/.test(t)) t = parseInt(t, 10);
+    if (typeof t === 'number' && t < 1e12) t = t * 1000;
+    const d = new Date(t);
+    if (isNaN(d.getTime())) return null;
+    const time = (interval === '1d')
+      ? ((d.getMonth() + 1) + '/' + d.getDate())
+      : (String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
+    const o = parseFloat(b.open ?? b.o ?? b[1]);
+    const h = parseFloat(b.high ?? b.h ?? b[2]);
+    const l = parseFloat(b.low ?? b.l ?? b[3]);
+    const c = parseFloat(b.close ?? b.c ?? b[4]);
+    const v = parseFloat(b.volume ?? b.v ?? b.tickVolume ?? b[5] ?? 0);
+    if ([o, h, l, c].some(function (x) { return isNaN(x) || x <= 0; })) return null;
+    const barSlot = Math.floor(d.getTime() / stepMs) * stepMs;
+    return { o: o, h: h, l: l, c: c, v: v, quoteVol: v, time: time, barSlot: barSlot, closeTime: barSlot + stepMs };
+  }).filter(Boolean);
+}
+
+/** Fetch gold OHLC for a TF without touching open chart / candleHistory / TF buttons */
+async function algoFetchCandlesOffline(tf) {
+  tf = String(tf || '15m').toLowerCase();
+  if (!ALGO_TF_ALLOWED[tf]) return [];
+  try {
+    const url = 'https://biquote.io/api/XAUUSD/ohlc?interval=' + encodeURIComponent(tf) + '&limit=350';
+    const data = await Promise.race([
+      fetchJson(url),
+      new Promise(function (_, rej) { setTimeout(function () { rej(new Error('timeout')); }, 7000); })
+    ]);
+    let bars = (data && data.bars) ? data.bars.slice() : [];
+    if (bars.length > 1) {
+      const t0 = new Date(bars[0].openTime || bars[0].t || 0).getTime();
+      const t1 = new Date(bars[bars.length - 1].openTime || bars[bars.length - 1].t || 0).getTime();
+      if (t0 > t1) bars.reverse();
+    }
+    let normalized = algoNormalizeBarsOffline(bars, tf);
+    if (normalized.length > 300) normalized = normalized.slice(-300);
+    if (normalized.length >= 30 && (!candlesMatchAsset || candlesMatchAsset(normalized, 'gold'))) {
+      try {
+        if (!chartStore.gold) chartStore.gold = {};
+        const prev = chartStore.gold[tf] || {};
+        chartStore.gold[tf] = Object.assign({}, prev, { candles: normalized.slice() });
+      } catch (eS) {}
+      return normalized;
+    }
+  } catch (e) {
+    console.warn('[GP Algo] offline fetch fail', tf, e && e.message);
+  }
+  return [];
+}
+
+/** Load gold candles for a TF — memory first, never changes visible chart TF */
+async function algoGetCandlesForTf(tf, allowFetch) {
+  tf = String(tf || '15m').toLowerCase();
+  // 1) Live chart only if user is already viewing this TF (read-only copy)
+  try {
+    if ((state.chartAsset || 'gold') === 'gold' &&
+        (state.tf_interval || '') === tf &&
+        typeof candleHistory !== 'undefined' &&
+        candleHistory.length >= 30 &&
+        (!candlesMatchAsset || candlesMatchAsset(candleHistory, 'gold'))) {
+      return candleHistory.slice();
+    }
+  } catch (e) {}
+  // 2) chartStore cache
+  try {
+    const s = chartStore.gold && chartStore.gold[tf];
+    if (s && s.candles && s.candles.length >= 30) return s.candles.slice();
+  } catch (e) {}
+  // 3) Network offline (does NOT call fetchRealCandles / changeTimeframe)
+  if (allowFetch) {
+    const offline = await algoFetchCandlesOffline(tf);
+    if (offline.length >= 30) return offline;
+  }
+  return [];
+}
+
+/** Build structure on a private candle set; restores ALL UI globals afterward */
+function algoBuildStructureOffline(candles, tf) {
+  const empty = { lines: [], demand: [], supply: [], linesN: 0, demN: 0, supN: 0 };
+  if (!candles || candles.length < 25) return empty;
+  const bak = {
+    asset: state.chartAsset,
+    tf: state.tf_interval,
+    sec: state.tf_seconds,
+    dem: (typeof storedDemandOBs !== 'undefined') ? storedDemandOBs.slice() : [],
+    sup: (typeof storedSupplyOBs !== 'undefined') ? storedSupplyOBs.slice() : [],
+    allD: (typeof allCandidateDemandOBs !== 'undefined') ? allCandidateDemandOBs.slice() : [],
+    allS: (typeof allCandidateSupplyOBs !== 'undefined') ? allCandidateSupplyOBs.slice() : [],
+    rays: (typeof multiHorizonTrendlines !== 'undefined') ? multiHorizonTrendlines.slice() : []
+  };
+  try {
+    // Temporary context for builders only — always restored in finally
+    state.chartAsset = 'gold';
+    state.tf_interval = tf;
+    state.tf_seconds = ALGO_TF_ALLOWED[tf] || 900;
+    if (typeof scanAndStoreOrderBlocks === 'function') scanAndStoreOrderBlocks(candles);
+    if (typeof executeTradingViewRayArchitecture === 'function') executeTradingViewRayArchitecture(candles);
+    const lines = (multiHorizonTrendlines || []).slice();
+    const demand = (storedDemandOBs || []).slice();
+    const supply = (storedSupplyOBs || []).slice();
+    try {
+      if (!chartStore.gold) chartStore.gold = {};
+      chartStore.gold[tf] = {
+        candles: candles.slice(),
+        demand: demand.slice(),
+        supply: supply.slice(),
+        allDemand: (allCandidateDemandOBs || []).slice(),
+        allSupply: (allCandidateSupplyOBs || []).slice(),
+        rays: lines.slice()
+      };
+    } catch (eC) {}
+    return {
+      lines: lines,
+      demand: demand,
+      supply: supply,
+      linesN: lines.length,
+      demN: demand.length,
+      supN: supply.length
+    };
+  } catch (e) {
+    console.warn('[GP Algo] structure build fail', tf, e);
+    return empty;
+  } finally {
+    // ALWAYS restore — open chart TF must never stick
+    try {
+      state.chartAsset = bak.asset;
+      state.tf_interval = bak.tf;
+      state.tf_seconds = bak.sec;
+      storedDemandOBs = bak.dem;
+      storedSupplyOBs = bak.sup;
+      allCandidateDemandOBs = bak.allD;
+      allCandidateSupplyOBs = bak.allS;
+      multiHorizonTrendlines = bak.rays;
+    } catch (eR) {}
+  }
+}
+
+/** Scan one TF fully offline — never changes open chart timeframe */
+async function algoScanTf(tf, mode, allowFetch) {
+  mode = mode || 'BACKTEST';
+  if (!algoIsAllowedTf(tf)) return { added: 0, scanned: 0, tf: tf, candidates: 0 };
+  const candles = await algoGetCandlesForTf(tf, !!allowFetch);
+  if (candles.length < 30) {
+    return { added: 0, scanned: 0, tf: tf, candidates: 0, err: 'no-candles' };
+  }
+  const struct = algoBuildStructureOffline(candles, tf);
+  let found = [];
+  try {
+    found = algoScanSignals(candles, tf, mode, {
+      lines: struct.lines,
+      demand: struct.demand,
+      supply: struct.supply
+    });
+  } catch (eB) {
+    console.warn('[GP Algo] scanTf error', tf, eB);
+  }
+  const added = algoMergeNewTrades(found);
+  try { algoResolveAllTrades(candles); } catch (eR) {}
+  return {
+    added: added,
+    scanned: candles.length,
+    tf: tf,
+    linesN: struct.linesN,
+    demN: struct.demN,
+    supN: struct.supN,
+    candidates: found.length
+  };
+}
+
+function algoScanNow(mode) {
+  mode = mode || 'BACKTEST';
+  if (!algoIsAllowedTf(algoState.tf)) {
+    algoUpdateStatus('<span class="bad">Scan blocked — TF must be 5m+</span>');
+    return;
+  }
+  algoUpdateStatus('Scanning ' + mode + ' on ' + algoState.tf + ' (background)…');
+  const run = async function () {
+    try {
+      try { if (typeof updateChartBiasesLive === 'function') updateChartBiasesLive(); } catch (eB) {}
+      const r = await algoScanTf(algoState.tf, mode, true);
+      algoState.histOpen = true;
+      const pan = document.getElementById('algoHistoryPanel');
+      const btn = document.getElementById('algoHistBtn');
+      if (pan) pan.style.display = 'block';
+      if (btn) btn.classList.add('active');
+      algoRenderLog();
+      const total = algoLoadTrades().length;
+      if (r.added > 0) {
+        const st2 = algoComputeStats();
+        algoUpdateStatus('<span class="ok">' + mode + ' ' + r.tf + ': +' + r.added + ' · ledger ' + total +
+          ' · TP ' + st2.tp + ' · SL ' + st2.sl + ' · win ' + st2.winRate.toFixed(1) + '%</span>');
+      } else {
+        var hb = (typeof algoHigherTfBias === 'function') ? algoHigherTfBias('BUY') : { count: 0, n: 0 };
+        var hs = (typeof algoHigherTfBias === 'function') ? algoHigherTfBias('SELL') : { count: 0, n: 0 };
+        algoUpdateStatus('<span class="warn">' + mode + ' ' + r.tf + ': 0 new (bars ' + r.scanned +
+          ' · rays ' + (r.linesN || 0) + ' · OB ' + (r.demN || 0) + '/' + (r.supN || 0) +
+          ' · candidates ' + (r.candidates || 0) +
+          ' · HTF bull ' + hb.count + '/' + hb.n + ' bear ' + hs.count + '/' + hs.n +
+          ') · ledger ' + total + '</span>');
+      }
+      // Redraw chart markers only — do NOT change TF
+      try { if (typeof drawTradingViewChart === 'function') drawTradingViewChart(); } catch (e) {}
+    } catch (e) {
+      algoUpdateStatus('<span class="bad">Scan error: ' + (e && e.message ? e.message : e) + '</span>');
+    }
+  };
+  run();
+}
+
+/** Auto BACKTEST all TFs in background — never opens/changes chart */
+let _algoMultiBtBusy = false;
+let _algoMultiBtLast = 0;
+async function algoAutoBacktestAllTfs(force) {
+  if (_algoMultiBtBusy) return;
+  const now = Date.now();
+  if (!force && now - _algoMultiBtLast < 45000) return;
+  _algoMultiBtBusy = true;
+  _algoMultiBtLast = now;
+  const tfs = Object.keys(ALGO_TF_ALLOWED);
+  let totalAdded = 0;
+  const detail = [];
+  try {
+    algoUpdateStatus('Background multi-TF BACKTEST…');
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < tfs.length; i++) {
+        const tf = tfs[i];
+        try {
+          const r = await algoScanTf(tf, 'BACKTEST', pass === 1);
+          totalAdded += (r.added || 0);
+          if (pass === 1 || r.scanned > 0) {
+            detail.push(tf + ':' + (r.candidates || 0) + 'c/' + (r.added || 0) + '+');
+          }
+        } catch (eOne) {}
+      }
+    }
+    algoState.histOpen = true;
+    const pan = document.getElementById('algoHistoryPanel');
+    if (pan) pan.style.display = 'block';
+    algoRenderLog();
+    const st = algoComputeStats();
+    algoUpdateStatus('<span class="ok">Multi-TF BT · +' + totalAdded + ' · ledger ' + algoLoadTrades().length +
+      ' · OPEN ' + st.open + ' · ' + detail.join(' ') + '</span>');
+    try { if (typeof drawTradingViewChart === 'function') drawTradingViewChart(); } catch (e) {}
+  } catch (e) {
+    algoUpdateStatus('<span class="bad">Multi-TF BT error: ' + (e && e.message ? e.message : e) + '</span>');
+  } finally {
+    _algoMultiBtBusy = false;
+  }
+}
+
+
+/* ========== MT5 HTTP BRIDGE (Windows + Opera → 127.0.0.1:8080) ==========
+ * Requires MT5HttpServer.dll + DirectHtmlReceiver.mq5 on the same PC.
+ * Opera: use 127.0.0.1 (not localhost). Allow insecure localhost if prompted.
+ * Payload example:
+ *   { action:"OPEN"|"CLOSE"|"TEST", symbol:"XAUUSD", side:"BUY"|"SELL",
+ *     lots:0.1, entry:3990.5, sl:3980, tp:4010, ticket:0, id:"GP-..." }
+ */
+const MT5_BRIDGE = {
+  url: 'http://127.0.0.1:8080/trade',
+  enabled: false,
+  lastOk: 0,
+  lastErr: '',
+  symbol: 'GOLD.i#'
+};
+
+function mt5LoadPrefs() {
+  try {
+    const en = localStorage.getItem('gp_mt5_enabled') === '1';
+    MT5_BRIDGE.enabled = en;
+    const el = document.getElementById('algoMt5Enabled');
+    if (el) el.checked = en;
+    const sym = localStorage.getItem('gp_mt5_symbol');
+    if (sym) MT5_BRIDGE.symbol = sym;
+    const symEl = document.getElementById('algoMt5Symbol');
+    if (symEl) symEl.value = MT5_BRIDGE.symbol || 'GOLD.i#';
+    const lot = localStorage.getItem('gp_algo_lot');
+    if (lot) {
+      const sel = document.getElementById('algoLotSelect');
+      if (sel) {
+        sel.value = lot;
+        if (sel.value !== lot) {
+          // custom value not in list — add
+          const o = document.createElement('option');
+          o.value = lot; o.textContent = lot; o.selected = true;
+          sel.appendChild(o);
+        }
+      }
+      if (typeof algoState !== 'undefined') algoState.lots = parseFloat(lot) || 1;
+    }
+  } catch (e) {}
+  mt5PaintStatus();
+}
+
+function mt5SetEnabled(on) {
+  MT5_BRIDGE.enabled = !!on;
+  try { localStorage.setItem('gp_mt5_enabled', on ? '1' : '0'); } catch (e) {}
+  mt5PaintStatus();
+  if (on) mt5TestBridge();
+}
+
+function mt5SetSymbol(sym) {
+  sym = String(sym || 'GOLD.i#').trim();
+  if (!sym) sym = 'GOLD.i#';
+  MT5_BRIDGE.symbol = sym;
+  try { localStorage.setItem('gp_mt5_symbol', sym); } catch (e) {}
+  try { algoUpdateStatus('<span class="ok">MT5 symbol = ' + sym + '</span>'); } catch (e) {}
+}
+
+function algoSetLotSize(v) {
+  const n = Math.max(0.01, Math.min(100, parseFloat(v) || 1));
+  try { localStorage.setItem('gp_algo_lot', String(n)); } catch (e) {}
+  if (typeof algoState !== 'undefined') algoState.lots = n;
+  try { algoUpdateStatus('<span class="ok">Lot size = ' + n + '</span>'); } catch (e) {}
+}
+
+function algoGetLotSize() {
+  try {
+    if (algoState && algoState.lots > 0) return Number(algoState.lots);
+  } catch (e) {}
+  try {
+    const sel = document.getElementById('algoLotSelect');
+    if (sel) return Math.max(0.01, parseFloat(sel.value) || 1);
+  } catch (e) {}
+  return 1;
+}
+
+function mt5PaintStatus() {
+  const el = document.getElementById('mt5BridgeStatus');
+  if (!el) return;
+  if (!MT5_BRIDGE.enabled) {
+    el.textContent = 'bridge: off';
+    el.style.color = '#64748b';
+    return;
+  }
+  if (MT5_BRIDGE.lastOk && Date.now() - MT5_BRIDGE.lastOk < 60000) {
+    el.textContent = 'bridge: OK';
+    el.style.color = '#34d399';
+  } else if (MT5_BRIDGE.lastErr) {
+    el.textContent = 'bridge: ' + String(MT5_BRIDGE.lastErr).slice(0, 42);
+    el.style.color = '#f87171';
+  } else {
+    el.textContent = 'bridge: on (not tested)';
+    el.style.color = '#fbbf24';
+  }
+}
+
+/** POST JSON to MT5 DLL server — Opera/Windows localhost */
+async function mt5Post(payload) {
+  const body = JSON.stringify(payload || {});
+  const ctrl = new AbortController();
+  const t = setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, 2500);
+  try {
+    const res = await fetch(MT5_BRIDGE.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: body,
+      mode: 'cors',
+      cache: 'no-store',
+      signal: ctrl.signal
+    });
+    clearTimeout(t);
+    let data = null;
+    try { data = await res.json(); } catch (eJ) {
+      try { data = { raw: await res.text() }; } catch (eT) { data = { ok: res.ok }; }
+    }
+    if (!res.ok) {
+      MT5_BRIDGE.lastErr = 'HTTP ' + res.status;
+      mt5PaintStatus();
+      return { ok: false, status: res.status, data: data };
+    }
+    MT5_BRIDGE.lastOk = Date.now();
+    MT5_BRIDGE.lastErr = '';
+    mt5PaintStatus();
+    return { ok: true, status: res.status, data: data };
+  } catch (e) {
+    clearTimeout(t);
+    const msg = (e && e.name === 'AbortError') ? 'timeout' : ((e && e.message) ? e.message : 'fail');
+    // Common Opera/Windows: Failed to fetch = DLL not running / firewall / CORS
+    MT5_BRIDGE.lastErr = msg;
+    mt5PaintStatus();
+    return { ok: false, error: msg };
+  }
+}
+
+async function mt5TestBridge() {
+  mt5LoadPrefs();
+  const btn = document.getElementById('mt5TestBtn');
+  if (btn) { btn.textContent = 'TESTING…'; btn.disabled = true; }
+  try { algoUpdateStatus('Testing MT5 bridge → 127.0.0.1:8080 …'); } catch (e) {}
+  const r = await mt5Post({
+    action: 'TEST',
+    symbol: MT5_BRIDGE.symbol,
+    side: 'BUY',
+    lots: algoGetLotSize(),
+    entry: 0,
+    sl: 0,
+    tp: 0,
+    id: 'GP-TEST-' + Date.now(),
+    source: 'HTML_OPERA'
+  });
+  if (btn) { btn.textContent = 'TEST MT5 BRIDGE'; btn.disabled = false; }
+  if (r.ok) {
+    try {
+      algoUpdateStatus('<span class="ok">MT5 bridge OK · ' + JSON.stringify(r.data || {}).slice(0, 80) + '</span>');
+    } catch (e) {
+      algoUpdateStatus('<span class="ok">MT5 bridge OK</span>');
+    }
+    // Ensure enabled after successful test
+    MT5_BRIDGE.enabled = true;
+    try { localStorage.setItem('gp_mt5_enabled', '1'); } catch (e) {}
+    const cb = document.getElementById('algoMt5Enabled');
+    if (cb) cb.checked = true;
+  } else {
+    try {
+      algoUpdateStatus('<span class="bad">MT5 bridge FAIL · ' + (r.error || r.status || 'no response') +
+        ' · Is MT5 EA running? Port 8080? Opera → allow localhost</span>');
+    } catch (e) {}
+  }
+  mt5PaintStatus();
+  return r;
+}
+
+/** Send OPEN to MT5 when a live trade is taken */
+async function mt5SendOpen(trade) {
+  if (!MT5_BRIDGE.enabled || !trade) return null;
+  // Only push LIVE / manual — skip pure backtest history floods
+  const src = String(trade.source || '').toUpperCase();
+  if (src === 'BACKTEST') return null;
+  const payload = {
+    action: 'OPEN',
+    symbol: MT5_BRIDGE.symbol,
+    side: trade.side === 'SELL' ? 'SELL' : 'BUY',
+    lots: Number(trade.lots) || algoGetLotSize(),
+    entry: Number(trade.entry) || Number(trade.price) || 0,
+    sl: Number(trade.sl) || 0,
+    tp: Number(trade.tp) || 0,
+    id: trade.id || ('GP-' + Date.now()),
+    tf: trade.tf || '',
+    reason: String(trade.reason || '').slice(0, 120),
+    source: trade.source || 'LIVE'
+  };
+  const r = await mt5Post(payload);
+  if (r.ok) {
+    try {
+      trade.mt5 = true;
+      trade.mt5Ticket = (r.data && (r.data.ticket || r.data.order || r.data.deal)) || null;
+      trade.mt5At = Date.now();
+    } catch (e) {}
+    try { algoUpdateStatus('<span class="ok">MT5 OPEN ' + payload.side + ' ' + payload.lots + ' lot @ ' + payload.entry + '</span>'); } catch (e) {}
+  } else {
+    try { algoUpdateStatus('<span class="bad">MT5 OPEN failed · ' + (r.error || r.status) + '</span>'); } catch (e) {}
+  }
+  return r;
+}
+
+/** SL/TP hit → close on MT5 (market close by ticket or by id) */
+async function mt5SendClose(trade, reason) {
+  if (!MT5_BRIDGE.enabled || !trade) return null;
+  if (!trade.mt5 && String(trade.source || '').toUpperCase() === 'BACKTEST') return null;
+  const payload = {
+    action: 'CLOSE',
+    symbol: MT5_BRIDGE.symbol,
+    side: trade.side === 'SELL' ? 'SELL' : 'BUY',
+    lots: Number(trade.lots) || algoGetLotSize(),
+    entry: Number(trade.entry) || 0,
+    sl: Number(trade.sl) || 0,
+    tp: Number(trade.tp) || 0,
+    exit: Number(trade.exit) || 0,
+    ticket: trade.mt5Ticket || 0,
+    id: trade.id || '',
+    outcome: trade.outcome || reason || '',
+    pnl: trade.pnl != null ? Number(trade.pnl) : null,
+    source: 'HTML_SLTP'
+  };
+  const r = await mt5Post(payload);
+  if (r.ok) {
+    try { trade.mt5Closed = true; trade.mt5CloseAt = Date.now(); } catch (e) {}
+    try {
+      algoUpdateStatus('<span class="ok">MT5 CLOSE ' + (trade.outcome || reason) +
+        ' · PnL ' + (trade.pnl != null ? trade.pnl : '—') + '</span>');
+    } catch (e) {}
+  }
+  return r;
+}
+
+
+/** Run LIVE scan on one TF with given candles — never changes chart TF */
+async function algoLiveScanOneTf(tf, candlesPrefer) {
+  if (!algoIsAllowedTf(tf)) return { added: 0, found: 0, tf: tf };
+  let candles = Array.isArray(candlesPrefer) ? candlesPrefer : [];
+  if (candles.length < 30) {
+    try {
+      if ((state.chartAsset || 'gold') === 'gold' && (state.tf_interval || '') === tf &&
+          candleHistory && candleHistory.length >= 30) {
+        candles = candleHistory.slice();
+      }
+    } catch (e) {}
+  }
+  if (candles.length < 30) {
+    try {
+      const s = chartStore.gold && chartStore.gold[tf];
+      if (s && s.candles && s.candles.length >= 30) candles = s.candles.slice();
+    } catch (e) {}
+  }
+  if (candles.length < 30) {
+    candles = await algoGetCandlesForTf(tf, true);
+  }
+  if (candles.length < 30) return { added: 0, found: 0, tf: tf, err: 'no-candles' };
+
+  // Keep store fresh for this TF
+  try {
+    if (!chartStore.gold) chartStore.gold = {};
+    const prev = chartStore.gold[tf] || {};
+    chartStore.gold[tf] = Object.assign({}, prev, { candles: candles.slice() });
+  } catch (e) {}
+
+  const struct = algoBuildStructureOffline(candles, tf);
+  const found = algoScanSignals(candles, tf, 'LIVE', {
+    lines: struct.lines,
+    demand: struct.demand,
+    supply: struct.supply
+  });
+  const added = algoMergeNewTrades(found);
+  try { algoResolveAllTrades(candles); } catch (eR) {}
+  return {
+    added: added,
+    found: found.length,
+    tf: tf,
+    bars: candles.length,
+    linesN: struct.linesN || 0
+  };
+}
+
+/** Force LIVE scan on the open chart TF right after a bar closes */
+function algoForceLiveScanActiveTf() {
+  if (!algoState.armed) return;
+  const tf = state.tf_interval || algoState.tf || '15m';
+  if (!algoIsAllowedTf(tf)) return;
+  const now = Date.now();
+  if (algoForceLiveScanActiveTf._busy) return;
+  if (algoForceLiveScanActiveTf._last && now - algoForceLiveScanActiveTf._last < 800) return;
+  algoForceLiveScanActiveTf._last = now;
+  algoForceLiveScanActiveTf._busy = true;
+  (async function () {
+    try {
+      // Use live series — includes the bar that just closed
+      let candles = [];
+      try {
+        if (candleHistory && candleHistory.length >= 30) candles = candleHistory.slice();
+      } catch (e) {}
+      const r = await algoLiveScanOneTf(tf, candles);
+      if (r.added > 0) {
+        try {
+          algoState.histOpen = true;
+          const pan = document.getElementById('algoHistoryPanel');
+          if (pan) pan.style.display = 'block';
+          algoRenderLog();
+        } catch (e) {}
+        try { if (typeof drawTradingViewChart === 'function') drawTradingViewChart(); } catch (e) {}
+        algoUpdateStatus('<span class="ok">LIVE bar-close ' + tf + ': +' + r.added + ' · instant</span>');
+      }
+    } catch (e) {}
+    finally { algoForceLiveScanActiveTf._busy = false; }
+  })();
+}
+
+/** Background live scan — ACTIVE chart TF every tick; other TFs rotate; never changes chart TF */
+function algoOnLiveTick() {
+  const now = Date.now();
+  // OPEN trade MTM + chart HUD
+  try {
+    const hasOpen = (function () {
+      try {
+        return algoLoadTrades().some(function (t) {
+          return !(t.outcome === 'TP' || t.outcome === 'SL' || t.status === 'TP' || t.status === 'SL');
+        });
+      } catch (e) { return false; }
+    })();
+    if (hasOpen && (state.chartAsset || 'gold') === 'gold') {
+      try {
+        if (candleHistory && candleHistory.length >= 2) algoResolveAllTrades(candleHistory);
+      } catch (eR) {}
+      if (!algoOnLiveTick._lastDraw || now - algoOnLiveTick._lastDraw > 500) {
+        algoOnLiveTick._lastDraw = now;
+        try {
+          const modal = document.getElementById('chartModal');
+          if (modal && modal.style.display === 'flex' && typeof drawTradingViewChart === 'function') {
+            drawTradingViewChart();
+          }
+        } catch (eD) {}
+        if (algoState.histOpen) {
+          try { algoRenderLog(); } catch (eL) {}
+        }
+      }
+    }
+  } catch (eM) {}
+
+  if (!algoState.armed) return;
+  if (now - (algoState.lastScanAt || 0) < 1000) return;
+  algoState.lastScanAt = now;
+
+  (async function () {
+    try {
+      // 1) ALWAYS scan the open chart TF first with live candles (real-time path)
+      const activeTf = (state.chartAsset === 'gold' && algoIsAllowedTf(state.tf_interval))
+        ? state.tf_interval
+        : (algoState.tf || '15m');
+      let liveCandles = [];
+      try {
+        if ((state.chartAsset || 'gold') === 'gold' && candleHistory && candleHistory.length >= 30) {
+          liveCandles = candleHistory.slice();
+        }
+      } catch (e) {}
+      const rMain = await algoLiveScanOneTf(activeTf, liveCandles);
+      if (rMain.added > 0) {
+        try {
+          algoState.histOpen = true;
+          const pan = document.getElementById('algoHistoryPanel');
+          if (pan) pan.style.display = 'block';
+          algoRenderLog();
+        } catch (e) {}
+        try { if (typeof drawTradingViewChart === 'function') drawTradingViewChart(); } catch (e) {}
+        algoUpdateStatus('<span class="ok">LIVE ' + activeTf + ': +' + rMain.added + ' · chart TF</span>');
+      }
+
+      // 2) Rotate other TFs in background (skip active — already done)
+      const tfs = Object.keys(ALGO_TF_ALLOWED).filter(function (t) { return t !== activeTf; });
+      if (tfs.length) {
+        algoState._liveTfIdx = (algoState._liveTfIdx || 0) % tfs.length;
+        const tf = tfs[algoState._liveTfIdx];
+        algoState._liveTfIdx = (algoState._liveTfIdx + 1) % tfs.length;
+        const r2 = await algoLiveScanOneTf(tf, null);
+        if (r2.added > 0) {
+          try {
+            algoState.histOpen = true;
+            const pan = document.getElementById('algoHistoryPanel');
+            if (pan) pan.style.display = 'block';
+            algoRenderLog();
+          } catch (e) {}
+          try { if (typeof drawTradingViewChart === 'function') drawTradingViewChart(); } catch (e) {}
+          algoUpdateStatus('<span class="ok">LIVE ' + tf + ': +' + r2.added + ' · bg TF</span>');
+        }
+      }
+
+      if ((!rMain.added) && (!algoOnLiveTick._lastStatus || now - algoOnLiveTick._lastStatus > 8000)) {
+        algoOnLiveTick._lastStatus = now;
+        const desk = Number(state.smoothed_score) || 0;
+        const hb = algoHigherTfBias('BUY');
+        const hs = algoHigherTfBias('SELL');
+        algoUpdateStatus('<span class="warn">LIVE ' + activeTf + ' · bars ' + (rMain.bars || 0) +
+          ' · hits ' + (rMain.found || 0) +
+          ' · rays ' + (rMain.linesN || 0) +
+          ' · desk ' + desk.toFixed(1) +
+          ' · HTF B' + hb.count + '/S' + hs.count +
+          ' · ARMED</span>');
+      }
+
+      if (now - (_algoMultiBtLast || 0) > 120000) {
+        try { algoAutoBacktestAllTfs(false); } catch (eA) {}
+      }
+    } catch (e) {}
+  })();
+}
+
+
+/**
+ * Live gate board — structure + rules used for trade decision.
+ * Returns { side lean, gates: [{id,ok,label}], clearCount, total }
+ */
+function algoEvaluateGates() {
+  const gates = [];
+  const tfOk = algoIsAllowedTf(algoState.tf || state.tf_interval || '15m');
+  gates.push({ id: 'TF', ok: tfOk, label: 'TF 5m+' });
+
+  const desk = Number(state.smoothed_score) || 0;
+  const deskBuy = desk > 0;
+  const deskSell = desk < 0;
+  gates.push({ id: 'DESK', ok: deskBuy || deskSell, label: deskBuy ? 'Desk+' : (deskSell ? 'Desk−' : 'Desk flat') });
+
+  const buyB = algoHigherTfBias('BUY');
+  const sellB = algoHigherTfBias('SELL');
+  const htfOk = buyB.ok || sellB.ok;
+  gates.push({ id: 'HTF', ok: htfOk, label: buyB.ok ? 'HTF BULL' : (sellB.ok ? 'HTF BEAR' : 'HTF wait') });
+
+  let fpOk = false, fpLabel = 'FP n/a';
+  try {
+    if (typeof avGetFootprint1h === 'function') {
+      const fp = avGetFootprint1h();
+      if (fp && fp.vol > 0) {
+        fpOk = !!fp.pass || fp.side === 'BUY' || fp.side === 'SELL';
+        fpLabel = 'FP ' + (fp.side || 'FLAT');
+      }
+    }
+  } catch (e) {}
+  gates.push({ id: 'FP', ok: fpOk, label: fpLabel });
+
+  const lines = (typeof multiHorizonTrendlines !== 'undefined' && multiHorizonTrendlines) ? multiHorizonTrendlines : [];
+  const supN = lines.filter(function (l) { return l && l.type === 'sup' && (l.touches || []).length >= 2; }).length;
+  const resN = lines.filter(function (l) { return l && l.type === 'res' && (l.touches || []).length >= 2; }).length;
+  gates.push({ id: 'TL', ok: (supN + resN) > 0, label: 'TL S' + supN + '/R' + resN });
+
+  const dem = (typeof storedDemandOBs !== 'undefined' && storedDemandOBs) ? storedDemandOBs.length : 0;
+  const sup = (typeof storedSupplyOBs !== 'undefined' && storedSupplyOBs) ? storedSupplyOBs.length : 0;
+  gates.push({ id: 'OB', ok: (dem + sup) > 0, label: 'OB D' + dem + '/S' + sup });
+
+  let rejOk = false, rejLabel = 'Rej —';
+  try {
+    if (candleHistory && candleHistory.length > 12) {
+      const i = candleHistory.length - 2;
+      const c = candleHistory[i];
+      if (c) {
+        const buyR = algoIsRejection(c, 'BUY');
+        const sellR = algoIsRejection(c, 'SELL');
+        rejOk = buyR || sellR;
+        rejLabel = buyR && sellR ? 'Rej both' : (buyR ? 'Rej BUY' : (sellR ? 'Rej SELL' : 'Rej no'));
+      }
+    }
+  } catch (e) {}
+  gates.push({ id: 'REJ', ok: rejOk, label: rejLabel });
+
+  let volOk = false, volLabel = 'Vol —';
+  try {
+    if (candleHistory && candleHistory.length > 12) {
+      const vm = algoVolMetrics(candleHistory, candleHistory.length - 2);
+      volOk = !!vm.ok;
+      volLabel = volOk ? ('Vol ' + (vm.ratio ? vm.ratio.toFixed(1) + '×' : 'OK')) : 'Vol weak';
+    }
+  } catch (e) {}
+  gates.push({ id: 'VOL', ok: volOk, label: volLabel });
+
+  let zoneOk = false, zoneLabel = 'Zone —';
+  try {
+    if (candleHistory && candleHistory.length > 12 && typeof algoScanBar === 'function') {
+      const i = candleHistory.length - 2;
+      const found = algoScanBar(candleHistory, i, algoState.tf || state.tf_interval || '15m',
+        lines, storedDemandOBs || [], storedSupplyOBs || [], 'LIVE');
+      if (found && found.length) {
+        zoneOk = true;
+        zoneLabel = found[0].side === 'BUY' ? 'Zone BUY' : 'Zone SELL';
+      } else {
+        zoneLabel = 'Zone wait';
+      }
+    }
+  } catch (e) { zoneLabel = 'Zone —'; }
+
+  gates.push({ id: 'ZONE', ok: zoneOk, label: zoneLabel });
+
+  // Side lean summary
+  let lean = 'WAIT';
+  if (buyB.ok && deskBuy) lean = 'BUY';
+  else if (sellB.ok && deskSell) lean = 'SELL';
+  else if (buyB.ok) lean = 'BUY?';
+  else if (sellB.ok) lean = 'SELL?';
+
+  const clear = gates.filter(function (g) { return g.ok; }).length;
+  return { gates: gates, clear: clear, total: gates.length, lean: lean, desk: desk };
+}
+
+/** Tiny gate chips — INSIDE plot bottom-left (never overlap time labels) */
+function algoDrawGatesOverlay(ctx, chartW, topPad, chartH, canvasH) {
+  try {
+    if ((state.chartAsset || 'gold') !== 'gold') return;
+    const board = algoEvaluateGates();
+    const gates = board.gates || [];
+    const chipH = 11;
+    const gap = 2;
+    // Sit above time axis inside chart area
+    const y = topPad + chartH - chipH - 3;
+    let x = 5;
+
+    ctx.fillStyle = 'rgba(8,10,16,0.78)';
+    ctx.strokeStyle = 'rgba(42,49,66,0.85)';
+    ctx.lineWidth = 1;
+    const bgW = Math.min(chartW - 10, 8 + 36 + gates.length * 40);
+    roundRect(ctx, 3, y - 2, bgW, chipH + 4, 5);
+    ctx.fill();
+    ctx.stroke();
+
+    const leanCol = board.lean.indexOf('BUY') === 0 ? '#00e676' : (board.lean.indexOf('SELL') === 0 ? '#ff5252' : '#94a3b8');
+    ctx.font = 'bold 7px system-ui,sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = leanCol;
+    ctx.fillText(board.lean, x, y + chipH / 2);
+    x += ctx.measureText(board.lean).width + 5;
+
+    ctx.fillStyle = '#64748b';
+    ctx.font = '7px system-ui,sans-serif';
+    const cc = board.clear + '/' + board.total;
+    ctx.fillText(cc, x, y + chipH / 2);
+    x += ctx.measureText(cc).width + 5;
+
+    gates.forEach(function (g) {
+      ctx.font = 'bold 7px system-ui,sans-serif';
+      const tw = Math.max(22, ctx.measureText(g.label).width + 8);
+      if (x + tw > chartW - 6) return;
+      ctx.fillStyle = g.ok ? 'rgba(16,185,129,0.2)' : 'rgba(71,85,105,0.3)';
+      ctx.strokeStyle = g.ok ? 'rgba(52,211,153,0.55)' : 'rgba(71,85,105,0.5)';
+      roundRect(ctx, x, y, tw, chipH, 3);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x + 4.5, y + chipH / 2, 1.8, 0, Math.PI * 2);
+      ctx.fillStyle = g.ok ? '#34d399' : '#64748b';
+      ctx.fill();
+      ctx.fillStyle = g.ok ? '#d1fae5' : '#94a3b8';
+      ctx.fillText(g.label, x + 8, y + chipH / 2);
+      x += tw + gap;
+    });
+    ctx.textBaseline = 'alphabetic';
+  } catch (e) {}
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/** Draw GP Algo trades on main Gold chart — entry + SL/TP (min 2R), focus highlight */
+function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
+  try {
+    if ((state.chartAsset || 'gold') !== 'gold') return;
+    const log = algoLoadTrades();
+    if (!log.length) return;
+    const bySlot = new Map();
+    if (candleHistory && candleHistory.length) {
+      candleHistory.forEach(function (c, idx) {
+        if (c.barSlot) bySlot.set(c.barSlot, idx);
+      });
+    }
+    const hideClosed = !!(algoState && algoState.hideTrades);
+    const chartTf = String(state.tf_interval || '');
+    const openList = [];
+
+    log.forEach(function (t) {
+      if (!t || (t.asset && t.asset !== 'gold')) return;
+      const isOpen = !(t.outcome === 'TP' || t.outcome === 'SL' || t.status === 'TP' || t.status === 'SL');
+      if (isOpen) openList.push(t);
+      if (hideClosed && !isOpen) return;
+      // Skip invalid / inverted zone tags from older runs
+      const zk = String(t.zoneKind || '');
+      if (zk.indexOf('PIVOT') >= 0) return;
+      if (t.side === 'BUY' && (zk.indexOf('RESIST') >= 0 || zk.indexOf('SUPPLY') >= 0)) return;
+      if (t.side === 'SELL' && (zk.indexOf('SUPPORT') >= 0 || zk.indexOf('DEMAND') >= 0)) return;
+      if (t.side === 'BUY' && t.sl != null && t.entry != null && !(t.sl < t.entry)) return;
+      if (t.side === 'SELL' && t.sl != null && t.entry != null && !(t.sl > t.entry)) return;
+
+      // Prefer exact barSlot match; else nearest entry on current chart
+      let idx = (t.barSlot && bySlot.has(t.barSlot)) ? bySlot.get(t.barSlot) : -1;
+      if (idx < 0 && t.entry && candleHistory && candleHistory.length) {
+        let best = -1, bestD = 1e9;
+        const start = Math.max(0, candleHistory.length - 250);
+        for (let i = start; i < candleHistory.length; i++) {
+          const d = Math.abs(candleHistory[i].c - t.entry);
+          if (d < bestD) { bestD = d; best = i; }
+        }
+        // wider tolerance so cross-TF entries still mark
+        if (best >= 0 && bestD < 12) idx = best;
+      }
+      if (idx < 0 || !candleHistory || !candleHistory.length) return;
+      const x = getX(idx);
+      if (x < -40 || x > chartW + 40) return;
+      const entry = t.entry || t.price;
+      const y = getY(entry);
+      const isBuy = t.side === 'BUY';
+      const focused = algoState.focusId && algoState.focusId === t.id;
+      const col = isBuy ? '#00e676' : '#ff5252';
+
+      ctx.beginPath();
+      ctx.arc(x, y, focused ? 22 : 16, 0, Math.PI * 2);
+      ctx.strokeStyle = isBuy ? 'rgba(0,230,118,0.55)' : 'rgba(255,82,82,0.55)';
+      ctx.lineWidth = focused ? 2 : 1.3;
+      ctx.setLineDash([4, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = isBuy ? 'rgba(0,230,118,0.08)' : 'rgba(255,82,82,0.08)';
+      ctx.fill();
+
+      if (focused) {
+        ctx.strokeStyle = 'rgba(251,191,36,0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(x, topPad);
+        ctx.lineTo(x, topPad + chartH);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      if (t.sl != null && t.tp != null) {
+        const ySl = getY(t.sl);
+        const yTp = getY(t.tp);
+        const x2 = focused ? Math.min(chartW - 4, x + 160) : Math.min(chartW - 4, x + 90);
+        ctx.lineWidth = focused ? 1.6 : 1.1;
+        ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = 'rgba(248,113,113,0.9)';
+        ctx.beginPath(); ctx.moveTo(Math.max(0, x - 10), ySl); ctx.lineTo(x2, ySl); ctx.stroke();
+        ctx.strokeStyle = 'rgba(52,211,153,0.95)';
+        ctx.beginPath(); ctx.moveTo(Math.max(0, x - 10), yTp); ctx.lineTo(x2, yTp); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.font = focused ? 'bold 10px system-ui,sans-serif' : 'bold 9px system-ui,sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#f87171';
+        ctx.fillText((focused ? 'STOP LOSS (AUTO) ' : 'SL ') + Number(t.sl).toFixed(1), x2 + 2, ySl + 3);
+        ctx.fillStyle = '#34d399';
+        ctx.fillText(focused ? ('TAKE PROFIT (AUTO) ' + Number(t.tp).toFixed(1) + ' · 2R') : 'TP 2R', x2 + 2, yTp + 3);
+      }
+
+      ctx.fillStyle = col;
+      ctx.strokeStyle = focused ? '#fbbf24' : (isBuy ? '#059669' : '#dc2626');
+      ctx.lineWidth = focused ? 2.2 : 1.5;
+      ctx.beginPath();
+      if (isBuy) {
+        ctx.moveTo(x, y + 16);
+        ctx.lineTo(x - 8, y + 3);
+        ctx.lineTo(x + 8, y + 3);
+      } else {
+        ctx.moveTo(x, y - 16);
+        ctx.lineTo(x - 8, y - 3);
+        ctx.lineTo(x + 8, y - 3);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.font = 'bold 10px system-ui,sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = col;
+      ctx.fillText(focused ? ((isBuy ? 'BUY' : 'SELL') + ' ENTRY (AUTO)') : ((isBuy ? 'BUY' : 'SELL') + ' ' + (t.tf || '').toUpperCase()),
+        x, isBuy ? y + 30 : y - 22);
+      if (t.volRatio) {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '9px monospace';
+        ctx.fillText(t.volRatio.toFixed(1) + '× vol', x, isBuy ? y + 42 : y - 34);
+      }
+      // Per-marker live PnL (live gold tick)
+      if (isOpen) {
+        let pnl = t.pnl;
+        const livePx = (state.gold_price > 500)
+          ? state.gold_price
+          : ((candleHistory && candleHistory.length) ? candleHistory[candleHistory.length - 1].c : 0);
+        if (livePx > 0 && entry > 0) {
+          pnl = algoPnlPoints(t.side, entry, livePx, t.lots || 1);
+        }
+        if (pnl != null && isFinite(pnl)) {
+          const pnlStr = (pnl >= 0 ? '+' : '') + Number(pnl).toFixed(2);
+          ctx.font = 'bold 11px system-ui,sans-serif';
+          ctx.fillStyle = pnl >= 0 ? '#34d399' : '#f87171';
+          ctx.fillText('LIVE ' + pnlStr, x, isBuy ? y + (t.volRatio ? 54 : 44) : y - (t.volRatio ? 46 : 36));
+        }
+      }
+    });
+
+    // ===== FIXED HUD: OPEN trade live PnL — TOP-LEFT (opposite price scale) =====
+    // Prefer interbank live tick so HUD updates every price move
+    if (openList.length) {
+      const lastC = (candleHistory && candleHistory.length) ? candleHistory[candleHistory.length - 1] : null;
+      const livePx = (state.gold_price > 500)
+        ? state.gold_price
+        : ((lastC && lastC.c > 0) ? lastC.c : 0);
+      let hudY = topPad + 10;
+      const hudX = 8;
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 10px system-ui,sans-serif';
+      ctx.fillStyle = 'rgba(8,10,16,0.82)';
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(hudX - 2, hudY - 12, 148, 14 + openList.slice(-6).length * 18, 6);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText('GP OPEN · LIVE PnL', hudX, hudY);
+      hudY += 16;
+      openList.slice(-6).forEach(function (t) {
+        const entry = Number(t.entry) || 0;
+        let pnl = null;
+        if (livePx > 0 && entry > 0) {
+          pnl = algoPnlPoints(t.side, entry, livePx, t.lots || 1);
+        } else if (t.pnl != null) {
+          pnl = t.pnl;
+        }
+        const pnlStr = (pnl != null && isFinite(pnl))
+          ? ((pnl >= 0 ? '+' : '') + Number(pnl).toFixed(2))
+          : '—';
+        const col = (pnl != null && pnl >= 0) ? '#34d399' : '#f87171';
+        const line = (t.side === 'BUY' ? 'B' : 'S') + ' ' + (t.tf || '').toUpperCase() +
+          ' @' + entry.toFixed(1) + '  ' + pnlStr;
+        ctx.font = 'bold 11px system-ui,sans-serif';
+        const tw = ctx.measureText(line).width + 12;
+        ctx.fillStyle = (pnl != null && pnl >= 0) ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)';
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1;
+        if (ctx.roundRect) {
+          ctx.beginPath();
+          ctx.roundRect(hudX, hudY - 11, tw, 16, 4);
+          ctx.fill();
+          ctx.stroke();
+        } else {
+          ctx.fillRect(hudX, hudY - 11, tw, 16);
+        }
+        ctx.fillStyle = col;
+        ctx.textAlign = 'left';
+        ctx.fillText(line, hudX + 6, hudY);
+        hudY += 18;
+      });
+    }
+  } catch (e) {}
+}
+
+algoLoadState();
+try { algoLoadHidePref(); } catch (e) {}
+// Boot: if previously armed, resume multi-TF BT + live
+setTimeout(function () {
+  try {
+    if (algoState && algoState.armed) {
+      algoUpdateStatus('<span class="ok">Resumed ARMED · multi-TF BT…</span>');
+      algoAutoBacktestAllTfs(false);
+    }
+  } catch (e) {}
+}, 2500);
 
 
 function openMultiView() {
@@ -15433,14 +18431,17 @@ function mvUpdateLiveScores() {
   const corr = (typeof state !== 'undefined' && state.smoothed_score != null)
     ? Number(state.smoothed_score) : 0;
 
-  // Live AI Visual core (−1…+1) — same engine as AI Visual panel
-  let core = 0, strength = '', signal = '';
+  // Live AI Visual — same decision engine (core for needle, state for label)
+  let core = 0, strength = '', signal = '', dState = '';
   try {
     if (typeof avComputeSenses === 'function') {
       const d = avComputeSenses();
       core = (d && d.core != null) ? Number(d.core) : 0;
       strength = (d && d.finalStrength) || '';
       signal = (d && d.finalSignal) || '';
+      dState = (d && d.decisionState) || '';
+      // Prefer decision state on the gauge label (LONG ACTIVE / SHORT SETUP…)
+      if (dState) signal = dState;
     }
   } catch (e) {}
 
@@ -16043,6 +19044,7 @@ function initApp() {
   syncEconomicCalendarFeed();
   requestAnimationFrame(renderFpFrame);
   setInterval(pollRealForexLive, 1000);
+  setInterval(function () { try { algoOnLiveTick(); } catch (e) {} }, 1000);
   setInterval(() => {
     if ((Date.now() - (_dxyLastOk || 0)) > 4000) tickDXYOnly();
   }, 2000);
