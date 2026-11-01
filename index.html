@@ -4552,8 +4552,10 @@ function saveActiveStore() {
   const a = state.chartAsset === 'dxy' ? 'dxy' : 'gold';
   const tf = state.tf_interval || '15m';
   if (!chartStore[a]) chartStore[a] = {};
+  // Persist only candles that belong to the active instrument.
+  const safeCandles = sanitizeCandlesForAsset(candleHistory, a);
   chartStore[a][tf] = {
-    candles: candleHistory.slice(),
+    candles: safeCandles.slice(),
     demand: storedDemandOBs.slice(),
     supply: storedSupplyOBs.slice(),
     allDemand: allCandidateDemandOBs.slice(),
@@ -4566,12 +4568,16 @@ function loadActiveStore() {
   const a = state.chartAsset === 'dxy' ? 'dxy' : 'gold';
   const tf = state.tf_interval || '15m';
   const s = (chartStore[a] && chartStore[a][tf]) || {};
-  candleHistory = (s.candles || []).slice();
+  // Never allow a candle from the other asset (e.g. DXY ~100) into Gold (~thousands).
+  candleHistory = sanitizeCandlesForAsset((s.candles || []).slice(), a);
+  if (candleHistory.length < 2) candleHistory = [];
   storedDemandOBs = (s.demand || []).slice();
   storedSupplyOBs = (s.supply || []).slice();
   allCandidateDemandOBs = (s.allDemand || []).slice();
   allCandidateSupplyOBs = (s.allSupply || []).slice();
   multiHorizonTrendlines = (s.rays || []).slice();
+  // Replace a contaminated cache immediately so it cannot be restored next time.
+  if (chartStore[a] && chartStore[a][tf]) chartStore[a][tf].candles = candleHistory.slice();
 }
 
 function biasNeutralMap() {
@@ -5222,18 +5228,27 @@ function normalizeBars(bars, interval) {
   }).filter(Boolean);
 }
 
+function sanitizeCandlesForAsset(candles, asset) {
+  if (!Array.isArray(candles)) return [];
+  const minPx = asset === 'dxy' ? 50 : 500;
+  const maxPx = asset === 'dxy' ? 200 : 10000;
+  // Validate EVERY OHLC value, not just the average of the last few bars.
+  // A single DXY candle inside a Gold cache can otherwise create a giant wick.
+  return candles.filter(function (c) {
+    if (!c) return false;
+    const vals = [Number(c.o), Number(c.h), Number(c.l), Number(c.c)];
+    if (vals.some(function (v) { return !Number.isFinite(v) || v < minPx || v > maxPx; })) return false;
+    const hi = Math.max(vals[0], vals[1], vals[2], vals[3]);
+    const lo = Math.min(vals[0], vals[1], vals[2], vals[3]);
+    return Number(c.h) >= hi && Number(c.l) <= lo && Number(c.h) >= Number(c.l);
+  });
+}
+
 function candlesMatchAsset(candles, asset) {
   if (!candles || candles.length < 2) return false;
-  const sample = candles.slice(-Math.min(8, candles.length));
-  const closes = sample.map(c => c.c);
-  const highs = sample.map(c => c.h);
-  const avg = closes.reduce((a, b) => a + b, 0) / closes.length;
-  const maxH = Math.max(...highs);
-  if (asset === 'dxy') {
-    if (maxH > 250) return false;
-    return avg > 50 && avg < 200;
-  }
-  return avg > 500 && maxH > 500;
+  const clean = sanitizeCandlesForAsset(candles, asset);
+  // Require the entire series to be valid; do not silently render mixed symbols.
+  return clean.length === candles.length;
 }
 
 function applyCandleSeries(bars, interval, asset) {
@@ -5244,7 +5259,8 @@ function applyCandleSeries(bars, interval, asset) {
   } else {
     normalized = normalizeBars(bars, interval);
   }
-  if (!candlesMatchAsset(normalized, asset)) return false;
+  normalized = sanitizeCandlesForAsset(normalized, asset);
+  if (normalized.length < 10 || !candlesMatchAsset(normalized, asset)) return false;
   if (normalized.length > 1 && normalized[0].closeTime > normalized[normalized.length - 1].closeTime) {
     normalized.reverse();
   }
@@ -6467,9 +6483,13 @@ setInterval(() => {
 }, 1000);
 
 function openChartModal(asset) {
+  // Invalidate any in-flight OHLC request for the previously selected symbol
+  // before changing the active asset. A late DXY response must never paint Gold.
+  try { _candleFetchGen++; } catch (e) {}
   saveActiveStore();
   state.chartAsset = asset === 'dxy' ? 'dxy' : 'gold';
   loadActiveStore();
+  state.lastBarSlot = 0;
   view.zoom = 1.0;
   view.offsetX = 0;
   getInstantCandleTimer();
