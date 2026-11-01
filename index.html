@@ -6373,7 +6373,9 @@ function prefetchChartTimeframes() {
   setTimeout(next, 800);
 }
 
+let _chartTfSwitchGen = 0;
 function changeTimeframe(tf, seconds, btn) {
+  const tfSwitchGen = ++_chartTfSwitchGen;
   saveActiveStore();
   state.tf_interval = tf;
   state.tf_seconds = seconds;
@@ -6407,7 +6409,7 @@ function changeTimeframe(tf, seconds, btn) {
   if (candleHistory.length >= 15) {
     setTimeout(function () {
       try {
-        if ((state.tf_interval || '') !== tf) return;
+        if (tfSwitchGen !== _chartTfSwitchGen || (state.tf_interval || '') !== tf) return;
         scanAndStoreOrderBlocks(candleHistory);
         executeTradingViewRayArchitecture(candleHistory);
         saveActiveStore();
@@ -6477,8 +6479,11 @@ setInterval(() => {
   getInstantCandleTimer();
   checkTimeframeRollover();
   const modal = document.getElementById("chartModal");
+  // Coalesce the clock/rollover repaint with live-feed and UI repaints.
+  // Calling drawTradingViewChart() directly here could cause a second full
+  // canvas paint immediately after a timeframe's cached first paint.
   if (modal && modal.style.display === "flex") {
-    drawTradingViewChart();
+    triggerRealtimeRender();
   }
 }, 1000);
 
