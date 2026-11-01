@@ -5284,11 +5284,11 @@ function applyCandleSeries(bars, interval, asset) {
   if (candleHistory.length > CHART_HISTORY_BARS) {
     candleHistory = candleHistory.slice(-CHART_HISTORY_BARS);
   }
+  // Clear only the in-progress candidate pools. Keep the last completed AI
+  // Structure visible until the replacement scan finishes; clearing the
+  // published zones here briefly changes the HUD to WAITING and causes a flash.
   allCandidateDemandOBs = [];
   allCandidateSupplyOBs = [];
-  storedDemandOBs = [];
-  storedSupplyOBs = [];
-  multiHorizonTrendlines = [];
   const last = candleHistory[candleHistory.length - 1];
   if (last) {
     const stepMs2 = (state.tf_seconds || 60) * 1000;
@@ -6381,7 +6381,22 @@ function changeTimeframe(tf, seconds, btn) {
   state.tf_seconds = seconds;
   state.lastBarSlot = 0;
   getInstantCandleTimer();
+  // Preserve the last completed structure during the brief cache-miss window.
+  // A valid timeframe-specific cached structure still takes priority.
+  const previousStructure = {
+    demand: storedDemandOBs.slice(),
+    supply: storedSupplyOBs.slice(),
+    rays: multiHorizonTrendlines.slice()
+  };
   loadActiveStore();
+  if (!storedDemandOBs.length && !storedSupplyOBs.length &&
+      (previousStructure.demand.length || previousStructure.supply.length)) {
+    storedDemandOBs = previousStructure.demand;
+    storedSupplyOBs = previousStructure.supply;
+  }
+  if (!multiHorizonTrendlines.length && previousStructure.rays.length) {
+    multiHorizonTrendlines = previousStructure.rays;
+  }
   view.zoom = 1.0;
   view.offsetX = 0;
   document.querySelectorAll(".tv-tf").forEach(b => b.classList.remove("active"));
