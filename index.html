@@ -16971,12 +16971,19 @@ const MT5_BRIDGE = {
   pollTimer: null, pollBusy: false
 };
 
+let _mt5PrefsInitialized = false;
 function mt5LoadPrefs() {
   try {
-    // Always default execution OFF after a browser reload; user must re-enable.
-    MT5_BRIDGE.enabled = false;
-    const el = document.getElementById('algoMt5Enabled'); if (el) el.checked = false;
-    try { localStorage.setItem('gp_mt5_enabled', '0'); } catch (e0) {}
+    // Safety default is OFF once per page load only. This function is also
+    // called when GP ALGO / History is reopened, so never reset a user's
+    // deliberate execution choice during ordinary panel navigation.
+    if (!_mt5PrefsInitialized) {
+      MT5_BRIDGE.enabled = false;
+      try { localStorage.setItem('gp_mt5_enabled', '0'); } catch (e0) {}
+      _mt5PrefsInitialized = true;
+    }
+    const el = document.getElementById('algoMt5Enabled');
+    if (el) el.checked = !!MT5_BRIDGE.enabled;
     const sym = localStorage.getItem('gp_mt5_symbol'); if (sym) MT5_BRIDGE.symbol = sym;
     const symEl = document.getElementById('algoMt5Symbol'); if (symEl) symEl.value = MT5_BRIDGE.symbol || 'GOLD.i#';
     MT5_BRIDGE.token = localStorage.getItem('gp_mt5_token') || '';
