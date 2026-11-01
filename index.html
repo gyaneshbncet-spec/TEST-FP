@@ -4038,6 +4038,10 @@ canvas#tvCanvas {
           <input id="algoMt5Symbol" type="text" value="GOLD.i#" onchange="mt5SetSymbol(this.value)" onblur="mt5SetSymbol(this.value)"
             style="width:88px;margin-left:4px;background:#151822;color:#e2e8f0;border:1px solid #2a3142;border-radius:6px;padding:6px 8px;font-weight:700;font-size:11px">
         </label>
+        <label style="font-size:11px;color:#94a3b8;font-weight:700">MT5 key
+          <input id="algoMt5Token" type="password" autocomplete="off" placeholder="local key" onchange="mt5SetToken(this.value)"
+            style="width:105px;margin-left:4px;background:#151822;color:#e2e8f0;border:1px solid #2a3142;border-radius:6px;padding:6px 8px;font-weight:700;font-size:11px">
+        </label>
         <button type="button" class="primary" id="algoArmBtn" onclick="algoToggleArm()">ARM GP ALGO</button>
         <button type="button" class="primary" onclick="algoOpenGoldChart()">OPEN GOLD CHART</button>
         <button type="button" onclick="algoScanNow('LIVE')">SCAN LIVE</button>
@@ -6091,6 +6095,8 @@ function drawTradingViewChart() {
       algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH);
     }
   } catch (eAlgo) {}
+  // Persistent Gold-chart execution HUD: AI structure + GP Algo + MT5 symbol/tick.
+  try { if (typeof algoDrawExecutionHud === 'function') algoDrawExecutionHud(ctx, chartW); } catch (eHud) {}
   // Gate board — footer corner (structure + rules clear status)
   try {
     if (typeof algoDrawGatesOverlay === 'function') {
@@ -16180,7 +16186,8 @@ function algoMergeNewTrades(candidates) {
       lots: lotN,
       rr: t.rr != null ? t.rr : 2,
       ts: t.ts || Date.now(),
-      source: t.source || 'BACKTEST'
+      source: t.source || 'BACKTEST',
+      mt5Status: (String(t.source || 'BACKTEST').toUpperCase() === 'BACKTEST') ? 'BACKTEST' : 'PAPER_ONLY'
     });
     log.push(row);
     ids.add(t.id);
@@ -16295,12 +16302,18 @@ function algoRenderLog(filter) {
         const mtm = t.pnl != null ? ((t.pnl >= 0 ? '+' : '') + Number(t.pnl).toFixed(2)) : '—';
         outcome = '<span style="color:#fbbf24;font-weight:800"> ● OPEN</span> · MTM ' + mtm;
       }
+      const execState = String(t.mt5Status || (String(src).toUpperCase() === 'BACKTEST' ? 'BACKTEST' : 'PAPER_ONLY'));
+      const execColor = /FILLED|CONNECTED|CLOSED/.test(execState) ? '#34d399' :
+        (/REJECT|FAILED|OFFLINE|UNCONFIRMED|NOT_FOUND/.test(execState) ? '#f87171' : '#fbbf24');
+      const execLabel = execState.replace(/_/g, ' ');
       const safeId = String(t.id).replace(/'/g, '');
       return '<div class="algo-trade ' + cls + '" data-algo-id="' + safeId + '">' +
         '<div class="at-side">' + t.side + ' GOLD · ' + (t.tf || '').toUpperCase() +
         ' @ ' + (Number(t.entry) || 0).toFixed(2) + ' · ' + lots + ' LOT · ' + src + '</div>' +
         '<div class="at-rr">' + sltp + '</div>' +
         '<div class="at-rr">' + outcome + '</div>' +
+        '<div class="at-rr" style="font-size:10px;color:' + execColor + '">MT5 EXECUTION: ' + execLabel +
+        (t.mt5Ticket ? ' · ticket ' + String(t.mt5Ticket) : '') + '</div>' +
         '<div class="at-meta">' + when + ' · vol ' + (t.volRatio ? t.volRatio.toFixed(2) + '×' : '—') +
         ' · ' + (t.zoneKind || '') + '</div>' +
         '<div class="at-reason">' + (t.reason || '') + '</div></div>';
@@ -16946,47 +16959,37 @@ async function algoAutoBacktestAllTfs(force) {
 }
 
 
-/* ========== MT5 HTTP BRIDGE (Windows + Opera → 127.0.0.1:8080) ==========
- * Requires MT5HttpServer.dll + DirectHtmlReceiver.mq5 on the same PC.
- * Opera: use 127.0.0.1 (not localhost). Allow insecure localhost if prompted.
- * Payload example:
- *   { action:"OPEN"|"CLOSE"|"TEST", symbol:"XAUUSD", side:"BUY"|"SELL",
- *     lots:0.1, entry:3990.5, sl:3980, tp:4010, ticket:0, id:"GP-..." }
+/* ========== MT5 LOCAL EXECUTION BRIDGE (Windows 11) ==========
+ * Execution-only adapter. Existing market-data sources, feeds, indicators,
+ * scoring, chart logic and signal generation are not modified.
+ * IMPORTANT: signals are always retained in the HTML ledger. If MT5 is offline,
+ * they remain PAPER/OFFLINE records and are NEVER replayed automatically later.
  */
 const MT5_BRIDGE = {
-  url: 'http://127.0.0.1:8080/trade',
-  enabled: false,
-  lastOk: 0,
-  lastErr: '',
-  symbol: 'GOLD.i#'
+  url: 'http://127.0.0.1:8080/trade', enabled: false, connected: false,
+  lastOk: 0, lastErr: '', symbol: 'GOLD.i#', token: '', lastStatus: null,
+  pollTimer: null, pollBusy: false
 };
 
 function mt5LoadPrefs() {
   try {
-    const en = localStorage.getItem('gp_mt5_enabled') === '1';
-    MT5_BRIDGE.enabled = en;
-    const el = document.getElementById('algoMt5Enabled');
-    if (el) el.checked = en;
-    const sym = localStorage.getItem('gp_mt5_symbol');
-    if (sym) MT5_BRIDGE.symbol = sym;
-    const symEl = document.getElementById('algoMt5Symbol');
-    if (symEl) symEl.value = MT5_BRIDGE.symbol || 'GOLD.i#';
+    // Always default execution OFF after a browser reload; user must re-enable.
+    MT5_BRIDGE.enabled = false;
+    const el = document.getElementById('algoMt5Enabled'); if (el) el.checked = false;
+    try { localStorage.setItem('gp_mt5_enabled', '0'); } catch (e0) {}
+    const sym = localStorage.getItem('gp_mt5_symbol'); if (sym) MT5_BRIDGE.symbol = sym;
+    const symEl = document.getElementById('algoMt5Symbol'); if (symEl) symEl.value = MT5_BRIDGE.symbol || 'GOLD.i#';
+    MT5_BRIDGE.token = localStorage.getItem('gp_mt5_token') || '';
+    const tokenEl = document.getElementById('algoMt5Token'); if (tokenEl) tokenEl.value = MT5_BRIDGE.token;
     const lot = localStorage.getItem('gp_algo_lot');
     if (lot) {
       const sel = document.getElementById('algoLotSelect');
-      if (sel) {
-        sel.value = lot;
-        if (sel.value !== lot) {
-          // custom value not in list — add
-          const o = document.createElement('option');
-          o.value = lot; o.textContent = lot; o.selected = true;
-          sel.appendChild(o);
-        }
-      }
+      if (sel) { sel.value = lot; if (sel.value !== lot) { const o=document.createElement('option'); o.value=lot; o.textContent=lot; o.selected=true; sel.appendChild(o); } }
       if (typeof algoState !== 'undefined') algoState.lots = parseFloat(lot) || 1;
     }
   } catch (e) {}
   mt5PaintStatus();
+  mt5StartPolling();
 }
 
 function mt5SetEnabled(on) {
@@ -16995,195 +16998,182 @@ function mt5SetEnabled(on) {
   mt5PaintStatus();
   if (on) mt5TestBridge();
 }
-
 function mt5SetSymbol(sym) {
-  sym = String(sym || 'GOLD.i#').trim();
-  if (!sym) sym = 'GOLD.i#';
+  sym = String(sym || 'GOLD.i#').trim(); if (!sym) sym = 'GOLD.i#';
   MT5_BRIDGE.symbol = sym;
   try { localStorage.setItem('gp_mt5_symbol', sym); } catch (e) {}
-  try { algoUpdateStatus('<span class="ok">MT5 symbol = ' + sym + '</span>'); } catch (e) {}
+  mt5PaintStatus();
+  try { algoUpdateStatus('<span class="ok">MT5 execution symbol = ' + sym + '</span>'); } catch (e) {}
 }
-
+function mt5SetToken(token) {
+  MT5_BRIDGE.token = String(token || '').trim();
+  try { localStorage.setItem('gp_mt5_token', MT5_BRIDGE.token); } catch (e) {}
+  mt5PaintStatus();
+  if (MT5_BRIDGE.token) mt5RefreshStatus();
+}
 function algoSetLotSize(v) {
   const n = Math.max(0.01, Math.min(100, parseFloat(v) || 1));
   try { localStorage.setItem('gp_algo_lot', String(n)); } catch (e) {}
   if (typeof algoState !== 'undefined') algoState.lots = n;
   try { algoUpdateStatus('<span class="ok">Lot size = ' + n + '</span>'); } catch (e) {}
 }
-
 function algoGetLotSize() {
-  try {
-    if (algoState && algoState.lots > 0) return Number(algoState.lots);
-  } catch (e) {}
-  try {
-    const sel = document.getElementById('algoLotSelect');
-    if (sel) return Math.max(0.01, parseFloat(sel.value) || 1);
-  } catch (e) {}
+  try { if (algoState && algoState.lots > 0) return Number(algoState.lots); } catch (e) {}
+  try { const sel=document.getElementById('algoLotSelect'); if(sel) return Math.max(0.01,parseFloat(sel.value)||1); } catch(e){}
   return 1;
 }
-
 function mt5PaintStatus() {
   const el = document.getElementById('mt5BridgeStatus');
-  if (!el) return;
-  if (!MT5_BRIDGE.enabled) {
-    el.textContent = 'bridge: off';
-    el.style.color = '#64748b';
-    return;
-  }
-  if (MT5_BRIDGE.lastOk && Date.now() - MT5_BRIDGE.lastOk < 60000) {
-    el.textContent = 'bridge: OK';
-    el.style.color = '#34d399';
-  } else if (MT5_BRIDGE.lastErr) {
-    el.textContent = 'bridge: ' + String(MT5_BRIDGE.lastErr).slice(0, 42);
-    el.style.color = '#f87171';
-  } else {
-    el.textContent = 'bridge: on (not tested)';
-    el.style.color = '#fbbf24';
-  }
+  const stateText = !MT5_BRIDGE.enabled ? 'EXECUTION OFF' :
+    (MT5_BRIDGE.connected ? 'CONNECTED' : (MT5_BRIDGE.lastErr ? 'OFFLINE · ' + String(MT5_BRIDGE.lastErr).slice(0,30) : 'CHECKING…'));
+  if (el) { el.textContent = 'MT5: ' + stateText + ' · ' + MT5_BRIDGE.symbol; el.style.color = MT5_BRIDGE.connected ? '#34d399' : (MT5_BRIDGE.enabled ? '#f87171' : '#94a3b8'); }
+  try { if (typeof drawTradingViewChart === 'function' && state.chartAsset === 'gold') drawTradingViewChart(); } catch(e){}
 }
-
-/** POST JSON to MT5 DLL server — Opera/Windows localhost */
 async function mt5Post(payload) {
-  const body = JSON.stringify(payload || {});
-  const ctrl = new AbortController();
-  const t = setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, 2500);
+  if (!MT5_BRIDGE.token) { MT5_BRIDGE.lastErr='key required'; MT5_BRIDGE.connected=false; mt5PaintStatus(); return {ok:false,error:'Enter the local MT5 bridge key first'}; }
+  const ctrl = new AbortController(); const t = setTimeout(function(){try{ctrl.abort();}catch(e){}},10000);
   try {
-    const res = await fetch(MT5_BRIDGE.url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: body,
-      mode: 'cors',
-      cache: 'no-store',
-      signal: ctrl.signal
-    });
-    clearTimeout(t);
-    let data = null;
-    try { data = await res.json(); } catch (eJ) {
-      try { data = { raw: await res.text() }; } catch (eT) { data = { ok: res.ok }; }
-    }
-    if (!res.ok) {
-      MT5_BRIDGE.lastErr = 'HTTP ' + res.status;
-      mt5PaintStatus();
-      return { ok: false, status: res.status, data: data };
-    }
-    MT5_BRIDGE.lastOk = Date.now();
-    MT5_BRIDGE.lastErr = '';
-    mt5PaintStatus();
-    return { ok: true, status: res.status, data: data };
-  } catch (e) {
-    clearTimeout(t);
-    const msg = (e && e.name === 'AbortError') ? 'timeout' : ((e && e.message) ? e.message : 'fail');
-    // Common Opera/Windows: Failed to fetch = DLL not running / firewall / CORS
-    MT5_BRIDGE.lastErr = msg;
-    mt5PaintStatus();
-    return { ok: false, error: msg };
-  }
+    const res = await fetch(MT5_BRIDGE.url,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-Bridge-Token':MT5_BRIDGE.token},body:JSON.stringify(payload||{}),mode:'cors',cache:'no-store',signal:ctrl.signal});
+    clearTimeout(t); let data=null; try{data=await res.json();}catch(eJ){data={message:'Invalid response from local MT5 bridge'};}
+    if(!res.ok||!data||data.ok===false){MT5_BRIDGE.lastErr=(data&&data.error)||('HTTP '+res.status); mt5PaintStatus(); return {ok:false,status:res.status,error:MT5_BRIDGE.lastErr,data:data};}
+    MT5_BRIDGE.lastOk=Date.now(); MT5_BRIDGE.lastErr=''; return {ok:true,status:res.status,data:data};
+  } catch(e) { clearTimeout(t); const msg=(e&&e.name==='AbortError')?'timeout':((e&&e.message)?e.message:'connection failed'); MT5_BRIDGE.lastErr=msg; MT5_BRIDGE.connected=false; mt5PaintStatus(); return {ok:false,error:msg}; }
 }
-
 async function mt5TestBridge() {
-  mt5LoadPrefs();
-  const btn = document.getElementById('mt5TestBtn');
-  if (btn) { btn.textContent = 'TESTING…'; btn.disabled = true; }
-  try { algoUpdateStatus('Testing MT5 bridge → 127.0.0.1:8080 …'); } catch (e) {}
-  const r = await mt5Post({
-    action: 'TEST',
-    symbol: MT5_BRIDGE.symbol,
-    side: 'BUY',
-    lots: algoGetLotSize(),
-    entry: 0,
-    sl: 0,
-    tp: 0,
-    id: 'GP-TEST-' + Date.now(),
-    source: 'HTML_OPERA'
-  });
-  if (btn) { btn.textContent = 'TEST MT5 BRIDGE'; btn.disabled = false; }
-  if (r.ok) {
-    try {
-      algoUpdateStatus('<span class="ok">MT5 bridge OK · ' + JSON.stringify(r.data || {}).slice(0, 80) + '</span>');
-    } catch (e) {
-      algoUpdateStatus('<span class="ok">MT5 bridge OK</span>');
-    }
-    // Ensure enabled after successful test
-    MT5_BRIDGE.enabled = true;
-    try { localStorage.setItem('gp_mt5_enabled', '1'); } catch (e) {}
-    const cb = document.getElementById('algoMt5Enabled');
-    if (cb) cb.checked = true;
-  } else {
-    try {
-      algoUpdateStatus('<span class="bad">MT5 bridge FAIL · ' + (r.error || r.status || 'no response') +
-        ' · Is MT5 EA running? Port 8080? Opera → allow localhost</span>');
-    } catch (e) {}
-  }
-  mt5PaintStatus();
-  return r;
+  const btn=document.getElementById('mt5TestBtn'); if(btn){btn.textContent='TESTING…';btn.disabled=true;}
+  try{algoUpdateStatus('Checking MT5 terminal, account permissions and live tick…');}catch(e){}
+  const r=await mt5Post({action:'TEST',symbol:MT5_BRIDGE.symbol,source:'HTML_EXECUTION'});
+  if(btn){btn.textContent='TEST MT5 BRIDGE';btn.disabled=false;}
+  if(r.ok){
+    const d=r.data||{}; const terminalReady=!!(d.terminal_connected&&d.account_connected&&d.tick_available);
+    const canTrade=!!(d.trade_allowed&&d.account_trade_allowed); MT5_BRIDGE.connected=terminalReady&&canTrade;
+    MT5_BRIDGE.lastStatus=d;
+    try{algoUpdateStatus('<span class="'+(MT5_BRIDGE.connected?'ok':'warn')+'">MT5 '+(terminalReady?(canTrade?'connected · trading permitted':'connected · TRADING PERMISSION OFF'):'connection/tick incomplete')+' · '+(d.symbol||MT5_BRIDGE.symbol)+'</span>');}catch(e){}
+  } else { MT5_BRIDGE.connected=false; try{algoUpdateStatus('<span class="bad">MT5 offline · '+(r.error||r.status||'no response')+' · LIVE signals will remain in HTML history only</span>');}catch(e){} }
+  mt5PaintStatus(); return r;
+}
+async function mt5RefreshStatus() {
+  if(MT5_BRIDGE.pollBusy||!MT5_BRIDGE.token)return;
+  MT5_BRIDGE.pollBusy=true;
+  try {
+    const r=await mt5Post({action:'STATUS',symbol:MT5_BRIDGE.symbol});
+    if(!r.ok){MT5_BRIDGE.connected=false;MT5_BRIDGE.lastErr=r.error||'offline';mt5PaintStatus();return;}
+    const d=r.data||{}; MT5_BRIDGE.lastStatus=d;
+    const terminalReady=!!(d.terminal_connected&&d.account_connected&&d.tick_available);
+    MT5_BRIDGE.connected=terminalReady&&!!(d.trade_allowed&&d.account_trade_allowed);
+    MT5_BRIDGE.lastErr=MT5_BRIDGE.connected?'':(terminalReady?'trading permission disabled':(d.error||'terminal/tick unavailable'));
+    const positions=Array.isArray(d.positions)?d.positions:[];
+    const closed=Array.isArray(d.closed_positions)?d.closed_positions:[];
+    const log=algoLoadTrades(); let changed=false;
+    log.forEach(function(t){
+      if(!t)return;
+      const safeComment=String(t.id||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,24);
+      const p=positions.find(x=>(t.mt5Ticket&&(String(x.ticket)===String(t.mt5Ticket)||String(x.identifier)===String(t.mt5Ticket)))||
+        (safeComment&&String(x.comment||'').startsWith(safeComment)));
+      if(p){
+        if(!t.mt5Ticket)t.mt5Ticket=p.ticket;
+        t.mt5PositionId=p.identifier||p.ticket;
+        if(t.mt5Status!=='MT5_FILLED'||!t.mt5Confirmed){t.mt5Status='MT5_FILLED';t.mt5Confirmed=true;t.mt5=true;changed=true;}
+        t.mt5LastBrokerPrice=Number(p.price_current)||t.mt5LastBrokerPrice;
+      } else if(t.mt5Ticket||t.mt5PositionId){
+        const c=closed.find(x=>String(x.position_id)===String(t.mt5PositionId||t.mt5Ticket));
+        if(c&&t.mt5Status!=='MT5_CLOSED'){t.mt5Status='MT5_CLOSED';t.mt5Closed=true;t.mt5BrokerExit=Number(c.price)||null;t.mt5BrokerProfit=Number(c.profit)||0;t.mt5BrokerCloseTime=Number(c.time)||0;changed=true;}
+        else if(!c && t.mt5Status==='MT5_FILLED'){t.mt5Status='MT5_POSITION_NOT_VISIBLE';changed=true;}
+      }
+      // If HTML strategy exit fired but broker position remains, retry matching close.
+      if(p&&(t.outcome==='TP'||t.outcome==='SL')&&!t.mt5Closed&&!t.mt5ClosePending)mt5SendClose(t,t.outcome);
+    });
+    if(changed){algoSaveTrades(log);try{algoRenderLog();}catch(e){}}
+    mt5PaintStatus();
+  } catch(e){MT5_BRIDGE.connected=false;MT5_BRIDGE.lastErr=(e&&e.message)||'status error';mt5PaintStatus();}
+  finally{MT5_BRIDGE.pollBusy=false;}
+}
+function mt5StartPolling(){
+  if(MT5_BRIDGE.pollTimer)return;
+  MT5_BRIDGE.pollTimer=setInterval(function(){if(MT5_BRIDGE.token)mt5RefreshStatus();},5000);
+  if(MT5_BRIDGE.token)setTimeout(mt5RefreshStatus,800);
 }
 
-/** Send OPEN to MT5 when a live trade is taken */
+/** Every LIVE signal is retained. Only a fresh signal while execution is enabled
+ * and MT5 is connected can become a broker order. Offline signals are never queued. */
 async function mt5SendOpen(trade) {
-  if (!MT5_BRIDGE.enabled || !trade) return null;
-  // Only push LIVE / manual — skip pure backtest history floods
-  const src = String(trade.source || '').toUpperCase();
-  if (src === 'BACKTEST') return null;
-  const payload = {
-    action: 'OPEN',
-    symbol: MT5_BRIDGE.symbol,
-    side: trade.side === 'SELL' ? 'SELL' : 'BUY',
-    lots: Number(trade.lots) || algoGetLotSize(),
-    entry: Number(trade.entry) || Number(trade.price) || 0,
-    sl: Number(trade.sl) || 0,
-    tp: Number(trade.tp) || 0,
-    id: trade.id || ('GP-' + Date.now()),
-    tf: trade.tf || '',
-    reason: String(trade.reason || '').slice(0, 120),
-    source: trade.source || 'LIVE'
-  };
-  const r = await mt5Post(payload);
-  if (r.ok) {
-    try {
-      trade.mt5 = true;
-      trade.mt5Ticket = (r.data && (r.data.ticket || r.data.order || r.data.deal)) || null;
-      trade.mt5At = Date.now();
-    } catch (e) {}
-    try { algoUpdateStatus('<span class="ok">MT5 OPEN ' + payload.side + ' ' + payload.lots + ' lot @ ' + payload.entry + '</span>'); } catch (e) {}
-  } else {
-    try { algoUpdateStatus('<span class="bad">MT5 OPEN failed · ' + (r.error || r.status) + '</span>'); } catch (e) {}
+  if(!trade)return null;
+  const src=String(trade.source||'').toUpperCase(); if(src==='BACKTEST')return null;
+  if(trade.mt5Status && trade.mt5Status!=='PAPER_ONLY' && trade.mt5Status!=='PAPER_OFFLINE')return null;
+  if(!algoState || !algoState.armed){trade.mt5Status='PAPER_ONLY';trade.mt5Note='GP ALGO is not armed; signal retained locally, not sent.';return {ok:false,paper:true,error:'GP ALGO disarmed'};}
+  if(!MT5_BRIDGE.enabled){trade.mt5Status='PAPER_ONLY';trade.mt5Note='MT5 execution switch is OFF; signal retained locally, not sent.';return {ok:false,paper:true,error:'execution disabled'};}
+  if(!MT5_BRIDGE.connected){
+    const health=await mt5Post({action:'TEST',symbol:MT5_BRIDGE.symbol,source:'HTML_EXECUTION'});
+    if(!health.ok || !(health.data&&health.data.trade_allowed&&health.data.account_trade_allowed&&health.data.tick_available)){
+      trade.mt5Status='PAPER_OFFLINE';trade.mt5Note='MT5 unavailable or trading permission disabled at signal time; not queued for later.';
+      MT5_BRIDGE.connected=false;try{algoSaveTrades(algoLoadTrades());}catch(e){}return {ok:false,paper:true,error:(health.error||(health.data&&health.data.error)||'MT5 unavailable')};
+    }
+    MT5_BRIDGE.connected=true;MT5_BRIDGE.lastStatus=health.data;
   }
-  return r;
+  if(trade.mt5Pending||trade.mt5Attempted)return null;
+  trade.mt5Pending=true;trade.mt5Attempted=true;trade.mt5Status='MT5_ORDER_PENDING';
+  const payload={action:'OPEN',symbol:MT5_BRIDGE.symbol,side:trade.side==='SELL'?'SELL':'BUY',lots:Number(trade.lots)||algoGetLotSize(),entry:Number(trade.entry)||Number(trade.price)||0,sl:Number(trade.sl)||0,tp:Number(trade.tp)||0,id:trade.id||('GP-'+Date.now()),tf:trade.tf||'',reason:String(trade.reason||'').slice(0,120),source:trade.source||'LIVE'};
+  const r=await mt5Post(payload);trade.mt5Pending=false;trade.mt5AttemptAt=Date.now();
+  if(r.ok&&r.data&&r.data.filled&&r.data.ticket){trade.mt5=true;trade.mt5Confirmed=true;trade.mt5Ticket=r.data.ticket;trade.mt5PositionId=r.data.position_id||r.data.ticket;trade.mt5Status='MT5_FILLED';trade.mt5At=Date.now();trade.mt5BrokerEntry=Number(r.data.price)||null;}
+  else if(r.ok){trade.mt5Status='MT5_ORDER_UNCONFIRMED';trade.mt5Order=r.data&&r.data.order||null;trade.mt5Ticket=r.data&&r.data.ticket||null;trade.mt5Note='Order response received, but broker position not yet verified. Check MT5.';}
+  else{trade.mt5Status='MT5_REJECTED';trade.mt5Note=r.error||'MT5 rejected or unavailable';}
+  try{const log=algoLoadTrades();const ix=log.findIndex(x=>x&&x.id===trade.id);if(ix>=0){log[ix]=Object.assign(log[ix],trade);algoSaveTrades(log);algoRenderLog();}}catch(eS){}
+  try{algoUpdateStatus('<span class="'+(trade.mt5Confirmed?'ok':'bad')+'">'+payload.side+' · '+trade.mt5Status+' · '+(trade.mt5Ticket||trade.mt5Note||'verify MT5')+'</span>');}catch(e){}
+  mt5PaintStatus();return r;
 }
 
-/** SL/TP hit → close on MT5 (market close by ticket or by id) */
-async function mt5SendClose(trade, reason) {
-  if (!MT5_BRIDGE.enabled || !trade) return null;
-  if (!trade.mt5 && String(trade.source || '').toUpperCase() === 'BACKTEST') return null;
-  const payload = {
-    action: 'CLOSE',
-    symbol: MT5_BRIDGE.symbol,
-    side: trade.side === 'SELL' ? 'SELL' : 'BUY',
-    lots: Number(trade.lots) || algoGetLotSize(),
-    entry: Number(trade.entry) || 0,
-    sl: Number(trade.sl) || 0,
-    tp: Number(trade.tp) || 0,
-    exit: Number(trade.exit) || 0,
-    ticket: trade.mt5Ticket || 0,
-    id: trade.id || '',
-    outcome: trade.outcome || reason || '',
-    pnl: trade.pnl != null ? Number(trade.pnl) : null,
-    source: 'HTML_SLTP'
-  };
-  const r = await mt5Post(payload);
-  if (r.ok) {
-    try { trade.mt5Closed = true; trade.mt5CloseAt = Date.now(); } catch (e) {}
-    try {
-      algoUpdateStatus('<span class="ok">MT5 CLOSE ' + (trade.outcome || reason) +
-        ' · PnL ' + (trade.pnl != null ? trade.pnl : '—') + '</span>');
-    } catch (e) {}
-  }
-  return r;
+/** Close only the broker-confirmed position belonging to this HTML trade. */
+async function mt5SendClose(trade,reason){
+  if(!trade||!trade.mt5Ticket||trade.mt5Closed||trade.mt5ClosePending)return null;
+  if(!MT5_BRIDGE.connected)return null;
+  trade.mt5ClosePending=true;
+  const r=await mt5Post({action:'CLOSE',symbol:MT5_BRIDGE.symbol,side:trade.side==='SELL'?'SELL':'BUY',lots:Number(trade.lots)||algoGetLotSize(),ticket:trade.mt5Ticket,id:trade.id||'',outcome:trade.outcome||reason||'',source:'HTML_SLTP'});
+  trade.mt5ClosePending=false;
+  if(r.ok&&r.data&&r.data.closed){trade.mt5Closed=true;trade.mt5Status='MT5_CLOSE_SENT_VERIFY';trade.mt5CloseAt=Date.now();}
+  else if(r.ok&&!r.data.closed){trade.mt5Status='MT5_POSITION_NOT_FOUND';trade.mt5Note=r.data.message||'Position not found; verify broker history.';}
+  else{trade.mt5Status='MT5_CLOSE_FAILED';trade.mt5Note=r.error||'Close rejected; retry will occur while position remains visible.';}
+  try{const log=algoLoadTrades();const ix=log.findIndex(x=>x&&x.id===trade.id);if(ix>=0){log[ix]=Object.assign(log[ix],trade);algoSaveTrades(log);algoRenderLog();}}catch(e){}
+  mt5PaintStatus();return r;
 }
 
+/** Gold chart HUD: AI structure, GP Algo arm state, MT5 link, exact symbol and tick. */
+function algoDrawExecutionHud(ctx,chartW){
+  if((state.chartAsset||'gold')!=='gold')return;
+  const d=MT5_BRIDGE.lastStatus||{};const tick=d.tick||{};
+  const connected=!!MT5_BRIDGE.connected;
+  const bid=Number(tick.bid)||0,ask=Number(tick.ask)||0;
+  const mobileView=(window.innerWidth||chartW)<600;
+  const aiOn=((typeof storedDemandOBs!=='undefined'&&storedDemandOBs&&storedDemandOBs.length)||(typeof storedSupplyOBs!=='undefined'&&storedSupplyOBs&&storedSupplyOBs.length)||(typeof multiHorizonTrendlines!=='undefined'&&multiHorizonTrendlines&&multiHorizonTrendlines.length));
+  const lines=[
+    ['AI STRUCTURE',aiOn?'ON':'WAITING',aiOn?'#5eead4':'#fbbf24'],
+    ['GP ALGO',algoState&&algoState.armed?'ARMED':'DISARMED',algoState&&algoState.armed?'#34d399':'#94a3b8'],
+    ['MT5 LINK',connected?'CONNECTED':((d.terminal_connected&&d.account_connected)?'TRADE BLOCKED':(MT5_BRIDGE.enabled?'OFFLINE':'EXECUTION OFF')),connected?'#34d399':((d.terminal_connected&&d.account_connected)?'#fbbf24':(MT5_BRIDGE.enabled?'#f87171':'#94a3b8'))],
+    ['SYMBOL',MT5_BRIDGE.symbol||'—','#e2e8f0'],
+    ['MT5 BID / ASK',bid>0&&ask>0?bid.toFixed(2)+' / '+ask.toFixed(2):'NO TICK',bid>0&&ask>0?'#e2e8f0':'#fbbf24'],
+    ['EXECUTION',MT5_BRIDGE.enabled?'ON':'OFF',MT5_BRIDGE.enabled?'#34d399':'#94a3b8']
+  ];
+  // Opposite (left) side from the previous right-side placement; compact on phones.
+  const boxW=mobileView?Math.min(166,Math.max(148,chartW-16)):Math.min(220,Math.max(188,chartW-16));
+  const rowH=mobileView?8.5:11.5;
+  const boxH=(mobileView?8:10)+(mobileView?10:13)+(lines.length*rowH);
+  const x=8,y=mobileView?8:18;
+  ctx.save();ctx.globalAlpha=.94;ctx.fillStyle='rgba(7,12,20,.90)';ctx.strokeStyle='rgba(100,116,139,.58)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.roundRect?ctx.roundRect(x,y,boxW,boxH,mobileView?5:7):ctx.rect(x,y,boxW,boxH);ctx.fill();ctx.stroke();
+  ctx.font=mobileView?'bold 7px system-ui,sans-serif':'bold 9px system-ui,sans-serif';
+  ctx.textAlign='left';ctx.fillStyle='#93c5fd';ctx.fillText(mobileView?'GOLD EXEC MONITOR':'GOLD EXECUTION MONITOR',x+7,y+(mobileView?9:12));
+  lines.forEach((r,i)=>{
+    const yy=y+(mobileView?18:26)+i*rowH;
+    ctx.font=mobileView?'bold 6.5px system-ui,sans-serif':'bold 8px system-ui,sans-serif';
+    ctx.fillStyle='#94a3b8';ctx.textAlign='left';ctx.fillText(r[0],x+7,yy);
+    ctx.textAlign='right';ctx.fillStyle=r[2];
+    let value=r[1];
+    if(mobileView&&r[0]==='MT5 LINK'&&!connected)value='PC ONLY';
+    if(mobileView&&r[0]==='MT5 BID / ASK'&&value.length>15)value='NO TICK';
+    ctx.fillText(value,x+boxW-7,yy);
+  });
+  if(mobileView){ctx.font='6px system-ui,sans-serif';ctx.textAlign='left';ctx.fillStyle='#fbbf24';ctx.fillText('PC BRIDGE ONLY',x+7,y+boxH-3);}
+  ctx.restore();
+}
 
 /** Run LIVE scan on one TF with given candles — never changes chart TF */
 async function algoLiveScanOneTf(tf, candlesPrefer) {
@@ -17633,7 +17623,8 @@ function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
       ctx.font = 'bold 10px system-ui,sans-serif';
       ctx.textAlign = 'center';
       ctx.fillStyle = col;
-      ctx.fillText(focused ? ((isBuy ? 'BUY' : 'SELL') + ' ENTRY (AUTO)') : ((isBuy ? 'BUY' : 'SELL') + ' ' + (t.tf || '').toUpperCase()),
+      const execTag = t.mt5Confirmed ? ' · MT5' : (String(t.mt5Status||'').indexOf('PAPER')===0 ? ' · PAPER' : (String(t.mt5Status||'').indexOf('REJECT')>=0 ? ' · MT5 FAIL' : ''));
+      ctx.fillText((focused ? ((isBuy ? 'BUY' : 'SELL') + ' ENTRY (AUTO)') : ((isBuy ? 'BUY' : 'SELL') + ' ' + (t.tf || '').toUpperCase())) + execTag,
         x, isBuy ? y + 30 : y - 22);
       if (t.volRatio) {
         ctx.fillStyle = '#94a3b8';
