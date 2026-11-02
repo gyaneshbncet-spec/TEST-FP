@@ -16260,7 +16260,13 @@ function algoMergeNewTrades(candidates) {
       }
     } catch (eM) {}
   });
-  if (added) algoSaveTrades(log);
+  if (added) {
+    algoSaveTrades(log);
+    // Keep an already-open History panel in sync with background LIVE scans.
+    if (algoState && algoState.histOpen) {
+      try { algoRenderLog(algoState.histFilter || 'ALL'); } catch (ePaint) {}
+    }
+  }
   return added;
 }
 
@@ -16828,29 +16834,36 @@ async function algoFetchCandlesOffline(tf) {
   return [];
 }
 
-/** Load gold candles for a TF — memory first, never changes visible chart TF */
+/** Load Gold candles for a TF without changing the visible chart. Background scans
+ * must refresh the remote OHLC series; an old chartStore snapshot is fallback only. */
 async function algoGetCandlesForTf(tf, allowFetch) {
   tf = String(tf || '15m').toLowerCase();
-  // 1) Live chart only if user is already viewing this TF (read-only copy)
+  const isVisibleTf = (state.chartAsset || 'gold') === 'gold' && (state.tf_interval || '') === tf;
+  // 1) Visible chart is the preferred live source for its own timeframe.
   try {
-    if ((state.chartAsset || 'gold') === 'gold' &&
-        (state.tf_interval || '') === tf &&
-        typeof candleHistory !== 'undefined' &&
-        candleHistory.length >= 30 &&
-        (!candlesMatchAsset || candlesMatchAsset(candleHistory, 'gold'))) {
-      return candleHistory.slice();
-    }
+    if (isVisibleTf && typeof candleHistory !== 'undefined' && candleHistory.length >= 30 &&
+        (!candlesMatchAsset || candlesMatchAsset(candleHistory, 'gold'))) return candleHistory.slice();
   } catch (e) {}
-  // 2) chartStore cache
-  try {
-    const s = chartStore.gold && chartStore.gold[tf];
-    if (s && s.candles && s.candles.length >= 30) return s.candles.slice();
-  } catch (e) {}
-  // 3) Network offline (does NOT call fetchRealCandles / changeTimeframe)
+  // 2) For background TFs, refresh from the OHLC endpoint before using cache.
+  // A cache-first return here previously meant the other TFs could scan the same
+  // stale candles indefinitely and never see a newly closed bar.
   if (allowFetch) {
-    const offline = await algoFetchCandlesOffline(tf);
-    if (offline.length >= 30) return offline;
+    const now = Date.now();
+    algoGetCandlesForTf._lastFetch = algoGetCandlesForTf._lastFetch || {};
+    const last = algoGetCandlesForTf._lastFetch[tf] || 0;
+    if (now - last >= 12000) {
+      algoGetCandlesForTf._lastFetch[tf] = now;
+      try {
+        const fresh = await algoFetchCandlesOffline(tf);
+        if (fresh && fresh.length >= 30) return fresh;
+      } catch (eF) {}
+    }
   }
+  // 3) Cache is only a temporary fallback if the live endpoint is unavailable.
+  try {
+    const st = chartStore.gold && chartStore.gold[tf];
+    if (st && st.candles && st.candles.length >= 30) return st.candles.slice();
+  } catch (eC) {}
   return [];
 }
 
@@ -17376,10 +17389,16 @@ function algoDrawRunningTradesHud(ctx, chartW) {
   ctx.restore();
 }
 
-/** Run LIVE scan on one TF with given candles — never changes chart TF */
+/** Run LIVE scan on one TF with given candles — never changes chart TF.
+ * A null candle argument means background TF: force a periodic fresh OHLC fetch. */
 async function algoLiveScanOneTf(tf, candlesPrefer) {
   if (!algoIsEngineTf(tf)) return { added: 0, found: 0, tf: tf };
   let candles = Array.isArray(candlesPrefer) ? candlesPrefer : [];
+  if (!Array.isArray(candlesPrefer)) {
+    // The previous path reused chartStore indefinitely. Refresh each background
+    // timeframe every 12 seconds, then use cache only if the endpoint fails.
+    try { candles = await algoGetCandlesForTf(tf, true); } catch (eFresh) { candles = []; }
+  }
   if (candles.length < 30) {
     try {
       if ((state.chartAsset || 'gold') === 'gold' && (state.tf_interval || '') === tf &&
@@ -17489,6 +17508,7 @@ async function algoRunScalperLive() {
 /** Background live scan — ACTIVE chart TF every tick; other TFs rotate; never changes chart TF */
 function algoOnLiveTick() {
   const now = Date.now();
+  if (algoOnLiveTick._busy) return;
   // OPEN trade MTM + chart HUD
   try {
     const hasOpen = (function () {
@@ -17521,6 +17541,7 @@ function algoOnLiveTick() {
   if (now - (algoState.lastScanAt || 0) < 1000) return;
   algoState.lastScanAt = now;
 
+  algoOnLiveTick._busy = true;
   (async function () {
     try {
       // 1) ALWAYS scan the open chart TF first with live candles (real-time path)
@@ -17589,6 +17610,7 @@ function algoOnLiveTick() {
         try { algoAutoBacktestAllTfs(false); } catch (eA) {}
       }
     } catch (e) {}
+    finally { algoOnLiveTick._busy = false; }
   })();
 }
 
