@@ -5573,9 +5573,12 @@ function executeTradingViewRayArchitecture(data) {
   const isDxy = (state.chartAsset === 'dxy');
   const tfSeconds = Number(state.tf_seconds || 900);
   const isFastGoldTf = !isDxy && tfSeconds <= 180;
-  const isMidGoldTf = !isDxy && tfSeconds > 180 && tfSeconds <= 900;
-  const pivotLeftRight = isDxy ? 5 : (isFastGoldTf ? 3 : (isMidGoldTf ? 4 : 5));
-  if (!Array.isArray(data) || data.length < (isDxy ? 25 : (isFastGoldTf ? 16 : 20))) {
+  const isFiveMinGoldTf = !isDxy && tfSeconds > 180 && tfSeconds <= 300;
+  const isMidGoldTf = !isDxy && tfSeconds > 300 && tfSeconds <= 900;
+  // 5m confirms local swing points after only two candles, so support can
+  // update much sooner after a rejection instead of waiting four candles.
+  const pivotLeftRight = isDxy ? 5 : (isFastGoldTf || isFiveMinGoldTf ? 2 : (isMidGoldTf ? 4 : 5));
+  if (!Array.isArray(data) || data.length < (isDxy ? 25 : (isFastGoldTf ? 12 : 20))) {
     multiHorizonTrendlines = [];
     return;
   }
@@ -5597,8 +5600,8 @@ function executeTradingViewRayArchitecture(data) {
   // ── Multi-strength swing pivots (fractals) ──────────────────────────
   // Faster Gold charts use shorter confirmed swings so both sides can form.
   const L = isDxy ? 5 : pivotLeftRight;
-  const minGap = isDxy ? 4 : (isFastGoldTf ? 3 : (isMidGoldTf ? 4 : 5));
-  const promMin = atr * (isDxy ? 0.20 : (isFastGoldTf ? 0.15 : (isMidGoldTf ? 0.18 : 0.22)));
+  const minGap = isDxy ? 4 : (isFastGoldTf || isFiveMinGoldTf ? 2 : (isMidGoldTf ? 4 : 5));
+  const promMin = atr * (isDxy ? 0.20 : (isFastGoldTf ? 0.10 : (isFiveMinGoldTf ? 0.12 : (isMidGoldTf ? 0.18 : 0.22))));
 
   function collectPivots(kind) {
     const raw = [];
@@ -5642,13 +5645,13 @@ function executeTradingViewRayArchitecture(data) {
   // maxSlope = max $/bar; gold can slope more than DXY but reject vertical noise
   const maxSlope = isDxy
     ? Math.max(0.06, atr * 1.5)
-    : (isFastGoldTf ? Math.min(2.5, Math.max(0.35, atr * 0.75)) : isMidGoldTf ? Math.min(3.2, Math.max(0.60, atr * 0.65)) : Math.min(4.0, Math.max(1.0, atr * 0.50)));
+    : (isFastGoldTf ? Math.min(2.5, Math.max(0.35, atr * 0.75)) : isFiveMinGoldTf ? Math.min(2.8, Math.max(0.45, atr * 0.70)) : isMidGoldTf ? Math.min(3.2, Math.max(0.60, atr * 0.65)) : Math.min(4.0, Math.max(1.0, atr * 0.50)));
   // Wick touch / break bands scale down on 1m and 3m to avoid suppressing structure.
-  const touchTol = isDxy ? Math.max(0.02, atr * 0.45) : atr * (isFastGoldTf ? 0.34 : (isMidGoldTf ? 0.36 : 0.38));
-  const breakTol = isDxy ? Math.max(0.018, atr * 0.35) : atr * (isFastGoldTf ? 0.20 : 0.22);
-  const midBreakTol = isDxy ? Math.max(0.02, atr * 0.38) : atr * (isFastGoldTf ? 0.22 : 0.26);
-  const minSpan = isDxy ? 7 : (isFastGoldTf ? 4 : (isMidGoldTf ? 6 : 8));
-  const maxSpan = isDxy ? 160 : (isFastGoldTf ? 120 : (isMidGoldTf ? 160 : 200));
+  const touchTol = isDxy ? Math.max(0.02, atr * 0.45) : atr * (isFastGoldTf ? 0.46 : (isFiveMinGoldTf ? 0.44 : (isMidGoldTf ? 0.36 : 0.38)));
+  const breakTol = isDxy ? Math.max(0.018, atr * 0.35) : atr * (isFastGoldTf || isFiveMinGoldTf ? 0.24 : 0.22);
+  const midBreakTol = isDxy ? Math.max(0.02, atr * 0.38) : atr * (isFastGoldTf || isFiveMinGoldTf ? 0.28 : 0.26);
+  const minSpan = isDxy ? 7 : (isFastGoldTf ? 3 : (isFiveMinGoldTf ? 4 : (isMidGoldTf ? 6 : 8)));
+  const maxSpan = isDxy ? 160 : (isFastGoldTf ? 90 : (isFiveMinGoldTf ? 110 : (isMidGoldTf ? 160 : 200)));
   const livePx = isDxy
     ? (state.dxy_price > 50 ? state.dxy_price : data[n - 1].c)
     : (state.gold_price > 500 ? state.gold_price : data[n - 1].c);
@@ -5877,6 +5880,9 @@ function executeTradingViewRayArchitecture(data) {
   const quality = (arr) => {
     const strong = arr.filter(r => r.touchCount >= 3);
     if (isDxy) return (strong.length >= 2 ? strong : arr);
+    // On 1m/3m, retain clean 2-touch lines too; requiring 3 touches hid valid
+    // fast-TF support/resistance while pivots were still confirming.
+    if (isFastGoldTf || isFiveMinGoldTf) return arr;
     return (strong.length >= 1 ? strong : arr);
   };
   const resCap = isDxy ? 4 : 3;
@@ -15412,38 +15418,25 @@ function algoSetScalperMode(mode) {
   if (algoState.histOpen) algoRenderLog(algoState.histFilter || 'ALL');
 }
 
-/** Trade-decision bias gate: ONLY 1H and 1D are authoritative.
- * Both timeframes must be present and agree before a LIVE trade is allowed.
- * Lower timeframes may generate setups, but never override this directional view.
+/** Direction gate: 1D is the sole directional authority. 1H is supporting
+ * strength only; it can strengthen/weaken confluence but can never veto 1D.
  */
 function algoHigherTfBias(dir) {
-  const keys = ['1h', '1d'];
   const src = (state.tf_biases_gold && Object.keys(state.tf_biases_gold || {}).length)
-    ? state.tf_biases_gold
-    : (state.tf_biases || {});
-  let bull = 0, bear = 0, n = 0;
-  const detail = [];
-  keys.forEach(k => {
-    const b = src[k];
-    if (!b) return;
-    n++;
-    const t = String(b.text || b.bias || '').toUpperCase();
-    if (t.indexOf('BULL') >= 0) { bull++; detail.push(k.toUpperCase() + ' BULL'); }
-    else if (t.indexOf('BEAR') >= 0) { bear++; detail.push(k.toUpperCase() + ' BEAR'); }
-    else detail.push(k.toUpperCase() + ' —');
-  });
-  try {
-    const w = src['1w'];
-    if (w) {
-      const t = String(w.text || '').toUpperCase();
-      if (t.indexOf('BULL') >= 0) detail.push('1W BULL');
-      else if (t.indexOf('BEAR') >= 0) detail.push('1W BEAR');
-    }
-  } catch (e) {}
-  const need = 2;
-  if (dir === 'BUY') return { ok: n === 2 && bull === need, count: bull, n: n, detail: detail.join(', ') };
-  if (dir === 'SELL') return { ok: n === 2 && bear === need, count: bear, n: n, detail: detail.join(', ') };
-  return { ok: false, count: 0, n: n, detail: detail.join(', ') };
+    ? state.tf_biases_gold : (state.tf_biases || {});
+  const read = function (key) {
+    const b = src[key];
+    const t = b ? String(b.text || b.bias || '').toUpperCase() : '';
+    return t.indexOf('BULL') >= 0 ? 'BUY' : (t.indexOf('BEAR') >= 0 ? 'SELL' : 'NEUTRAL');
+  };
+  const daily = read('1d');
+  const hourly = read('1h');
+  const ok = (dir === 'BUY' || dir === 'SELL') && daily === dir;
+  const support = hourly === dir;
+  const oppose = hourly !== 'NEUTRAL' && hourly !== dir;
+  const detail = '1D ' + daily + ' · 1H ' + hourly + (support ? ' (support)' : (oppose ? ' (counter)' : ' (neutral)'));
+  return { ok: ok, count: ok ? 1 : 0, n: daily === 'NEUTRAL' ? 0 : 1,
+    support: support, oppose: oppose, hourly: hourly, daily: daily, detail: detail };
 }
 
 function algoCandleVol(c) {
@@ -15546,8 +15539,9 @@ function algoVolMetrics(data, i) {
   }
   const sma = vols.reduce(function (a, b) { return a + b; }, 0) / vols.length;
   const ratio = sma > 0 ? vol / sma : 0;
-  // Relative interest vs SMA10 — 1.15× (rejection wicks often just above average)
-  const MULT = 1.15;
+  // Relaxed volume participation: low-volume entries are allowed when the strict
+  // rejection + sweep + 1D direction + structure conditions are all satisfied.
+  const MULT = 0.70;
   let ok = sma > 0 && vol >= sma * MULT;
   let viaFp = false;
   // Alternate: negative footprint delta absorption (sell pressure absorbing at resistance, etc.)
@@ -15564,7 +15558,7 @@ function algoVolMetrics(data, i) {
   }
   // Proxy range: still require relative strength vs SMA
   if (usedProxy && !viaFp) {
-    ok = sma > 0 && vol >= sma * 1.25;
+    ok = sma > 0 && vol >= sma * 0.75;
   }
   return { ok: ok, vol: vol, avg5: sma, ratio: ratio, usedProxy: usedProxy, viaFp: viaFp };
 }
@@ -15616,16 +15610,13 @@ function algoConfluencePack(side, mode, localLean) {
     }
   }
 
-  // 2) Trade-direction gate: both 1H and 1D must agree (max 22)
+  // 2) 1D is the directional gate; 1H only adds support strength (max 22).
   const bias = algoHigherTfBias(side === 'BUY' ? 'BUY' : 'SELL');
   if (bias.ok) {
-    score += 22;
-    bits.push('1H+1D');
-  } else if (bias.count >= 2) {
-    score += 8;
-    bits.push('1H/1D?');
+    score += bias.support ? 22 : (bias.oppose ? 13 : 17);
+    bits.push('1D base' + (bias.support ? ' + 1H support' : (bias.oppose ? ' · 1H counter' : ' · 1H neutral')));
   } else {
-    bits.push('HTF×');
+    bits.push('1D bias×');
   }
 
   // 3) AI Footprint — LIVE only (OKX pressure). Never apply live FP to historical bars.
@@ -15735,13 +15726,13 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   const sellBias = algoHigherTfBias('SELL');
 
   // Reference model (strict — not relaxed):
-  // LIVE: desk correlation sign + BOTH 1H and 1D biases aligned.
+  // LIVE: desk correlation sign + 1D directional bias. 1H is support only.
   // BACKTEST: local candle lean for historical direction; no current live bias is applied.
   //   (cannot use live desk on a bar from hours ago — that was a code bug)
   // LIVE: desk sign must match. BACKTEST: local candle lean must match side.
   const buyDeskOk = mode === 'LIVE' ? (deskLive > 0) : (local === 'BUY');
   const sellDeskOk = mode === 'LIVE' ? (deskLive < 0) : (local === 'SELL');
-  // LIVE uses the current HTF matrix. BACKTEST must NOT use today's live HTF
+  // LIVE uses 1D as the directional authority; 1H only affects confluence strength. BACKTEST must NOT use today's live HTF
   // matrix for historical bars: that matrix is unrelated to the historical bar
   // and can veto every past signal when it is neutral/opposite. Historical
   // direction is derived from the candle series' local lean instead.
@@ -15844,7 +15835,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       if (rng && px > c.c + atr * 3) continue; // abandoned far above
       pushTrade('BUY',
         'BUY @ SUPPORT (teal TL) · ≥2 touches · rejection sweep · vol ' + vm.ratio.toFixed(2) + '×' +
-        (vm.usedProxy ? ' (range)' : '') + ' · desk ' + deskLive.toFixed(1) + ' · HTF bull ' + buyBias.count + '/' + buyBias.n,
+        (vm.usedProxy ? ' (range)' : '') + ' · desk ' + deskLive.toFixed(1) + ' · 1D bull ' + buyBias.count + '/' + buyBias.n,
         px, 'SUPPORT_TL');
       if (out.length) out[out.length - 1].reason += ' · conf ' + confBuy.score + '/100 · ' + confBuy.bits;
       if (out.length) out[out.length - 1].conf = confBuy.score;
@@ -15871,7 +15862,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         if (!algoZoneInContext('BUY', zMid, rngB, atr)) continue;
         pushTrade('BUY',
           'BUY @ SUPPORT (demand OB) · rejection sweep · vol ' + vm.ratio.toFixed(2) + '× · desk ' +
-          deskLive.toFixed(1) + ' · HTF bull ' + buyBias.count + '/' + buyBias.n,
+          deskLive.toFixed(1) + ' · 1D bull ' + buyBias.count + '/' + buyBias.n,
           zMid, 'SUPPORT_OB');
         if (out.length) out[out.length - 1].reason += ' · conf ' + confBuy.score + '/100 · ' + confBuy.bits;
         if (out.length) out[out.length - 1].conf = confBuy.score;
@@ -15909,7 +15900,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       if (c.c < px - atr * 2.5) continue; // already crashed through
       pushTrade('SELL',
         'SELL @ RESISTANCE (red TL) · ≥2 touches · rejection sweep · vol ' + vm.ratio.toFixed(2) + '×' +
-        (vm.usedProxy ? ' (range)' : '') + ' · desk ' + deskLive.toFixed(1) + ' · HTF bear ' + sellBias.count + '/' + sellBias.n,
+        (vm.usedProxy ? ' (range)' : '') + ' · desk ' + deskLive.toFixed(1) + ' · 1D bear ' + sellBias.count + '/' + sellBias.n,
         px, 'RESIST_TL');
       if (out.length) out[out.length - 1].reason += ' · conf ' + confSell.score + '/100 · ' + confSell.bits;
       if (out.length) out[out.length - 1].conf = confSell.score;
@@ -15935,7 +15926,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         if (c.c < zMid - atr * 2.5) continue;
         pushTrade('SELL',
           'SELL @ RESISTANCE (supply OB) · rejection sweep · vol ' + vm.ratio.toFixed(2) + '× · desk ' +
-          deskLive.toFixed(1) + ' · HTF bear ' + sellBias.count + '/' + sellBias.n,
+          deskLive.toFixed(1) + ' · 1D bear ' + sellBias.count + '/' + sellBias.n,
           zMid, 'RESIST_OB');
         if (out.length) out[out.length - 1].reason += ' · conf ' + confSell.score + '/100 · ' + confSell.bits;
         if (out.length) out[out.length - 1].conf = confSell.score;
@@ -16600,8 +16591,8 @@ function algoUpdateStatus(extra) {
   let html = '<b>TF:</b> ' + algoState.tf.toUpperCase() + (tfOk ? ' <span class="ok">allowed</span>' : ' <span class="bad">blocked</span>');
   html += ' · <b>Armed:</b> ' + (algoState.armed ? '<span class="ok">YES</span>' : 'no');
   html += ' · <b>Desk:</b> ' + (desk >= 0 ? '+' : '') + desk.toFixed(1);
-  html += '<br><b>Bias bull:</b> ' + buyB.count + '/' + buyB.n + (buyB.ok ? ' <span class="ok">OK</span>' : ' <span class="warn">need ≥3</span>');
-  html += ' · <b>Bias bear:</b> ' + sellB.count + '/' + sellB.n + (sellB.ok ? ' <span class="ok">OK</span>' : ' <span class="warn">need ≥3</span>');
+  html += '<br><b>1D base bias:</b> ' + (buyB.ok ? ' <span class="ok">BULL OK</span>' : (sellB.ok ? ' <span class="ok">BEAR OK</span>' : ' <span class="warn">NEUTRAL / WAIT</span>'));
+  html += ' · <b>1H support:</b> ' + (buyB.support ? 'BULL' : (sellB.support ? 'BEAR' : (buyB.oppose || sellB.oppose ? 'COUNTER' : 'NEUTRAL'))) + ' (not a veto)';
   if (extra) html += '<br>' + extra;
   if (el) el.innerHTML = html;
 }
