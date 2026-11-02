@@ -6068,28 +6068,9 @@ function drawTradingViewChart() {
     ctx.moveTo(x1, y1);
     ctx.lineTo(xEnd, yEnd);
     ctx.stroke();
-    // Touch markers
-    const touches = Array.isArray(l.touches) ? l.touches : [];
-    touches.forEach(tp => {
-      if (!tp) return;
-      const tx = getX(tp.i);
-      const ty = getY(tp.p);
-      if (tx >= 0 && tx <= chartW && isFinite(tx) && isFinite(ty)) {
-        ctx.fillStyle = lineColor;
-        ctx.beginPath();
-        if (l.type === "res") {
-          ctx.moveTo(tx, ty - 2);
-          ctx.lineTo(tx - 4, ty - 8);
-          ctx.lineTo(tx + 4, ty - 8);
-        } else {
-          ctx.moveTo(tx, ty + 2);
-          ctx.lineTo(tx - 4, ty + 8);
-          ctx.lineTo(tx + 4, ty + 8);
-        }
-        ctx.closePath();
-        ctx.fill();
-      }
-    });
+    // Touch-point triangles removed: they clutter the chart and can look like
+    // BUY/SELL arrows. The trendline itself remains; touches are still used
+    // internally for validation/scoring and are not trading signals.
     // Dashed extension: MUST use pixel slope (not price/bar slope) or lines skew
     const dx = xEnd - x1;
     if (Math.abs(dx) > 1) {
@@ -15380,8 +15361,8 @@ function algoLoadTrades() {
 
 function algoSaveTrades(list) {
   try {
-    // Keep last 200 trades max
-    const slim = (list || []).slice(-200);
+    // Keep a much larger ledger so older trades are not silently dropped.
+    const slim = (list || []).slice(-1000);
     localStorage.setItem(ALGO_LS_KEY, JSON.stringify(slim));
   } catch (e) {}
 }
@@ -15758,13 +15739,14 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   // LIVE: desk sign must match. BACKTEST: local candle lean must match side.
   const buyDeskOk = mode === 'LIVE' ? (deskLive > 0) : (local === 'BUY');
   const sellDeskOk = mode === 'LIVE' ? (deskLive < 0) : (local === 'SELL');
-  // LIVE + BACKTEST: HTF ≥2/3 (desk still required on LIVE)
+  // LIVE uses the current HTF matrix. BACKTEST must NOT use today's live HTF
+  // matrix for historical bars: that matrix is unrelated to the historical bar
+  // and can veto every past signal when it is neutral/opposite. Historical
+  // direction is derived from the candle series' local lean instead.
   const buyBiasOk = buyBias.ok || buyBias.count >= 2;
   const sellBiasOk = sellBias.ok || sellBias.count >= 2;
-  // HTF not ready yet → BACKTEST may still use local lean + structure (not both sides)
-  const htfUnknown = (buyBias.n < 3) || (buyBias.count === 0 && sellBias.count === 0);
-  const buyDirOk = buyDeskOk && (buyBiasOk || (mode !== 'LIVE' && htfUnknown));
-  const sellDirOk = sellDeskOk && (sellBiasOk || (mode !== 'LIVE' && htfUnknown));
+  const buyDirOk = (mode === 'BACKTEST') ? (local === 'BUY') : (buyDeskOk && buyBiasOk);
+  const sellDirOk = (mode === 'BACKTEST') ? (local === 'SELL') : (sellDeskOk && sellBiasOk);
 
   function pushTrade(side, reason, zonePx, zoneKind) {
     const barSlot = c.barSlot || (c.closeTime ? (c.closeTime - (ALGO_TF_SECONDS[tf] || 900) * 1000) : (Date.now() - (data.length - i) * (ALGO_TF_SECONDS[tf] || 900) * 1000));
@@ -16242,8 +16224,10 @@ function algoMergeNewTrades(candidates) {
       const es = Number(e.barSlot) || 0;
       const step = (ALGO_TF_SECONDS[tf] || 900) * 1000;
       if (slot && es && Math.abs(slot - es) <= step * 3) return true;
-      const open = !(e.outcome === 'TP' || e.outcome === 'SL' || e.status === 'TP' || e.status === 'SL');
-      if (open && Math.abs(ez - z) <= 1.5) return true;
+      // Legacy rows without barSlot: only dedupe within a short time window.
+      const ets = Number(e.ts) || 0;
+      const tts = Number(t.ts) || Date.now();
+      if ((!slot || !es) && ets && Math.abs(tts - ets) <= step * 3 && Math.abs(ez - z) <= 1.5) return true;
     }
     return false;
   }
@@ -16267,7 +16251,11 @@ function algoMergeNewTrades(candidates) {
     try {
       if (String(row.source).toUpperCase() !== 'BACKTEST' && typeof mt5SendOpen === 'function') {
         mt5SendOpen(row).then(function () {
-          try { algoSaveTrades(log); } catch (eS) {}
+          // mt5SendOpen updates this trade by ID. Never save the stale `log`
+          // snapshot here: other timeframe scans may have appended rows meanwhile.
+          try { algoRenderLog(); } catch (eR) {}
+        }).catch(function (eOpen) {
+          console.warn('[GP Algo] MT5 open request failed; paper signal remains in history', eOpen);
         });
       }
     } catch (eM) {}
@@ -16292,7 +16280,10 @@ function algoRenderLog(filter) {
 
   try { algoResolveAllTrades(typeof candleHistory !== 'undefined' ? candleHistory : []); } catch (e) {}
 
-  let log = algoLoadTrades().slice();
+  // Ignore malformed storage entries, but keep every valid saved trade visible.
+  let log = algoLoadTrades().filter(function (t) {
+    return !!t && typeof t === 'object' && t.id != null && (t.side === 'BUY' || t.side === 'SELL');
+  }).slice();
   log.sort(function (a, b) {
     const ao = algoIsOpenTrade(a) ? 1 : 0;
     const bo = algoIsOpenTrade(b) ? 1 : 0;
@@ -16303,12 +16294,13 @@ function algoRenderLog(filter) {
   const st = algoComputeStats(log);
   if (cnt) cnt.textContent = '(' + log.length + ')';
 
-  const filters = ['ALL', 'OPEN', 'TP', 'SL', '1m', '3m', '5m', '15m', '1h', '4h', '1d'];
+  const filters = ['ALL', 'LIVE', 'OPEN', 'TP', 'SL', '1m', '3m', '5m', '15m', '1h', '4h', '1d'];
   let filterHtml = '<div class="algo-hist-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">';
   filters.forEach(function (f) {
     const active = filter === f;
     let n = 0;
     if (f === 'ALL') n = log.length;
+    else if (f === 'LIVE') n = log.filter(function (t) { return String(t.source || 'LIVE').toUpperCase() !== 'BACKTEST'; }).length;
     else if (f === 'OPEN') n = st.open;
     else if (f === 'TP') n = st.tp;
     else if (f === 'SL') n = st.sl;
@@ -16333,6 +16325,7 @@ function algoRenderLog(filter) {
     '</div>';
 
   const filtered = log.filter(function (t) {
+    if (filter === 'LIVE') return String(t.source || 'LIVE').toUpperCase() !== 'BACKTEST';
     if (filter === 'OPEN') return algoIsOpenTrade(t);
     if (filter === 'TP') return t.outcome === 'TP' || t.status === 'TP';
     if (filter === 'SL') return t.outcome === 'SL' || t.status === 'SL';
@@ -16345,7 +16338,9 @@ function algoRenderLog(filter) {
   if (!filtered.length) {
     box.innerHTML = statsHtml + filterHtml +
       '<div class="algo-empty">' +
-      (log.length ? ('No ' + filter + ' trades.') : 'No trades yet — run BACKTEST HISTORY.') +
+      (log.length ? ('No ' + filter + ' trades.') : (filter === 'LIVE'
+        ? 'No live signals saved yet. ARM GP ALGO and keep the dashboard connected to live Gold candles.'
+        : 'No saved signals yet. Live history is recorded after ARM is enabled; BACKTEST records are separate.')) +
       '</div>';
   } else {
     box.innerHTML = statsHtml + filterHtml + filtered.map(function (t) {
@@ -16378,6 +16373,8 @@ function algoRenderLog(filter) {
         (/REJECT|FAILED|OFFLINE|UNCONFIRMED|NOT_FOUND/.test(execState) ? '#f87171' : '#fbbf24');
       const execLabel = execState.replace(/_/g, ' ');
       const safeId = String(t.id).replace(/'/g, '');
+      const volRatioNum = Number(t.volRatio);
+      const volRatioText = Number.isFinite(volRatioNum) && volRatioNum > 0 ? volRatioNum.toFixed(2) + '×' : '—';
       return '<div class="algo-trade ' + cls + '" data-algo-id="' + safeId + '">' +
         '<div class="at-side">' + t.side + ' GOLD · ' + (t.tf || '').toUpperCase() +
         ' @ ' + (Number(t.entry) || 0).toFixed(2) + ' · ' + lots + ' LOT · ' + (String(src).toUpperCase() === 'SCALPER' ? 'SCALPER' : src) + '</div>' +
@@ -16385,7 +16382,7 @@ function algoRenderLog(filter) {
         '<div class="at-rr">' + outcome + '</div>' +
         '<div class="at-rr" style="font-size:10px;color:' + execColor + '">MT5 EXECUTION: ' + execLabel +
         (t.mt5Ticket ? ' · ticket ' + String(t.mt5Ticket) : '') + '</div>' +
-        '<div class="at-meta">' + when + ' · vol ' + (t.volRatio ? t.volRatio.toFixed(2) + '×' : '—') +
+        '<div class="at-meta">' + when + ' · vol ' + volRatioText +
         ' · ' + (t.zoneKind || '') + '</div>' +
         '<div class="at-reason">' + (t.reason || '') + '</div></div>';
     }).join('');
@@ -16645,7 +16642,7 @@ function openAlgoTrader(opts) {
     algoRenderLog();
   }
   algoUpdateStatus(opts.history
-    ? '<span class="ok">Trade ledger open — tap a trade to plot on Gold chart</span>'
+    ? '<span class="ok">Live signal ledger — LIVE filter excludes backtest rows; tap a trade to plot on its own timeframe</span>'
     : (opts.rules ? 'Rule book open' : 'GP Algo ready · HISTORY = ledger · OPEN GOLD CHART = main chart'));
 
   // Only auto-open chart when explicitly requested (drawer open with chart:true)
@@ -17585,6 +17582,9 @@ function algoOnLiveTick() {
           ' · ARMED</span>');
       }
 
+      // Restore the older build's periodic multi-timeframe BACKTEST pass.
+      // BACKTEST rows remain tagged as BACKTEST and are separate from LIVE rows;
+      // they are not broker executions and are never replayed to MT5.
       if (now - (_algoMultiBtLast || 0) > 120000) {
         try { algoAutoBacktestAllTfs(false); } catch (eA) {}
       }
@@ -17759,17 +17759,26 @@ function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
     const log = algoLoadTrades();
     if (!log.length) return;
     const bySlot = new Map();
+    const chartSlots = [];
     if (candleHistory && candleHistory.length) {
       candleHistory.forEach(function (c, idx) {
-        if (c.barSlot) bySlot.set(c.barSlot, idx);
+        const rawSlot = (c.barSlot != null) ? Number(c.barSlot) :
+          ((c.closeTime != null) ? Number(c.closeTime) - (ALGO_TF_SECONDS[String(state.tf_interval || '').toLowerCase()] || 900) * 1000 : NaN);
+        if (Number.isFinite(rawSlot) && rawSlot > 0) {
+          bySlot.set(String(rawSlot), idx);
+          chartSlots.push({ slot: rawSlot, idx: idx });
+        }
       });
     }
     const hideClosed = !!(algoState && algoState.hideTrades);
-    const chartTf = String(state.tf_interval || '');
+    const chartTf = String(state.tf_interval || '').toLowerCase();
     const openList = [];
 
     log.forEach(function (t) {
       if (!t || (t.asset && t.asset !== 'gold')) return;
+      // A trade belongs only on the timeframe that generated it.
+      // Do not project a 1m signal onto 5m/15m/1h candles (or vice versa).
+      if (!chartTf || String(t.tf || '').toLowerCase() !== chartTf) return;
       const isOpen = !(t.outcome === 'TP' || t.outcome === 'SL' || t.status === 'TP' || t.status === 'SL');
       if (isOpen) openList.push(t);
       if (hideClosed && !isOpen) return;
@@ -17781,17 +17790,20 @@ function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
       if (t.side === 'BUY' && t.sl != null && t.entry != null && !(t.sl < t.entry)) return;
       if (t.side === 'SELL' && t.sl != null && t.entry != null && !(t.sl > t.entry)) return;
 
-      // Prefer exact barSlot match; else nearest entry on current chart
-      let idx = (t.barSlot && bySlot.has(t.barSlot)) ? bySlot.get(t.barSlot) : -1;
-      if (idx < 0 && t.entry && candleHistory && candleHistory.length) {
-        let best = -1, bestD = 1e9;
-        const start = Math.max(0, candleHistory.length - 250);
-        for (let i = start; i < candleHistory.length; i++) {
-          const d = Math.abs(candleHistory[i].c - t.entry);
-          if (d < bestD) { bestD = d; best = i; }
+      // Match by the trade's own timeframe and candle timestamp. If feeds
+      // differ by a few seconds, allow only a same-timeframe slot tolerance;
+      // never use price-nearest matching or project a trade onto another TF.
+      let idx = (t.barSlot != null && bySlot.has(String(Number(t.barSlot))))
+        ? bySlot.get(String(Number(t.barSlot))) : -1;
+      if (idx < 0 && t.barSlot != null && chartSlots.length) {
+        const stepMs = (ALGO_TF_SECONDS[chartTf] || 900) * 1000;
+        const targetSlot = Number(t.barSlot);
+        let bestDelta = Infinity;
+        for (let si = 0; si < chartSlots.length; si++) {
+          const delta = Math.abs(chartSlots[si].slot - targetSlot);
+          if (delta < bestDelta) { bestDelta = delta; idx = chartSlots[si].idx; }
         }
-        // wider tolerance so cross-TF entries still mark
-        if (best >= 0 && bestD < 12) idx = best;
+        if (bestDelta > Math.min(15000, stepMs * 0.08)) idx = -1;
       }
       if (idx < 0 || !candleHistory || !candleHistory.length) return;
       const x = getX(idx);
