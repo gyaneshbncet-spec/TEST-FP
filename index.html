@@ -4060,7 +4060,7 @@ canvas#tvCanvas {
       <!-- Rule book (hidden by default) -->
       <div class="algo-rules" id="algoRuleBook" style="display:none">
         <b style="color:#e2e8f0">GP ALGO RULE BOOK (aligned to reference)</b><br>
-        ○ <b>TF:</b> 5m / 15m / 1H / 4H / 1D — <b>1m / 3m blocked</b><br>
+        ○ <b>STANDARD TF:</b> 5m / 15m / 1H / 4H / 1D · <b>OPTIONAL SCALPER:</b> 1m / 3m via History dropdown (OFF / 1m / 3m / BOTH)<br>
         ○ <b>NO RANDOM AREAS</b> — only 2-touch trendline zone or validated OB<br>
         ○ <b>ENTRY = REJECTION CANDLE ONLY</b> — never mid-body / random area<br>
         ○ <b>BUY (bull):</b> <b>SUPPORT only</b> — TL ≥2 touches, then <b>next retest</b> · wick <b>sweeps</b> support · close back above<br>
@@ -4085,6 +4085,11 @@ canvas#tvCanvas {
         <div class="algo-log-title" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
           <span>Live + history (backtest) <span id="algoLogCount" style="font-weight:600;color:#64748b"></span></span>
           <span style="font-weight:500;color:#64748b;font-size:10px">tap trade → plot on chart</span>
+          <label for="algoScalperMode" style="font-size:10px;font-weight:700;color:#93c5fd">SCALPER MODE</label>
+          <select id="algoScalperMode" onchange="algoSetScalperMode(this.value)" style="font-size:11px;font-weight:700;padding:6px 8px;border-radius:8px;border:1px solid #31506f;background:#101a29;color:#dbeafe;cursor:pointer">
+            <option value="OFF">OFF</option><option value="1m">1 MIN</option><option value="3m">3 MIN</option><option value="BOTH">BOTH</option>
+          </select>
+          <span id="algoScalperStatus" style="font-size:10px;color:#64748b">scalper: off</span>
           <button type="button" id="mt5TestBtn" onclick="mt5TestBridge()" style="margin-left:auto;font-size:11px;font-weight:700;padding:6px 10px;border-radius:8px;border:1px solid #2a3142;background:#151822;color:#93c5fd;cursor:pointer">TEST MT5 BRIDGE</button>
           <span id="mt5BridgeStatus" style="font-size:10px;color:#64748b">bridge: off</span>
         </div>
@@ -6113,6 +6118,7 @@ function drawTradingViewChart() {
   } catch (eAlgo) {}
   // Persistent Gold-chart execution HUD: AI structure + GP Algo + MT5 symbol/tick.
   try { if (typeof algoDrawExecutionHud === 'function') algoDrawExecutionHud(ctx, chartW); } catch (eHud) {}
+  // Open broker positions and floating P/L are merged into the Gold Execution Monitor.
   // Gate board — footer corner (structure + rules clear status)
   try {
     if (typeof algoDrawGatesOverlay === 'function') {
@@ -15344,6 +15350,8 @@ window.addEventListener('resize', () => {
 
 /* ===== GP ALGO ENGINE ===== */
 const ALGO_TF_ALLOWED = { '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
+const ALGO_TF_SECONDS = Object.assign({ '1m': 60, '3m': 180 }, ALGO_TF_ALLOWED);
+const ALGO_SCALPER_TFS = { '1m': 60, '3m': 180 };
 const ALGO_LS_KEY = 'gold_algo_trades_v1';
 const ALGO_STATE_KEY = 'gold_algo_state_v1';
 
@@ -15356,7 +15364,8 @@ let algoState = {
   open: false,
   focusId: null,
   histOpen: false,
-  rulesOpen: false
+  rulesOpen: false,
+  scalperMode: 'OFF'
 };
 
 /** Persistent trade log — never relocates, survives refresh */
@@ -15385,19 +15394,41 @@ function algoLoadState() {
       algoState.sec = ALGO_TF_ALLOWED[s.tf];
     }
     if (typeof s.armed === 'boolean') algoState.armed = s.armed;
+    if (['OFF', '1m', '3m', 'BOTH'].indexOf(s.scalperMode) >= 0) algoState.scalperMode = s.scalperMode;
   } catch (e) {}
 }
 
 function algoPersistState() {
   try {
     localStorage.setItem(ALGO_STATE_KEY, JSON.stringify({
-      tf: algoState.tf, armed: algoState.armed
+      tf: algoState.tf, armed: algoState.armed, scalperMode: algoState.scalperMode || 'OFF'
     }));
   } catch (e) {}
 }
 
 function algoIsAllowedTf(tf) {
   return !!ALGO_TF_ALLOWED[String(tf || '').toLowerCase()];
+}
+function algoIsEngineTf(tf) {
+  tf = String(tf || '').toLowerCase();
+  return !!(ALGO_TF_ALLOWED[tf] || ALGO_TF_SCALPER_TFS[tf]);
+}
+function algoScalperTfList() {
+  if (algoState.scalperMode === '1m') return ['1m'];
+  if (algoState.scalperMode === '3m') return ['3m'];
+  if (algoState.scalperMode === 'BOTH') return ['1m', '3m'];
+  return [];
+}
+function algoSetScalperMode(mode) {
+  mode = ['OFF', '1m', '3m', 'BOTH'].indexOf(mode) >= 0 ? mode : 'OFF';
+  algoState.scalperMode = mode;
+  algoPersistState();
+  const sel = document.getElementById('algoScalperMode');
+  if (sel) sel.value = mode;
+  const status = document.getElementById('algoScalperStatus');
+  if (status) status.textContent = mode === 'OFF' ? 'scalper: off' : ('scalper: ' + (mode === 'BOTH' ? '1m + 3m' : mode.toUpperCase()) + (algoState.armed ? ' · armed' : ' · waiting for ARM'));
+  algoUpdateStatus(mode === 'OFF' ? 'Scalper mode OFF · standard timeframes unchanged' : ('Scalper mode ' + (mode === 'BOTH' ? '1m + 3m' : mode.toUpperCase()) + ' · standard timeframes continue in parallel'));
+  if (algoState.histOpen) algoRenderLog(algoState.histFilter || 'ALL');
 }
 
 /** Higher TF biases from gold matrix — need ≥3 aligned for direction */
@@ -15736,7 +15767,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   const sellDirOk = sellDeskOk && (sellBiasOk || (mode !== 'LIVE' && htfUnknown));
 
   function pushTrade(side, reason, zonePx, zoneKind) {
-    const barSlot = c.barSlot || (c.closeTime ? (c.closeTime - (ALGO_TF_ALLOWED[tf] || 900) * 1000) : (Date.now() - (data.length - i) * (ALGO_TF_ALLOWED[tf] || 900) * 1000));
+    const barSlot = c.barSlot || (c.closeTime ? (c.closeTime - (ALGO_TF_SECONDS[tf] || 900) * 1000) : (Date.now() - (data.length - i) * (ALGO_TF_SECONDS[tf] || 900) * 1000));
     const id = 'GP-' + side[0] + '-' + tf + '-' + barSlot + '-' + Math.round(zonePx * 100);
     // Entry/SL/TP always interbank candle prices (never OKX mark price)
     // SL: beyond sweep extreme + 1.0–1.5×ATR buffer (protects stop-runs that wick the level)
@@ -15945,7 +15976,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
 function algoScanSignals(candles, tf, mode, structOpt) {
   const out = [];
   mode = mode || 'LIVE';
-  if (!algoIsAllowedTf(tf)) return out;
+  if (!algoIsEngineTf(tf)) return out;
   if (!Array.isArray(candles) || candles.length < 30) return out;
 
   const data = candles;
@@ -16209,7 +16240,7 @@ function algoMergeNewTrades(candidates) {
       const ez = Number(e.zone) || Number(e.entry) || 0;
       if (Math.abs(ez - z) > 1.5) continue;
       const es = Number(e.barSlot) || 0;
-      const step = (ALGO_TF_ALLOWED[tf] || 900) * 1000;
+      const step = (ALGO_TF_SECONDS[tf] || 900) * 1000;
       if (slot && es && Math.abs(slot - es) <= step * 3) return true;
       const open = !(e.outcome === 'TP' || e.outcome === 'SL' || e.status === 'TP' || e.status === 'SL');
       if (open && Math.abs(ez - z) <= 1.5) return true;
@@ -16272,7 +16303,7 @@ function algoRenderLog(filter) {
   const st = algoComputeStats(log);
   if (cnt) cnt.textContent = '(' + log.length + ')';
 
-  const filters = ['ALL', 'OPEN', 'TP', 'SL', '5m', '15m', '1h', '4h', '1d'];
+  const filters = ['ALL', 'OPEN', 'TP', 'SL', '1m', '3m', '5m', '15m', '1h', '4h', '1d'];
   let filterHtml = '<div class="algo-hist-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">';
   filters.forEach(function (f) {
     const active = filter === f;
@@ -16305,7 +16336,7 @@ function algoRenderLog(filter) {
     if (filter === 'OPEN') return algoIsOpenTrade(t);
     if (filter === 'TP') return t.outcome === 'TP' || t.status === 'TP';
     if (filter === 'SL') return t.outcome === 'SL' || t.status === 'SL';
-    if (filter === '5m' || filter === '15m' || filter === '1h' || filter === '4h' || filter === '1d') {
+    if (filter === '1m' || filter === '3m' || filter === '5m' || filter === '15m' || filter === '1h' || filter === '4h' || filter === '1d') {
       return String(t.tf || '').toLowerCase() === filter;
     }
     return true;
@@ -16349,7 +16380,7 @@ function algoRenderLog(filter) {
       const safeId = String(t.id).replace(/'/g, '');
       return '<div class="algo-trade ' + cls + '" data-algo-id="' + safeId + '">' +
         '<div class="at-side">' + t.side + ' GOLD · ' + (t.tf || '').toUpperCase() +
-        ' @ ' + (Number(t.entry) || 0).toFixed(2) + ' · ' + lots + ' LOT · ' + src + '</div>' +
+        ' @ ' + (Number(t.entry) || 0).toFixed(2) + ' · ' + lots + ' LOT · ' + (String(src).toUpperCase() === 'SCALPER' ? 'SCALPER' : src) + '</div>' +
         '<div class="at-rr">' + sltp + '</div>' +
         '<div class="at-rr">' + outcome + '</div>' +
         '<div class="at-rr" style="font-size:10px;color:' + execColor + '">MT5 EXECUTION: ' + execLabel +
@@ -16481,13 +16512,13 @@ function algoFocusTrade(id) {
   algoState.focusId = id;
   algoRenderLog();
   // Ensure main gold chart open on trade TF if allowed
-  const tf = (t.tf && ALGO_TF_ALLOWED[t.tf]) ? t.tf : algoState.tf;
-  algoState.tf = tf;
-  algoState.sec = ALGO_TF_ALLOWED[tf];
+  const tf = (t.tf && ALGO_TF_SECONDS[t.tf]) ? t.tf : algoState.tf;
+  algoState.tf = ALGO_TF_ALLOWED[tf] ? tf : (algoState.tf || '15m');
+  algoState.sec = ALGO_TF_SECONDS[tf];
   try {
     state.chartAsset = 'gold';
     state.tf_interval = tf;
-    state.tf_seconds = ALGO_TF_ALLOWED[tf];
+    state.tf_seconds = ALGO_TF_SECONDS[tf];
   } catch (e) {}
   // Open chart if closed
   const modal = document.getElementById('chartModal');
@@ -16496,7 +16527,7 @@ function algoFocusTrade(id) {
     try { openChartModal('gold'); } catch (e) {}
   }
   try {
-    if (typeof changeTimeframe === 'function') changeTimeframe(tf, ALGO_TF_ALLOWED[tf], null);
+    if (typeof changeTimeframe === 'function') changeTimeframe(tf, ALGO_TF_SECONDS[tf], null);
   } catch (e) {}
   // After candles ready, pan to bar
   const tryFocus = () => {
@@ -16581,6 +16612,8 @@ function openAlgoTrader(opts) {
     el.style.opacity = '1';
   }
   algoState.open = true;
+  const scalperSel = document.getElementById('algoScalperMode'); if (scalperSel) scalperSel.value = algoState.scalperMode || 'OFF';
+  const scalperStatus = document.getElementById('algoScalperStatus'); if (scalperStatus) scalperStatus.textContent = (algoState.scalperMode && algoState.scalperMode !== 'OFF') ? ('scalper: ' + (algoState.scalperMode === 'BOTH' ? '1m + 3m' : algoState.scalperMode.toUpperCase()) + (algoState.armed ? ' · armed' : ' · waiting for ARM')) : 'scalper: off';
   document.querySelectorAll('.algo-tf-btn').forEach(b => {
     b.classList.toggle('active', b.getAttribute('data-tf') === algoState.tf);
   });
@@ -16744,7 +16777,7 @@ function algoOpenGoldChart() {
 /** Offline normalize — does NOT read/write state.tf_seconds or candleHistory */
 function algoNormalizeBarsOffline(bars, interval) {
   if (!Array.isArray(bars) || !bars.length) return [];
-  const sec = ALGO_TF_ALLOWED[String(interval).toLowerCase()] || 900;
+  const sec = ALGO_TF_SECONDS[String(interval).toLowerCase()] || 900;
   const stepMs = sec * 1000;
   return bars.map(function (b) {
     let t = b.openTime ?? b.t ?? b.time ?? b[0];
@@ -16769,7 +16802,7 @@ function algoNormalizeBarsOffline(bars, interval) {
 /** Fetch gold OHLC for a TF without touching open chart / candleHistory / TF buttons */
 async function algoFetchCandlesOffline(tf) {
   tf = String(tf || '15m').toLowerCase();
-  if (!ALGO_TF_ALLOWED[tf]) return [];
+  if (!ALGO_TF_SECONDS[tf]) return [];
   try {
     const url = 'https://biquote.io/api/XAUUSD/ohlc?interval=' + encodeURIComponent(tf) + '&limit=350';
     const data = await Promise.race([
@@ -16842,7 +16875,7 @@ function algoBuildStructureOffline(candles, tf) {
     // Temporary context for builders only — always restored in finally
     state.chartAsset = 'gold';
     state.tf_interval = tf;
-    state.tf_seconds = ALGO_TF_ALLOWED[tf] || 900;
+    state.tf_seconds = ALGO_TF_SECONDS[tf] || 900;
     if (typeof scanAndStoreOrderBlocks === 'function') scanAndStoreOrderBlocks(candles);
     if (typeof executeTradingViewRayArchitecture === 'function') executeTradingViewRayArchitecture(candles);
     const lines = (multiHorizonTrendlines || []).slice();
@@ -16888,7 +16921,7 @@ function algoBuildStructureOffline(candles, tf) {
 /** Scan one TF fully offline — never changes open chart timeframe */
 async function algoScanTf(tf, mode, allowFetch) {
   mode = mode || 'BACKTEST';
-  if (!algoIsAllowedTf(tf)) return { added: 0, scanned: 0, tf: tf, candidates: 0 };
+  if (!algoIsEngineTf(tf)) return { added: 0, scanned: 0, tf: tf, candidates: 0 };
   const candles = await algoGetCandlesForTf(tf, !!allowFetch);
   if (candles.length < 30) {
     return { added: 0, scanned: 0, tf: tf, candidates: 0, err: 'no-candles' };
@@ -17199,12 +17232,33 @@ function algoDrawExecutionHud(ctx,chartW){
     ['MT5 BID / ASK',bid>0&&ask>0?bid.toFixed(2)+' / '+ask.toFixed(2):'NO TICK',bid>0&&ask>0?'#e2e8f0':'#fbbf24'],
     ['EXECUTION',MT5_BRIDGE.enabled?'ON':'OFF',MT5_BRIDGE.enabled?'#34d399':'#94a3b8']
   ];
-  // Opposite (left) side from the previous right-side placement; compact on phones.
-  const boxW=mobileView?Math.min(166,Math.max(148,chartW-16)):Math.min(220,Math.max(188,chartW-16));
+  const allPositions=Array.isArray(d.positions)?d.positions:[];
+  const log=(typeof algoLoadTrades==='function')?algoLoadTrades():[];
+  const symbol=String(MT5_BRIDGE.symbol||'').toUpperCase();
+  const positions=allPositions.filter(function(p){
+    if(!p)return false;
+    const ps=String(p.symbol||'').toUpperCase();
+    return !(ps&&symbol&&ps!==symbol);
+  }).slice(0,mobileView?2:4);
+  const tradeRows=positions.map(function(p){
+    const t=log.find(function(x){return x&&((x.mt5Ticket&&(String(x.mt5Ticket)===String(p.ticket)||String(x.mt5Ticket)===String(p.identifier)))||(x.mt5PositionId&&(String(x.mt5PositionId)===String(p.identifier)||String(x.mt5PositionId)===String(p.ticket))));})||{};
+    const rawType=String(p.type!==undefined?p.type:(t.side||'')).toUpperCase();
+    const side=(rawType==='1'||rawType.indexOf('SELL')>=0)?'SELL':'BUY';
+    const profit=Number(p.profit);
+    const profitText=isFinite(profit)?((profit>0?'+':'')+profit.toFixed(2)):'P/L N/A';
+    const tf=String(t.tf||p.timeframe||'LIVE').toUpperCase();
+    const volume=Number(p.volume||p.lots||t.lots);
+    const entry=Number(p.price_open||p.price||t.mt5BrokerEntry||t.entry);
+    const current=Number(p.price_current||t.mt5LastBrokerPrice);
+    return {side:side,tf:tf,ticket:String(p.ticket||p.identifier||'—'),volume:isFinite(volume)&&volume>0?volume:null,entry:isFinite(entry)&&entry>0?entry:null,current:isFinite(current)&&current>0?current:null,profitText:profitText,profit:profit};
+  });
+  const boxW=mobileView?Math.min(174,Math.max(154,chartW-16)):Math.min(244,Math.max(210,chartW-16));
   const rowH=mobileView?8.5:11.5;
-  const boxH=(mobileView?8:10)+(mobileView?10:13)+(lines.length*rowH);
+  const tradeHeaderH=mobileView?12:15;
+  const tradeRowH=mobileView?14:18;
+  const boxH=(mobileView?8:10)+(mobileView?10:13)+(lines.length*rowH)+8+tradeHeaderH+Math.max(1,tradeRows.length)*tradeRowH+5;
   const x=8,y=mobileView?8:18;
-  ctx.save();ctx.globalAlpha=.94;ctx.fillStyle='rgba(7,12,20,.90)';ctx.strokeStyle='rgba(100,116,139,.58)';ctx.lineWidth=1;
+  ctx.save();ctx.globalAlpha=.96;ctx.fillStyle='rgba(7,12,20,.93)';ctx.strokeStyle='rgba(100,116,139,.68)';ctx.lineWidth=1;
   ctx.beginPath();ctx.roundRect?ctx.roundRect(x,y,boxW,boxH,mobileView?5:7):ctx.rect(x,y,boxW,boxH);ctx.fill();ctx.stroke();
   ctx.font=mobileView?'bold 7px system-ui,sans-serif':'bold 9px system-ui,sans-serif';
   ctx.textAlign='left';ctx.fillStyle='#93c5fd';ctx.fillText(mobileView?'GOLD EXEC MONITOR':'GOLD EXECUTION MONITOR',x+7,y+(mobileView?9:12));
@@ -17218,13 +17272,116 @@ function algoDrawExecutionHud(ctx,chartW){
     if(mobileView&&r[0]==='MT5 BID / ASK'&&value.length>15)value='NO TICK';
     ctx.fillText(value,x+boxW-7,yy);
   });
-  if(mobileView){ctx.font='6px system-ui,sans-serif';ctx.textAlign='left';ctx.fillStyle='#fbbf24';ctx.fillText('PC BRIDGE ONLY',x+7,y+boxH-3);}
+  const dividerY=y+(mobileView?18:26)+lines.length*rowH+2;
+  ctx.strokeStyle='rgba(100,116,139,.45)';ctx.beginPath();ctx.moveTo(x+6,dividerY);ctx.lineTo(x+boxW-6,dividerY);ctx.stroke();
+  const thY=dividerY+(mobileView?10:12);
+  ctx.font=mobileView?'bold 6.5px system-ui,sans-serif':'bold 8px system-ui,sans-serif';ctx.textAlign='left';ctx.fillStyle='#93c5fd';
+  ctx.fillText('OPEN MT5 TRADES · '+tradeRows.length,x+7,thY);
+  if(!tradeRows.length){
+    ctx.font=mobileView?'6px system-ui,sans-serif':'7px system-ui,sans-serif';ctx.fillStyle='#94a3b8';
+    ctx.fillText(connected?'NO OPEN GOLD POSITIONS':'MT5 POSITIONS UNAVAILABLE',x+7,thY+(mobileView?9:11));
+  }else{
+    tradeRows.forEach(function(r,i){
+      const yy=thY+(mobileView?9:11)+i*tradeRowH;
+      ctx.font=mobileView?'bold 6.5px system-ui,sans-serif':'bold 8px system-ui,sans-serif';ctx.textAlign='left';ctx.fillStyle=r.side==='BUY'?'#34d399':'#fb7185';
+      const left=r.side+' '+r.tf+(r.volume?' · '+r.volume:'');ctx.fillText(left.slice(0,mobileView?22:29),x+7,yy);
+      ctx.textAlign='right';ctx.fillStyle=isFinite(r.profit)?(r.profit>=0?'#34d399':'#fb7185'):'#fbbf24';ctx.fillText(r.profitText,x+boxW-7,yy);
+      ctx.textAlign='left';ctx.font=mobileView?'5.7px system-ui,sans-serif':'6.8px system-ui,sans-serif';ctx.fillStyle='#94a3b8';
+      const prices=(r.entry?r.entry.toFixed(2):'—')+' → '+(r.current?r.current.toFixed(2):'—')+' · #'+r.ticket;
+      ctx.fillText(prices.slice(0,mobileView?29:39),x+7,yy+(mobileView?6:7));
+    });
+  }
+  if(mobileView){ctx.font='5.8px system-ui,sans-serif';ctx.textAlign='left';ctx.fillStyle='#fbbf24';ctx.fillText('PC BRIDGE ONLY',x+7,y+boxH-3);}
+  ctx.restore();
+}
+
+/** Live broker-confirmed running trades and floating P/L on the Gold chart. */
+function algoDrawRunningTradesHud(ctx, chartW) {
+  if ((state.chartAsset || 'gold') !== 'gold') return;
+  const d = MT5_BRIDGE.lastStatus || {};
+  const allPositions = Array.isArray(d.positions) ? d.positions : [];
+  const log = (typeof algoLoadTrades === 'function') ? algoLoadTrades() : [];
+  const symbol = String(MT5_BRIDGE.symbol || '').toUpperCase();
+  const positions = allPositions.filter(function (p) {
+    if (!p) return false;
+    const ps = String(p.symbol || '').toUpperCase();
+    // If the bridge supplies a symbol, show only the configured Gold symbol.
+    if (ps && symbol && ps !== symbol) return false;
+    return true;
+  }).slice(0, 4);
+  const mobileView = (window.innerWidth || chartW) < 600;
+  const boxW = mobileView ? Math.min(170, Math.max(150, chartW - 16)) : 232;
+  const rowH = mobileView ? 15 : 18;
+  const rows = positions.map(function (p) {
+    const t = log.find(function (x) {
+      return x && ((x.mt5Ticket && (String(x.mt5Ticket) === String(p.ticket) || String(x.mt5Ticket) === String(p.identifier))) ||
+        (x.mt5PositionId && (String(x.mt5PositionId) === String(p.identifier) || String(x.mt5PositionId) === String(p.ticket))));
+    }) || {};
+    const rawType = String(p.type !== undefined ? p.type : (t.side || '')).toUpperCase();
+    const side = (rawType === '1' || rawType.indexOf('SELL') >= 0) ? 'SELL' : 'BUY';
+    const profit = Number(p.profit);
+    const profitText = isFinite(profit) ? ((profit > 0 ? '+' : '') + profit.toFixed(2)) : 'P/L N/A';
+    const tf = String(t.tf || p.timeframe || 'LIVE').toUpperCase();
+    const volume = Number(p.volume || p.lots || t.lots);
+    const entry = Number(p.price_open || p.price || t.mt5BrokerEntry || t.entry);
+    const current = Number(p.price_current || t.mt5LastBrokerPrice);
+    return {
+      side: side,
+      tf: tf,
+      ticket: String(p.ticket || p.identifier || '—'),
+      volume: isFinite(volume) && volume > 0 ? volume : null,
+      entry: isFinite(entry) && entry > 0 ? entry : null,
+      current: isFinite(current) && current > 0 ? current : null,
+      profit: profit,
+      profitText: profitText
+    };
+  });
+  const title = 'OPEN MT5 TRADES · ' + rows.length;
+  const headerH = mobileView ? 17 : 20;
+  const boxH = headerH + Math.max(1, rows.length) * rowH + 7;
+  const x = mobileView ? 8 : Math.max(8, chartW - boxW - 8);
+  // On phones place below the compact execution status card; on desktop use the opposite corner.
+  const y = mobileView ? 108 : 18;
+  ctx.save();
+  ctx.globalAlpha = 0.96;
+  ctx.fillStyle = 'rgba(7,12,20,.93)';
+  ctx.strokeStyle = 'rgba(100,116,139,.68)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, boxW, boxH, mobileView ? 5 : 7); else ctx.rect(x, y, boxW, boxH);
+  ctx.fill(); ctx.stroke();
+  ctx.textAlign = 'left';
+  ctx.font = mobileView ? 'bold 7px system-ui,sans-serif' : 'bold 9px system-ui,sans-serif';
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText(title, x + 7, y + (mobileView ? 11 : 13));
+  if (!rows.length) {
+    ctx.font = mobileView ? '6.5px system-ui,sans-serif' : '8px system-ui,sans-serif';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(MT5_BRIDGE.connected ? 'NO OPEN BROKER POSITIONS' : 'MT5 NOT CONNECTED', x + 7, y + headerH + 9);
+  } else {
+    rows.forEach(function (r, i) {
+      const yy = y + headerH + i * rowH;
+      ctx.font = mobileView ? 'bold 6.5px system-ui,sans-serif' : 'bold 8px system-ui,sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = r.side === 'BUY' ? '#34d399' : '#fb7185';
+      const left = r.side + ' ' + r.tf + (r.volume ? ' · ' + r.volume : '');
+      ctx.fillText(left.slice(0, mobileView ? 21 : 27), x + 7, yy + (mobileView ? 6 : 7));
+      ctx.textAlign = 'right';
+      ctx.fillStyle = isFinite(r.profit) ? (r.profit >= 0 ? '#34d399' : '#fb7185') : '#fbbf24';
+      ctx.fillText(r.profitText, x + boxW - 7, yy + (mobileView ? 6 : 7));
+      ctx.textAlign = 'left';
+      ctx.font = mobileView ? '6px system-ui,sans-serif' : '7px system-ui,sans-serif';
+      ctx.fillStyle = '#94a3b8';
+      const prices = (r.entry ? r.entry.toFixed(2) : '—') + ' → ' + (r.current ? r.current.toFixed(2) : '—') + ' · #' + r.ticket;
+      ctx.fillText(prices.slice(0, mobileView ? 27 : 36), x + 7, yy + (mobileView ? 13 : 15));
+    });
+  }
   ctx.restore();
 }
 
 /** Run LIVE scan on one TF with given candles — never changes chart TF */
 async function algoLiveScanOneTf(tf, candlesPrefer) {
-  if (!algoIsAllowedTf(tf)) return { added: 0, found: 0, tf: tf };
+  if (!algoIsEngineTf(tf)) return { added: 0, found: 0, tf: tf };
   let candles = Array.isArray(candlesPrefer) ? candlesPrefer : [];
   if (candles.length < 30) {
     try {
@@ -17258,6 +17415,7 @@ async function algoLiveScanOneTf(tf, candlesPrefer) {
     demand: struct.demand,
     supply: struct.supply
   });
+  if (ALGO_TF_SCALPER_TFS[tf]) found.forEach(function (trade) { trade.source = 'SCALPER'; });
   const added = algoMergeNewTrades(found);
   try { algoResolveAllTrades(candles); } catch (eR) {}
   return {
@@ -17300,6 +17458,35 @@ function algoForceLiveScanActiveTf() {
     } catch (e) {}
     finally { algoForceLiveScanActiveTf._busy = false; }
   })();
+}
+
+/** Scalper scan is independent of the standard 5m–1D scanner. Refreshes its own interbank OHLC cache. */
+async function algoRunScalperLive() {
+  const tfs = algoScalperTfList();
+  if (!tfs.length || !algoState.armed || algoRunScalperLive._busy) return;
+  algoRunScalperLive._busy = true;
+  try {
+    for (const tf of tfs) {
+      let candles = null;
+      const now = Date.now();
+      algoRunScalperLive._lastFetch = algoRunScalperLive._lastFetch || {};
+      // Refresh every 12 seconds; use the latest cached series between refreshes.
+      if (!algoRunScalperLive._lastFetch[tf] || now - algoRunScalperLive._lastFetch[tf] >= 12000) {
+        algoRunScalperLive._lastFetch[tf] = now;
+        try { candles = await algoFetchCandlesOffline(tf); } catch (eF) {}
+      }
+      if (!candles || candles.length < 30) {
+        try { const cache = chartStore.gold && chartStore.gold[tf]; if (cache && cache.candles) candles = cache.candles.slice(); } catch (eC) {}
+      }
+      if (candles && candles.length >= 30) {
+        const r = await algoLiveScanOneTf(tf, candles);
+        if (r.added > 0) {
+          try { algoState.histOpen = true; const pan = document.getElementById('algoHistoryPanel'); if (pan) pan.style.display = 'block'; algoRenderLog(); } catch (eH) {}
+          algoUpdateStatus('<span class="ok">SCALPER ' + tf.toUpperCase() + ': +' + r.added + ' · standard TF scans remain active</span>');
+        }
+      }
+    }
+  } finally { algoRunScalperLive._busy = false; }
 }
 
 /** Background live scan — ACTIVE chart TF every tick; other TFs rotate; never changes chart TF */
@@ -17378,6 +17565,11 @@ function algoOnLiveTick() {
           try { if (typeof drawTradingViewChart === 'function') drawTradingViewChart(); } catch (e) {}
           algoUpdateStatus('<span class="ok">LIVE ' + tf + ': +' + r2.added + ' · bg TF</span>');
         }
+      }
+
+      // Scalper 1m/3m runs alongside (not instead of) the standard timeframe scans.
+      if (algoState.scalperMode && algoState.scalperMode !== 'OFF') {
+        try { await algoRunScalperLive(); } catch (eSc) {}
       }
 
       if ((!rMain.added) && (!algoOnLiveTick._lastStatus || now - algoOnLiveTick._lastStatus > 8000)) {
@@ -17654,14 +17846,16 @@ function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
       ctx.strokeStyle = focused ? '#fbbf24' : (isBuy ? '#059669' : '#dc2626');
       ctx.lineWidth = focused ? 2.2 : 1.5;
       ctx.beginPath();
+      // Direction convention: BUY points UP from below the entry level;
+      // SELL points DOWN from above the entry level.
       if (isBuy) {
-        ctx.moveTo(x, y + 16);
-        ctx.lineTo(x - 8, y + 3);
-        ctx.lineTo(x + 8, y + 3);
-      } else {
         ctx.moveTo(x, y - 16);
         ctx.lineTo(x - 8, y - 3);
         ctx.lineTo(x + 8, y - 3);
+      } else {
+        ctx.moveTo(x, y + 16);
+        ctx.lineTo(x - 8, y + 3);
+        ctx.lineTo(x + 8, y + 3);
       }
       ctx.closePath();
       ctx.fill();
