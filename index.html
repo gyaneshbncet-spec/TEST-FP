@@ -5570,14 +5570,18 @@ function refreshActiveOrderBlocks(data) {
 }
 
 function executeTradingViewRayArchitecture(data) {
-  if (data.length < 25) {
+  const isDxy = (state.chartAsset === 'dxy');
+  const tfSeconds = Number(state.tf_seconds || 900);
+  const isFastGoldTf = !isDxy && tfSeconds <= 180;
+  const isMidGoldTf = !isDxy && tfSeconds > 180 && tfSeconds <= 900;
+  const pivotLeftRight = isDxy ? 5 : (isFastGoldTf ? 3 : (isMidGoldTf ? 4 : 5));
+  if (!Array.isArray(data) || data.length < (isDxy ? 25 : (isFastGoldTf ? 16 : 20))) {
     multiHorizonTrendlines = [];
     return;
   }
   const n = data.length;
-  const isDxy = (state.chartAsset === 'dxy');
 
-  // ── ATR (true range) — scale-aware ──────────────────────────────────
+  // ── ATR (true range) — timeframe-aware; avoid a $2 floor on 1m/3m ──
   let atrSum = 0;
   const atrPeriod = Math.min(14, n - 1);
   for (let k = n - atrPeriod; k < n; k++) {
@@ -5587,16 +5591,14 @@ function executeTradingViewRayArchitecture(data) {
       Math.abs(data[k].l - data[k - 1].c)
     );
   }
-  // Gold: use real ATR (typical $3–$25); floor only for dead-flat series
-  const atr = isDxy
-    ? Math.max(0.015, atrSum / atrPeriod)
-    : Math.max(2.0, atrSum / atrPeriod);
+  const atrFloor = isDxy ? 0.015 : (tfSeconds <= 60 ? 0.30 : tfSeconds <= 180 ? 0.45 : tfSeconds <= 300 ? 0.60 : tfSeconds <= 900 ? 0.85 : tfSeconds <= 3600 ? 1.20 : 2.0);
+  const atr = Math.max(atrFloor, atrSum / atrPeriod);
 
   // ── Multi-strength swing pivots (fractals) ──────────────────────────
-  // Gold needs wider / stronger pivots so lines lock to real structure
-  const L = isDxy ? 5 : 5;
-  const minGap = isDxy ? 4 : 5;
-  const promMin = atr * (isDxy ? 0.20 : 0.22);
+  // Faster Gold charts use shorter confirmed swings so both sides can form.
+  const L = isDxy ? 5 : pivotLeftRight;
+  const minGap = isDxy ? 4 : (isFastGoldTf ? 3 : (isMidGoldTf ? 4 : 5));
+  const promMin = atr * (isDxy ? 0.20 : (isFastGoldTf ? 0.15 : (isMidGoldTf ? 0.18 : 0.22)));
 
   function collectPivots(kind) {
     const raw = [];
@@ -5640,15 +5642,13 @@ function executeTradingViewRayArchitecture(data) {
   // maxSlope = max $/bar; gold can slope more than DXY but reject vertical noise
   const maxSlope = isDxy
     ? Math.max(0.06, atr * 1.5)
-    : Math.min(4.0, Math.max(1.0, atr * 0.50));
-  // Touch band: wick must land near the line (tighter = more authentic)
-  const touchTol = isDxy ? Math.max(0.02, atr * 0.45) : atr * 0.38;
-  // Decisive close through the line = broken
-  const breakTol = isDxy ? Math.max(0.018, atr * 0.35) : atr * 0.22;
-  const midBreakTol = isDxy ? Math.max(0.02, atr * 0.38) : atr * 0.26;
-  // Gold: slightly longer min span so short noise pairs are ignored
-  const minSpan = isDxy ? 7 : 8;
-  const maxSpan = isDxy ? 160 : 200;
+    : (isFastGoldTf ? Math.min(2.5, Math.max(0.35, atr * 0.75)) : isMidGoldTf ? Math.min(3.2, Math.max(0.60, atr * 0.65)) : Math.min(4.0, Math.max(1.0, atr * 0.50)));
+  // Wick touch / break bands scale down on 1m and 3m to avoid suppressing structure.
+  const touchTol = isDxy ? Math.max(0.02, atr * 0.45) : atr * (isFastGoldTf ? 0.34 : (isMidGoldTf ? 0.36 : 0.38));
+  const breakTol = isDxy ? Math.max(0.018, atr * 0.35) : atr * (isFastGoldTf ? 0.20 : 0.22);
+  const midBreakTol = isDxy ? Math.max(0.02, atr * 0.38) : atr * (isFastGoldTf ? 0.22 : 0.26);
+  const minSpan = isDxy ? 7 : (isFastGoldTf ? 4 : (isMidGoldTf ? 6 : 8));
+  const maxSpan = isDxy ? 160 : (isFastGoldTf ? 120 : (isMidGoldTf ? 160 : 200));
   const livePx = isDxy
     ? (state.dxy_price > 50 ? state.dxy_price : data[n - 1].c)
     : (state.gold_price > 500 ? state.gold_price : data[n - 1].c);
@@ -5774,7 +5774,7 @@ function executeTradingViewRayArchitecture(data) {
     const projNow = lineAt(fit, n - 1);
     const distNow = Math.abs(livePx - projNow);
     // Gold: relevance window ~3–4 ATR from live price
-    const relevance = Math.max(0, 1 - distNow / (atr * (isDxy ? 7 : 4.0)));
+    const relevance = Math.max(0, 1 - distNow / (atr * (isDxy ? 7 : (isFastGoldTf ? 5.0 : 4.0))));
     // Gold: drop weak 2-touch lines that are far from price or poorly aligned
     if (!isDxy && touches.length === 2 && relevance < 0.22) return null;
     if (isDxy && touches.length === 2 && relevance < 0.15) return null;
