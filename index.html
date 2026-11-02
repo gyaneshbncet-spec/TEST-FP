@@ -16300,13 +16300,14 @@ function algoRenderLog(filter) {
   const st = algoComputeStats(log);
   if (cnt) cnt.textContent = '(' + log.length + ')';
 
-  const filters = ['ALL', 'LIVE', 'OPEN', 'TP', 'SL', '1m', '3m', '5m', '15m', '1h', '4h', '1d'];
+  const filters = ['ALL', 'LIVE', 'BACKTEST', 'OPEN', 'TP', 'SL', '1m', '3m', '5m', '15m', '1h', '4h', '1d'];
   let filterHtml = '<div class="algo-hist-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">';
   filters.forEach(function (f) {
     const active = filter === f;
     let n = 0;
     if (f === 'ALL') n = log.length;
     else if (f === 'LIVE') n = log.filter(function (t) { return String(t.source || 'LIVE').toUpperCase() !== 'BACKTEST'; }).length;
+    else if (f === 'BACKTEST') n = log.filter(function (t) { return String(t.source || '').toUpperCase() === 'BACKTEST'; }).length;
     else if (f === 'OPEN') n = st.open;
     else if (f === 'TP') n = st.tp;
     else if (f === 'SL') n = st.sl;
@@ -16332,6 +16333,7 @@ function algoRenderLog(filter) {
 
   const filtered = log.filter(function (t) {
     if (filter === 'LIVE') return String(t.source || 'LIVE').toUpperCase() !== 'BACKTEST';
+    if (filter === 'BACKTEST') return String(t.source || '').toUpperCase() === 'BACKTEST';
     if (filter === 'OPEN') return algoIsOpenTrade(t);
     if (filter === 'TP') return t.outcome === 'TP' || t.status === 'TP';
     if (filter === 'SL') return t.outcome === 'SL' || t.status === 'SL';
@@ -16688,7 +16690,7 @@ function algoToggleArm() {
   }
   algoState.armed = !algoState.armed;
   algoPersistState();
-  algoUpdateStatus(algoState.armed ? '<span class="ok">Armed — multi-TF BT + live scan active</span>' : 'Disarmed');
+  algoUpdateStatus(algoState.armed ? '<span class="ok">Armed — live signal scanning active (no auto-backtest)</span>' : 'Disarmed');
   if (algoState.armed) {
     try {
       algoState.histOpen = true;
@@ -16697,11 +16699,8 @@ function algoToggleArm() {
       const btn = document.getElementById('algoHistBtn');
       if (btn) btn.classList.add('active');
     } catch (eH) {}
-    // Live scan current TF + auto BACKTEST all TFs in background
+    // Arm starts LIVE scanning only. Backtests run only when the user presses BACKTEST ALL TF.
     try { algoScanNow('LIVE'); } catch (e) {}
-    setTimeout(function () {
-      try { algoAutoBacktestAllTfs(true); } catch (e2) {}
-    }, 400);
   }
 }
 
@@ -17603,12 +17602,7 @@ function algoOnLiveTick() {
           ' · ARMED</span>');
       }
 
-      // Restore the older build's periodic multi-timeframe BACKTEST pass.
-      // BACKTEST rows remain tagged as BACKTEST and are separate from LIVE rows;
-      // they are not broker executions and are never replayed to MT5.
-      if (now - (_algoMultiBtLast || 0) > 120000) {
-        try { algoAutoBacktestAllTfs(false); } catch (eA) {}
-      }
+      // Live scanning never launches historical BACKTEST jobs automatically.
     } catch (e) {}
     finally { algoOnLiveTick._busy = false; }
   })();
@@ -17982,12 +17976,11 @@ function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
 
 algoLoadState();
 try { algoLoadHidePref(); } catch (e) {}
-// Boot: if previously armed, resume multi-TF BT + live
+// Boot: resume the armed LIVE scanner only. History viewing never starts a scan or backtest.
 setTimeout(function () {
   try {
     if (algoState && algoState.armed) {
-      algoUpdateStatus('<span class="ok">Resumed ARMED · multi-TF BT…</span>');
-      algoAutoBacktestAllTfs(false);
+      algoUpdateStatus('<span class="ok">Resumed ARMED · live scanning only</span>');
     }
   } catch (e) {}
 }, 2500);
