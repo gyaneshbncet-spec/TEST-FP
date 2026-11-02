@@ -15453,23 +15453,23 @@ function algoIsRejection(c, side) {
   const upper = c.h - Math.max(c.o, c.c);
   const lower = Math.min(c.o, c.c) - c.l;
   // Reject doji-noise / full-body impulse bars (not absorption)
-  if (body / range > 0.72) return false;
+  if (body / range > 0.78) return false;
   if (side === 'BUY') {
     const lowerShare = lower / range;
     const closePos = (c.c - c.l) / range;
     // lower wick ≥ 30% of range, close in upper 50%+
-    return lowerShare >= 0.30 && closePos >= 0.50;
+    return lowerShare >= 0.25 && closePos >= 0.45;
   }
   const upperShare = upper / range;
   const closePos = (c.c - c.l) / range;
   // upper wick ≥ 30% of range, close in lower 50%-
-  return upperShare >= 0.30 && closePos <= 0.50;
+  return upperShare >= 0.25 && closePos <= 0.55;
 }
 
 /** True only if this rejection candle's wick actually sweeps the zone price */
 function algoWickSweepsZone(c, side, zonePx, atr) {
   if (!(zonePx > 0) || !c) return false;
-  const tol = Math.max(atr * 0.12, 0.4);
+  const tol = Math.max(atr * 0.30, 0.8); // modestly wider sweep tolerance; rejection + close-back-through remain mandatory
   if (side === 'BUY') {
     // Support sweep: low reaches zone (or slightly through), close finishes above
     return c.l <= zonePx + tol && c.c > zonePx;
@@ -15483,7 +15483,7 @@ function algoNearLine(c, line, i, atr) {
   const slope = (line.y2 - line.y1) / (line.x2 - line.x1);
   const px = line.y1 + slope * (i - line.x1);
   // Tight band: bar must actually reach the line (no random nearby area)
-  const tol = Math.max(atr * 0.45, 1.0);
+  const tol = Math.max(atr * 0.85, 1.5); // allow a realistic retest band around the validated line
   return (c.l <= px + tol && c.h >= px - tol);
 }
 
@@ -15503,7 +15503,7 @@ function algoRecentRange(data, i, lookback) {
 /** SELL zone = upper band of recent range; BUY zone = lower band */
 function algoZoneInContext(side, zonePx, rng, atr) {
   if (!rng || !(rng.span > 0)) return false;
-  const band = Math.max(rng.span * 0.32, atr * 1.2);
+  const band = Math.max(rng.span * 0.45, atr * 1.7); // slightly wider edge-of-range context; still rejects mid-range entries
   if (side === 'BUY') {
     // Support must be near recent lows (lower ~32% of swing)
     return zonePx <= rng.lo + band;
@@ -15541,7 +15541,7 @@ function algoVolMetrics(data, i) {
   const ratio = sma > 0 ? vol / sma : 0;
   // Relaxed volume participation: low-volume entries are allowed when the strict
   // rejection + sweep + 1D direction + structure conditions are all satisfied.
-  const MULT = 0.70;
+  const MULT = 0.60;
   let ok = sma > 0 && vol >= sma * MULT;
   let viaFp = false;
   // Alternate: negative footprint delta absorption (sell pressure absorbing at resistance, etc.)
@@ -15549,7 +15549,7 @@ function algoVolMetrics(data, i) {
     try {
       if (typeof avGetFootprint1h === 'function') {
         const fp = avGetFootprint1h();
-        if (fp && fp.vol > 0 && Math.abs(fp.delta || 0) / fp.vol >= 0.22) {
+        if (fp && fp.vol > 0 && Math.abs(fp.delta || 0) / fp.vol >= 0.18) {
           ok = true;
           viaFp = true;
         }
@@ -15558,7 +15558,7 @@ function algoVolMetrics(data, i) {
   }
   // Proxy range: still require relative strength vs SMA
   if (usedProxy && !viaFp) {
-    ok = sma > 0 && vol >= sma * 0.75;
+    ok = sma > 0 && vol >= sma * 0.65;
   }
   return { ok: ok, vol: vol, avg5: sma, ratio: ratio, usedProxy: usedProxy, viaFp: viaFp };
 }
@@ -15688,7 +15688,7 @@ function algoConfluencePack(side, mode, localLean) {
   score = Math.max(0, Math.min(100, Math.round(score)));
   // LIVE: desk+HTF+FP/AI stack. BACKTEST: structure+local+HTF only.
   // BACKTEST need 34 so local(16)+struct(18) can pass when HTF flat; HTF3+ still boosts.
-  const need = mode === 'LIVE' ? 48 : 34;
+  const need = mode === 'LIVE' ? 40 : 34; // slightly ease live zone confluence; 1D direction + rejection + sweep remain required
   const veto = !!(d && d.newsState === 'VETO');
   return {
     ok: score >= need && !veto,
@@ -15827,7 +15827,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       const px = l.y1 + slope * (i - l.x1);
       const mid = (c.h + c.l) / 2;
       // Support line must sit in LOWER half of this rejection bar
-      if (px > mid + atr * 0.15) continue;
+      if (px > mid + atr * 0.25) continue;
       // MUST sweep the line with lower wick + close back above (rejection at zone)
       if (!algoWickSweepsZone(c, 'BUY', px, atr)) continue;
       const rng = algoRecentRange(data, i, 40);
@@ -15853,8 +15853,8 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         const mid = (c.h + c.l) / 2;
         if (zMid > mid + atr * 0.25) continue; // zone not in lower half of bar
         // Wick must enter the demand block
-        if (c.l > ob.top + atr * 0.15) continue;
-        if (c.h < ob.bottom - atr * 0.2) continue;
+        if (c.l > ob.top + atr * 0.25) continue;
+        if (c.h < ob.bottom - atr * 0.30) continue;
         // Sweep-and-close: close back ABOVE block bottom (absorption)
         if (c.c <= ob.bottom) continue;
         if (!algoWickSweepsZone(c, 'BUY', zMid, atr) && !(c.l <= ob.top && c.c > ob.bottom)) continue;
@@ -15892,7 +15892,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       const px = l.y1 + slope * (i - l.x1);
       const mid = (c.h + c.l) / 2;
       // Resistance line must sit in UPPER half of this rejection bar
-      if (px < mid - atr * 0.15) continue;
+      if (px < mid - atr * 0.25) continue;
       // MUST sweep the line with upper wick + close back below
       if (!algoWickSweepsZone(c, 'SELL', px, atr)) continue;
       const rngS = algoRecentRange(data, i, 40);
@@ -15916,8 +15916,8 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         const mid = (c.h + c.l) / 2;
         if (zMid < mid - atr * 0.25) continue;
         // Wick must enter the supply block
-        if (c.h < ob.bottom - atr * 0.15) continue;
-        if (c.l > ob.top + atr * 0.2) continue;
+        if (c.h < ob.bottom - atr * 0.25) continue;
+        if (c.l > ob.top + atr * 0.30) continue;
         // Sweep-and-close: close back BELOW block top
         if (c.c >= ob.top) continue;
         if (!algoWickSweepsZone(c, 'SELL', zMid, atr) && !(c.h >= ob.bottom && c.c < ob.top)) continue;
