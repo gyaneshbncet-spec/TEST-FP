@@ -15412,10 +15412,12 @@ function algoSetScalperMode(mode) {
   if (algoState.histOpen) algoRenderLog(algoState.histFilter || 'ALL');
 }
 
-/** Higher TF biases from gold matrix — need ≥3 aligned for direction */
+/** Trade-decision bias gate: ONLY 1H and 1D are authoritative.
+ * Both timeframes must be present and agree before a LIVE trade is allowed.
+ * Lower timeframes may generate setups, but never override this directional view.
+ */
 function algoHigherTfBias(dir) {
-  // CODE FIX: bias map has 15m, 1h, 1d only (no 4h key in state). Require all 3 aligned.
-  const keys = ['15m', '1h', '1d'];
+  const keys = ['1h', '1d'];
   const src = (state.tf_biases_gold && Object.keys(state.tf_biases_gold || {}).length)
     ? state.tf_biases_gold
     : (state.tf_biases || {});
@@ -15438,9 +15440,9 @@ function algoHigherTfBias(dir) {
       else if (t.indexOf('BEAR') >= 0) detail.push('1W BEAR');
     }
   } catch (e) {}
-  const need = 3;
-  if (dir === 'BUY') return { ok: n >= 3 && bull >= need, count: bull, n: n, detail: detail.join(', ') };
-  if (dir === 'SELL') return { ok: n >= 3 && bear >= need, count: bear, n: n, detail: detail.join(', ') };
+  const need = 2;
+  if (dir === 'BUY') return { ok: n === 2 && bull === need, count: bull, n: n, detail: detail.join(', ') };
+  if (dir === 'SELL') return { ok: n === 2 && bear === need, count: bear, n: n, detail: detail.join(', ') };
   return { ok: false, count: 0, n: n, detail: detail.join(', ') };
 }
 
@@ -15614,14 +15616,14 @@ function algoConfluencePack(side, mode, localLean) {
     }
   }
 
-  // 2) HTF bias 15m/1H/1D (max 22) — strict 3+ from matrix
+  // 2) Trade-direction gate: both 1H and 1D must agree (max 22)
   const bias = algoHigherTfBias(side === 'BUY' ? 'BUY' : 'SELL');
   if (bias.ok) {
     score += 22;
-    bits.push('HTF3+');
+    bits.push('1H+1D');
   } else if (bias.count >= 2) {
     score += 8;
-    bits.push('HTF2');
+    bits.push('1H/1D?');
   } else {
     bits.push('HTF×');
   }
@@ -15733,8 +15735,8 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   const sellBias = algoHigherTfBias('SELL');
 
   // Reference model (strict — not relaxed):
-  // LIVE:  desk corr sign + HTF 15m/1h/1d all aligned (3+)
-  // BACKTEST: same HTF regime filter + local bar lean for direction
+  // LIVE: desk correlation sign + BOTH 1H and 1D biases aligned.
+  // BACKTEST: local candle lean for historical direction; no current live bias is applied.
   //   (cannot use live desk on a bar from hours ago — that was a code bug)
   // LIVE: desk sign must match. BACKTEST: local candle lean must match side.
   const buyDeskOk = mode === 'LIVE' ? (deskLive > 0) : (local === 'BUY');
@@ -15743,8 +15745,8 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   // matrix for historical bars: that matrix is unrelated to the historical bar
   // and can veto every past signal when it is neutral/opposite. Historical
   // direction is derived from the candle series' local lean instead.
-  const buyBiasOk = buyBias.ok || buyBias.count >= 2;
-  const sellBiasOk = sellBias.ok || sellBias.count >= 2;
+  const buyBiasOk = buyBias.ok;
+  const sellBiasOk = sellBias.ok;
   const buyDirOk = (mode === 'BACKTEST') ? (local === 'BUY') : (buyDeskOk && buyBiasOk);
   const sellDirOk = (mode === 'BACKTEST') ? (local === 'SELL') : (sellDeskOk && sellBiasOk);
 
