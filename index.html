@@ -1618,6 +1618,13 @@ h1 { font-size: 17.5px; font-weight: 700; color: #ffffff; }
 .tv-tf-group::-webkit-scrollbar { display: none; }
 .tv-tf { padding: 3px 7px; font-size: 10.5px; font-weight: 600; color: #787b86; border-radius: 4px; cursor: pointer; border: none; background: none; }
 .tv-tf.active { color: #3b82f6; background: #131722; font-weight: 700; border: 1px solid #3b82f6; }
+.algo-tf-live-pnl{display:flex;align-items:center;gap:4px;min-width:0;max-width:48%;overflow-x:auto;white-space:nowrap;scrollbar-width:none;padding:2px 3px;border:1px solid #263244;border-radius:5px;background:#0b1220}
+.algo-tf-live-pnl::-webkit-scrollbar{display:none}
+.algo-tf-live-pnl .pnl-label{font-size:9px;font-weight:800;color:#93c5fd;flex:0 0 auto}
+.algo-tf-live-pnl .pnl-empty{font-size:9px;color:#94a3b8}
+.algo-tf-live-pnl .pnl-chip{font-size:9px;font-weight:800;padding:2px 5px;border-radius:4px;border:1px solid currentColor;flex:0 0 auto}
+@media(max-width:600px){.tv-tf-bar{gap:4px;padding:4px 5px}.tv-tf-group{flex:1 1 auto}.tv-tf{padding:3px 5px;font-size:9px}.algo-tf-live-pnl{max-width:42%;gap:3px}.algo-tf-live-pnl .pnl-label,.algo-tf-live-pnl .pnl-empty,.algo-tf-live-pnl .pnl-chip{font-size:8px}.tv-tf-bar>.tv-reset-btn{font-size:8px;padding:3px 5px}}
+
 .tv-reset-btn { border: 1px solid #1f2430; background: #131722; border-radius: 4px; padding: 3px 7px; font-size: 10px; font-weight: 600; color: #3b82f6; cursor: pointer; }
 .canvas-container {
   flex: 1 1 auto;
@@ -3101,6 +3108,7 @@ canvas#tvCanvas {
 #algoDecisionAudit .ada-pass{color:#34d399}#algoDecisionAudit .ada-fail{color:#f97316}#algoDecisionAudit .ada-info{color:#60a5fa}#algoDecisionAudit .ada-wait{color:#fbbf24}#algoDecisionAudit .ada-detail{color:#a8b5c7;font-size:10px;margin:5px 0}
 @media(max-width:600px){#algoDecisionAudit{top:5px;right:5px;width:min(285px,calc(100% - 10px));max-height:48%;font-size:10px;padding:7px 8px}}
 
+
 </style>
 </head>
 <body>
@@ -3869,8 +3877,7 @@ canvas#tvCanvas {
         <button class="tv-tf" onclick="changeTimeframe('4h', 14400, this)">4H</button>
         <button class="tv-tf" onclick="changeTimeframe('1d', 86400, this)">1D</button>
       </div>
-      <button class="tv-reset-btn" type="button" data-algo-hide-btn onclick="algoToggleHideTrades()" title="Hide/Show closed trade markers on chart (OPEN + live PnL always stay)">Hide Trades</button>
-      <button class="tv-reset-btn" type="button" onclick="algoForceRedrawPnL()" title="Force refresh live open trade PnL on chart">Live PnL</button>
+      <div id="algoTfLivePnl" class="algo-tf-live-pnl" aria-live="polite"><span class="pnl-label">LIVE PnL</span><span class="pnl-empty">No open trades</span></div>
       <button class="tv-reset-btn" onclick="resetChartView()">Reset View</button>
     </div>
 
@@ -6117,8 +6124,43 @@ function drawTradingViewChart() {
     }
   });
 
+  // 5m Gold support fallback: draw a real two-swing-low support ray when the
+  // ray engine has not produced one. Keep it until two completed 5m closes break it.
+  let __raysForChart = (multiHorizonTrendlines || []).slice();
   try {
-  (multiHorizonTrendlines || []).forEach(l => {
+    if ((state.chartAsset || 'gold') === 'gold' && String(state.tf_interval || '').toLowerCase() === '5m' && candleHistory.length >= 25) {
+      const hasSupport = __raysForChart.some(l => l && l.type === 'sup' && ((l.touches && l.touches.length >= 2) || (l.touchCount || 0) >= 2));
+      const store = window.__gold5mPersistentSupport || null;
+      if (store && store.x2 > store.x1) {
+        const m = (store.y2-store.y1)/(store.x2-store.x1);
+        const closed = candleHistory.slice(0, -1).slice(-2);
+        let breaks = 0;
+        closed.forEach((c, j) => { const idx=candleHistory.length-2+j; const line=store.y1+m*(idx-store.x1); if (Number(c.c)<line-Math.max(0.15,Number(store.buffer)||0.25)) breaks++; });
+        if (breaks >= 2) window.__gold5mPersistentSupport = null;
+      }
+      if (!hasSupport && !window.__gold5mPersistentSupport) {
+        const n=candleHistory.length, piv=[];
+        const from=Math.max(2,n-90), to=n-3;
+        for(let i=from;i<=to;i++){
+          const lo=Number(candleHistory[i].l);
+          if(lo>0 && lo<=Number(candleHistory[i-1].l) && lo<=Number(candleHistory[i-2].l) && lo<=Number(candleHistory[i+1].l) && lo<=Number(candleHistory[i+2].l)) piv.push({i:i,p:lo});
+        }
+        let pair=null;
+        for(let a=piv.length-1;a>=1&&!pair;a--){
+          for(let b=a-1;b>=0;b--){
+            const p1=piv[b],p2=piv[a], gap=p2.i-p1.i;
+            if(gap<3)continue;
+            const tol=Math.max(0.35,Math.abs(p2.p-p1.p)*0.25);
+            if(p2.p>=p1.p-tol && p2.p<=p1.p+Math.max(2.5,tol*3)){pair={p1:p1,p2:p2};break;}
+          }
+        }
+        if(pair) window.__gold5mPersistentSupport={x1:pair.p1.i,y1:pair.p1.p,x2:pair.p2.i,y2:pair.p2.p,type:'sup',touchCount:2,touches:[{i:pair.p1.i,p:pair.p1.p},{i:pair.p2.i,p:pair.p2.p}],buffer:0.25,source:'5M_SWING_LOW_FALLBACK'};
+      }
+      if (!hasSupport && window.__gold5mPersistentSupport) __raysForChart.push(window.__gold5mPersistentSupport);
+    }
+  } catch(e5mSupport) { console.warn('[Gold 5m support fallback]',e5mSupport); }
+  try {
+  __raysForChart.forEach(l => {
     if (!l) return;
     const nBars = candleHistory.length;
     if (nBars < 2 || l.x2 === l.x1) return;
@@ -6207,11 +6249,8 @@ function drawTradingViewChart() {
     try {
       const totV = Number(c.quoteVol) || Number(c.v) || Number(c.volume) || 0;
       if (totV > 0 && bodyW >= 3) {
-        const upC = c.c >= c.o;
-        // Approximate split when no bid/ask: lean with candle direction
-        const buyShare = upC ? 0.58 : 0.42;
-        const buyTot = totV * buyShare;
-        const sellTot = totV * (1 - buyShare);
+        // No directional split is inferred from OHLC candle colour.
+        const buyTot = 0, sellTot = 0;
         const fmt = function (v) {
           v = Math.abs(v);
           if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
@@ -9118,6 +9157,9 @@ function rfStoreTrade(p, q, buy, ts, id) {
   const k = Math.round(p * RF_BASE);
   const v = b.lv.get(k) || b.lv.set(k, [0, 0]).get(k);
   v[buy ? 1 : 0] += q;
+  b._buyTrades = (Number(b._buyTrades) || 0) + (buy ? 1 : 0);
+  b._sellTrades = (Number(b._sellTrades) || 0) + (buy ? 0 : 1);
+  b._lastTradeAt = Math.max(Number(b._lastTradeAt) || 0, Number(ts) || Date.now());
 
   // Live hour counters — only from accepted unique trades
   try {
@@ -15668,14 +15710,24 @@ function algoLocalLean(data, i) {
  * Returns 0–100 score and pass flag.
  */
 function algoFootprintForCandle(c, tf) {
-  // Aggregate actual OKX trade-side volume from the exact strategy candle.
+  // Aggregate genuine OKX aggressor-side trades inside THIS candle's time window.
+  // Candle timestamps may arrive as ms, seconds, ISO strings, or chart time labels.
   try {
     if (!c || typeof rfStore === 'undefined' || !rfStore || !rfStore.size) return null;
-    const step = (ALGO_TF_SECONDS[String(tf || '').toLowerCase()] || 300) * 1000;
-    const start = Number(c.barSlot || c.openTime || c.t || 0);
-    if (!(start > 0)) return null;
-    const end = start + step;
-    let buy = 0, sell = 0, minutes = 0;
+    const key = String(tf || '5m').toLowerCase();
+    const step = (ALGO_TF_SECONDS[key] || 300) * 1000;
+    let raw = c.barSlot || c.openTime || c.timestamp || c.t || c.time || 0;
+    let start = (typeof raw === 'string' && /[T-Z]/.test(raw)) ? Date.parse(raw) : Number(raw);
+    if (Number.isFinite(start) && start > 0 && start < 1e11) start *= 1000; // epoch seconds -> ms
+    if (!(Number.isFinite(start) && start > 0)) {
+      // For the forming chart candle, align to the current wall-clock TF slot.
+      // Never pretend an old candle with an unparseable label is live.
+      if (c === candleHistory[candleHistory.length - 1] && key === String(state.tf_interval || '').toLowerCase()) start = Math.floor(Date.now()/step)*step;
+      else return null;
+    }
+    start = Math.floor(start / step) * step;
+    const end = Math.min(start + step, Date.now() + 60000);
+    let buy = 0, sell = 0, minutes = 0, lastTradeAt = 0, buyN = 0, sellN = 0;
     for (let slot = Math.floor(start / 60000) * 60000; slot < end; slot += 60000) {
       const b = rfStore.get(slot);
       if (!b || !b.lv || !b.lv.size) continue;
@@ -15685,14 +15737,17 @@ function algoFootprintForCandle(c, tf) {
         sell += Number(v[0]) || 0; buy += Number(v[1]) || 0; had = true;
       });
       if (had) minutes++;
+      buyN += Number(b._buyTrades) || 0; sellN += Number(b._sellTrades) || 0;
+      lastTradeAt = Math.max(lastTradeAt, Number(b._lastTradeAt) || 0);
     }
     const vol = buy + sell;
     if (!(vol > 0)) return null;
     const delta = buy - sell, pressure = delta / vol;
     return { buy: buy, sell: sell, vol: vol, delta: delta, pressure: pressure,
       side: pressure >= 0.06 ? 'BUY' : (pressure <= -0.06 ? 'SELL' : 'NEUTRAL'),
-      minutes: minutes, start: start, end: end, source: 'OKX_TRADES_PER_CANDLE' };
-  } catch (e) { return null; }
+      minutes: minutes, buyN: buyN, sellN: sellN, lastTradeAt: lastTradeAt,
+      start: start, end: end, source: 'OKX_REAL_AGGRESSOR_TAPE_PER_CANDLE' };
+  } catch (e) { console.warn('[GP Algo] candle footprint unavailable', tf, e); return null; }
 }
 
 function algoConfluencePack(side, mode, localLean, candle, tf) {
@@ -15731,9 +15786,9 @@ function algoConfluencePack(side, mode, localLean, candle, tf) {
     fp = algoFootprintForCandle(candle, tf);
     if (fp && fp.vol > 0) {
       const aligned = (side === 'BUY' && fp.side === 'BUY') || (side === 'SELL' && fp.side === 'SELL');
-      if (aligned) { score += 28; bits.push('bar FP ' + fp.side + ' ' + (fp.pressure * 100).toFixed(0) + '%'); }
-      else bits.push('bar FP ' + fp.side + ' not aligned');
-    } else bits.push('bar FP unavailable');
+      if (aligned) { score += 28; bits.push('bar FP ' + fp.side + ' ' + (fp.pressure * 100).toFixed(0) + '% · ' + (fp.buyN||0) + 'B/' + (fp.sellN||0) + 'S'); }
+      else bits.push('bar FP ' + fp.side + ' not aligned · ' + (fp.buyN||0) + 'B/' + (fp.sellN||0) + 'S');
+    } else bits.push('bar FP unavailable for candle slot (no OKX aggressor trades in window)');
   } else bits.push('FP skip(hist; historical trade tape unavailable)');
 
   // 4) AI Visual — LIVE only (decision is current, not historical)
@@ -17417,7 +17472,7 @@ function algoGetLotSize() {
 function mt5PaintStatus() {
   const el = document.getElementById('mt5BridgeStatus');
   const stateText = !MT5_BRIDGE.enabled ? 'EXECUTION OFF' :
-    (MT5_BRIDGE.connected ? 'CONNECTED' : (MT5_BRIDGE.lastErr ? 'OFFLINE · ' + String(MT5_BRIDGE.lastErr).slice(0,30) : 'CHECKING…'));
+    (MT5_BRIDGE.connected ? 'CONNECTED' : (MT5_BRIDGE.lastStatus ? (MT5_BRIDGE.lastErr ? 'OFFLINE · ' + String(MT5_BRIDGE.lastErr).slice(0,30) : 'CHECKING…') : 'CHECKING…'));
   if (el) { el.textContent = 'MT5: ' + stateText + ' · ' + MT5_BRIDGE.symbol; el.style.color = MT5_BRIDGE.connected ? '#34d399' : (MT5_BRIDGE.enabled ? '#f87171' : '#94a3b8'); }
   try { if (typeof drawTradingViewChart === 'function' && state.chartAsset === 'gold') drawTradingViewChart(); } catch(e){}
 }
@@ -17529,7 +17584,20 @@ async function mt5SendClose(trade,reason){
 }
 
 /** Gold chart HUD: AI structure, GP Algo arm state, MT5 link, exact symbol and tick. */
+function rfGetCurrentCandlePressure(tfMin) {
+  const ms=Math.max(1,Number(tfMin)||5)*60000, now=Date.now(), slot=Math.floor(now/ms)*ms;
+  let buy=0,sell=0,buyN=0,sellN=0,last=0;
+  if(typeof rfStore==='undefined'||!rfStore||!rfStore.get) return {ready:false,buy:0,sell:0,delta:0,slot:slot};
+  for(let t=slot;t<now+60000;t+=60000){const b=rfStore.get(t);if(!b||!b.lv)continue;
+    b.lv.forEach(function(v){if(Array.isArray(v)){sell+=Number(v[0])||0;buy+=Number(v[1])||0;}else if(v){sell+=Number(v._b||v.bid)||0;buy+=Number(v._a||v.ask)||0;}});
+    buyN+=Number(b._buyTrades)||0;sellN+=Number(b._sellTrades)||0;last=Math.max(last,Number(b._lastTradeAt)||0);
+  }
+  const total=buy+sell;return {ready:total>0,buy:buy,sell:sell,delta:buy-sell,buyN:buyN,sellN:sellN,last:last,slot:slot,winner:buy>sell?'BUYERS WIN':(sell>buy?'SELLERS WIN':'BALANCED')};
+}
+function rfFmtPressure(v){v=Math.abs(Number(v)||0);return v>=1e6?(v/1e6).toFixed(2)+'M':(v>=1e3?(v/1e3).toFixed(2)+'K':v.toFixed(2));}
+
 function algoDrawExecutionHud(ctx,chartW){
+  // Preserve the original canvas monitor design and dimensions. Collapse only hides its detail rows.
   if((state.chartAsset||'gold')!=='gold')return;
   const d=MT5_BRIDGE.lastStatus||{};const tick=d.tick||{};
   const connected=!!MT5_BRIDGE.connected;
@@ -17579,8 +17647,19 @@ function algoDrawExecutionHud(ctx,chartW){
   const auditLines=tfAuditRows;
   const auditLineH=mobileView?7:9;
   const auditBlockH=(mobileView?21:25)+auditLines.length*auditLineH;
-  const boxH=(mobileView?8:10)+(mobileView?10:13)+(lines.length*rowH)+8+tradeHeaderH+Math.max(1,tradeRows.length)*tradeRowH+auditBlockH+5;
+  const pressureRows=[['5m',5],['15m',15],['1H',60],['4H',240],['1D',1440]].map(function(x){return {tf:x[0],p:rfGetCurrentCandlePressure(x[1])};});
+  const pressureLineH=mobileView?7:9;
+  const pressureBlockH=(mobileView?15:18)+pressureRows.length*pressureLineH;
+  const boxH=(mobileView?8:10)+(mobileView?10:13)+(lines.length*rowH)+8+tradeHeaderH+Math.max(1,tradeRows.length)*tradeRowH+auditBlockH+pressureBlockH+8;
   const x=8,y=mobileView?8:18;
+  if(window.__goldExecMonitorCollapsed){
+    const headH=mobileView?14:18;
+    ctx.save();ctx.globalAlpha=.96;ctx.fillStyle='rgba(7,12,20,.93)';ctx.strokeStyle='rgba(100,116,139,.68)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.roundRect?ctx.roundRect(x,y,boxW,headH,mobileView?5:7):ctx.rect(x,y,boxW,headH);ctx.fill();ctx.stroke();
+    ctx.font=mobileView?'bold 7px system-ui,sans-serif':'bold 9px system-ui,sans-serif';ctx.textAlign='left';ctx.fillStyle='#93c5fd';
+    ctx.fillText(mobileView?'GOLD EXEC MONITOR':'GOLD EXECUTION MONITOR',x+7,y+(mobileView?9:12));
+    ctx.textAlign='right';ctx.fillStyle='#67e8f9';ctx.fillText('+',x+boxW-7,y+(mobileView?9:12));ctx.restore();return;
+  }
   ctx.save();ctx.globalAlpha=.96;ctx.fillStyle='rgba(7,12,20,.93)';ctx.strokeStyle='rgba(100,116,139,.68)';ctx.lineWidth=1;
   ctx.beginPath();ctx.roundRect?ctx.roundRect(x,y,boxW,boxH,mobileView?5:7):ctx.rect(x,y,boxW,boxH);ctx.fill();ctx.stroke();
   ctx.font=mobileView?'bold 7px system-ui,sans-serif':'bold 9px system-ui,sans-serif';
@@ -17628,9 +17707,39 @@ function algoDrawExecutionHud(ctx,chartW){
     ctx.fillStyle=!item?'#fbbf24':(String(item.status).indexOf('SIGNAL')===0?'#34d399':(String(item.status).indexOf('BLOCK')>=0||String(item.status).indexOf('STALE')>=0||String(item.status).indexOf('ERROR')>=0?'#fb7185':'#e2e8f0'));
     ctx.fillText(shown,x+7,auditY+(mobileView?12:15)+i*auditLineH);
   });
-  if(mobileView){ctx.font='5.8px system-ui,sans-serif';ctx.textAlign='left';ctx.fillStyle='#fbbf24';ctx.fillText('PC BRIDGE ONLY',x+7,y+boxH-3);}
+  const fpY=auditY+(mobileView?12:15)+auditLines.length*auditLineH+3;
+  ctx.strokeStyle='rgba(100,116,139,.45)';ctx.beginPath();ctx.moveTo(x+6,fpY-4);ctx.lineTo(x+boxW-6,fpY-4);ctx.stroke();
+  ctx.font=mobileView?'bold 5.8px system-ui,sans-serif':'bold 7px system-ui,sans-serif';ctx.textAlign='left';ctx.fillStyle='#c4b5fd';
+  ctx.fillText('LIVE AGGRESSOR PRESSURE · OKX TAPE',x+7,fpY+3);
+  pressureRows.forEach(function(r,i){const p=r.p,yy=fpY+(mobileView?10:13)+i*pressureLineH;ctx.font=mobileView?'5.5px system-ui,sans-serif':'6.8px system-ui,sans-serif';ctx.textAlign='left';ctx.fillStyle='#cbd5e1';ctx.fillText(r.tf,x+7,yy);let v='NO TRADE DATA',col='#94a3b8';if(p.ready){v=(p.delta>0?'BUYERS +':(p.delta<0?'SELLERS +':'BALANCED '))+rfFmtPressure(Math.max(p.buy,p.sell))+' Δ'+(p.delta>=0?'+':'-')+rfFmtPressure(p.delta);col=p.delta>0?'#34d399':(p.delta<0?'#fb7185':'#fbbf24');}ctx.textAlign='right';ctx.fillStyle=col;ctx.fillText(v.slice(0,mobileView?23:31),x+boxW-7,yy);});
+  if(mobileView){ctx.font='5.8px system-ui,sans-serif';ctx.textAlign='left';ctx.fillStyle='#fbbf24';ctx.fillText('PRESSURE SOURCE: OKX, NOT MT5 TAPE',x+7,y+boxH-3);}
   ctx.restore();
 }
+
+/** Collapsible control for the existing canvas Gold Execution Monitor.
+ * The canvas remains the sole source of displayed status; this button never
+ * manufactures CONNECTED/DISCONNECTED state. */
+(function initGoldExecCollapse(){
+  function build(){
+    const host=document.getElementById('canvasContainer');
+    if(!host||document.getElementById('goldExecCollapseToggle'))return;
+    if(!host.style.position)host.style.position='relative';
+    const btn=document.createElement('button');btn.id='goldExecCollapseToggle';btn.type='button';
+    btn.textContent='';btn.setAttribute('aria-label','Collapse Gold Execution Monitor');
+    btn.title='Tap to collapse or expand Gold Execution Monitor';
+    btn.style.cssText='position:absolute;z-index:41;top:8px;left:8px;width:244px;height:18px;padding:0;border:0;background:transparent;cursor:pointer;pointer-events:auto;touch-action:manipulation;';
+    btn.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();
+      window.__goldExecMonitorCollapsed=!window.__goldExecMonitorCollapsed;
+      btn.setAttribute('aria-label',window.__goldExecMonitorCollapsed?'Expand Gold Execution Monitor':'Collapse Gold Execution Monitor');
+      try{if(typeof drawTradingViewChart==='function'&&state.chartAsset==='gold')drawTradingViewChart();}catch(_){ }
+    });
+    ['pointerdown','touchstart'].forEach(function(ev){btn.addEventListener(ev,function(e){e.stopPropagation();},{passive:true});});
+    host.appendChild(btn);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',build,{once:true});else build();
+  window.addEventListener('resize',function(){const b=document.getElementById('goldExecCollapseToggle');if(b)b.style.width=(window.innerWidth<600?'174px':'244px');});
+  window.__goldExecMonitorCollapsed=true;
+})();
 
 /** Live broker-confirmed running trades and floating P/L on the Gold chart. */
 function algoDrawRunningTradesHud(ctx, chartW) {
@@ -18087,15 +18196,24 @@ function algoEvaluateGates() {
   const htfOk = buyB.ok || sellB.ok;
   gates.push({ id: 'HTF', ok: htfOk, label: buyB.ok ? 'HTF BULL' : (sellB.ok ? 'HTF BEAR' : 'HTF wait') });
 
-  let fpOk = false, fpLabel = 'FP n/a';
+  let fpOk = false, fpLabel = 'BAR FP LIVE n/a';
   try {
-    if (candleHistory && candleHistory.length > 12) {
-      const iFp = candleHistory.length - 2;
-      const fp = algoFootprintForCandle(candleHistory[iFp], state.tf_interval || algoState.tf || '5m');
-      if (fp && fp.vol > 0) { fpOk = fp.side === 'BUY' || fp.side === 'SELL'; fpLabel = 'BAR FP ' + fp.side; }
-      else fpLabel = 'BAR FP n/a';
+    if (candleHistory && candleHistory.length > 0) {
+      // The 9-gate BAR FP must use the CURRENT FORMING candle, matching the
+      // live aggressor-pressure panel. The previous code used length - 2
+      // (last closed candle), which could show SELL while the live panel showed BUY.
+      const iFp = candleHistory.length - 1;
+      const fpTf = String(state.tf_interval || algoState.tf || '5m').toLowerCase();
+      const formingCandle = candleHistory[iFp];
+      const fp = algoFootprintForCandle(formingCandle, fpTf);
+      if (fp && fp.vol > 0) {
+        fpOk = fp.side === 'BUY' || fp.side === 'SELL';
+        const pct = Math.round(Math.abs(fp.pressure || 0) * 100);
+        const deltaSign = fp.delta >= 0 ? '+' : '-';
+        fpLabel = 'BAR FP LIVE ' + fp.side + ' ' + pct + '% Δ' + deltaSign + rfFmtPressure(fp.delta);
+      } else fpLabel = 'BAR FP LIVE n/a';
     }
-  } catch (e) {}
+  } catch (e) { fpLabel = 'BAR FP LIVE error'; }
   gates.push({ id: 'FP', ok: fpOk, label: fpLabel });
 
   const lines = (typeof multiHorizonTrendlines !== 'undefined' && multiHorizonTrendlines) ? multiHorizonTrendlines : [];
@@ -18226,6 +18344,34 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
 }
+
+/** Render open-trade PnL beside timeframe controls, never over the candles. */
+function algoUpdateTfLivePnl(){
+  const el=document.getElementById('algoTfLivePnl'); if(!el)return;
+  try{
+    const d=MT5_BRIDGE.lastStatus||{}, broker=Array.isArray(d.positions)?d.positions:[];
+    const log=typeof algoLoadTrades==='function'?algoLoadTrades():[];
+    const symbol=String(MT5_BRIDGE.symbol||'').toUpperCase();
+    const rows=[];
+    broker.forEach(function(p){if(!p)return;const ps=String(p.symbol||'').toUpperCase();if(ps&&symbol&&ps!==symbol)return;
+      const t=log.find(function(x){return x&&((x.mt5Ticket&&(String(x.mt5Ticket)===String(p.ticket)||String(x.mt5Ticket)===String(p.identifier)))||(x.mt5PositionId&&(String(x.mt5PositionId)===String(p.identifier)||String(x.mt5PositionId)===String(p.ticket))));})||{};
+      const side=(String(p.type)==='1'||String(p.type||'').toUpperCase().includes('SELL'))?'S':'B';
+      const tf=String(t.tf||p.timeframe||'LIVE').toUpperCase();const profit=Number(p.profit);
+      rows.push({tf:tf,side:side,pnl:profit,source:'MT5'});
+    });
+    // Include HTML-tracked open trades not yet broker-confirmed, clearly labelled.
+    log.forEach(function(t){if(!t||t.mt5Confirmed||t.outcome==='TP'||t.outcome==='SL'||t.status==='TP'||t.status==='SL')return;
+      if(rows.some(function(r){return t.mt5Ticket&&String(t.mt5Ticket)===String(r.ticket);}))return;
+      const entry=Number(t.entry||t.price),px=Number(state&&state.gold_price);let pnl=Number(t.pnl);
+      if(entry>0&&px>500&&typeof algoPnlPoints==='function')pnl=algoPnlPoints(t.side,entry,px,t.lots||1);
+      if(!Number.isFinite(pnl))return;
+      rows.push({tf:String(t.tf||'LIVE').toUpperCase(),side:t.side==='SELL'?'S':'B',pnl:pnl,source:'HTML'});
+    });
+    if(!rows.length){el.innerHTML='<span class="pnl-label">LIVE PnL</span><span class="pnl-empty">No open trades</span>';return;}
+    el.innerHTML='<span class="pnl-label">LIVE PnL</span>'+rows.slice(0,8).map(function(r){const c=r.pnl>=0?'#34d399':'#fb7185';const val=(r.pnl>0?'+':'')+r.pnl.toFixed(2);return '<span class="pnl-chip" style="color:'+c+'" title="'+r.source+' position · '+r.tf+'">'+r.side+' '+r.tf+' '+val+'</span>';}).join('');
+  }catch(e){el.innerHTML='<span class="pnl-label">LIVE PnL</span><span class="pnl-empty">Updating…</span>';}
+}
+setInterval(algoUpdateTfLivePnl,1000);
 
 /** Draw GP Algo trades on main Gold chart — entry + SL/TP (min 2R), focus highlight */
 function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
@@ -18359,77 +18505,10 @@ function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
         ctx.font = '9px monospace';
         ctx.fillText(t.volRatio.toFixed(1) + '× vol', x, isBuy ? y + 42 : y - 34);
       }
-      // Per-marker live PnL (live gold tick)
-      if (isOpen) {
-        let pnl = t.pnl;
-        const livePx = (state.gold_price > 500)
-          ? state.gold_price
-          : ((candleHistory && candleHistory.length) ? candleHistory[candleHistory.length - 1].c : 0);
-        if (livePx > 0 && entry > 0) {
-          pnl = algoPnlPoints(t.side, entry, livePx, t.lots || 1);
-        }
-        if (pnl != null && isFinite(pnl)) {
-          const pnlStr = (pnl >= 0 ? '+' : '') + Number(pnl).toFixed(2);
-          ctx.font = 'bold 11px system-ui,sans-serif';
-          ctx.fillStyle = pnl >= 0 ? '#34d399' : '#f87171';
-          ctx.fillText('LIVE ' + pnlStr, x, isBuy ? y + (t.volRatio ? 54 : 44) : y - (t.volRatio ? 46 : 36));
-        }
-      }
+
     });
 
-    // ===== FIXED HUD: OPEN trade live PnL — TOP-LEFT (opposite price scale) =====
-    // Prefer interbank live tick so HUD updates every price move
-    if (openList.length) {
-      const lastC = (candleHistory && candleHistory.length) ? candleHistory[candleHistory.length - 1] : null;
-      const livePx = (state.gold_price > 500)
-        ? state.gold_price
-        : ((lastC && lastC.c > 0) ? lastC.c : 0);
-      let hudY = topPad + 10;
-      const hudX = 8;
-      ctx.textAlign = 'left';
-      ctx.font = 'bold 10px system-ui,sans-serif';
-      ctx.fillStyle = 'rgba(8,10,16,0.82)';
-      if (ctx.roundRect) {
-        ctx.beginPath();
-        ctx.roundRect(hudX - 2, hudY - 12, 148, 14 + openList.slice(-6).length * 18, 6);
-        ctx.fill();
-      }
-      ctx.fillStyle = '#94a3b8';
-      ctx.fillText('GP OPEN · LIVE PnL', hudX, hudY);
-      hudY += 16;
-      openList.slice(-6).forEach(function (t) {
-        const entry = Number(t.entry) || 0;
-        let pnl = null;
-        if (livePx > 0 && entry > 0) {
-          pnl = algoPnlPoints(t.side, entry, livePx, t.lots || 1);
-        } else if (t.pnl != null) {
-          pnl = t.pnl;
-        }
-        const pnlStr = (pnl != null && isFinite(pnl))
-          ? ((pnl >= 0 ? '+' : '') + Number(pnl).toFixed(2))
-          : '—';
-        const col = (pnl != null && pnl >= 0) ? '#34d399' : '#f87171';
-        const line = (t.side === 'BUY' ? 'B' : 'S') + ' ' + (t.tf || '').toUpperCase() +
-          ' @' + entry.toFixed(1) + '  ' + pnlStr;
-        ctx.font = 'bold 11px system-ui,sans-serif';
-        const tw = ctx.measureText(line).width + 12;
-        ctx.fillStyle = (pnl != null && pnl >= 0) ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)';
-        ctx.strokeStyle = col;
-        ctx.lineWidth = 1;
-        if (ctx.roundRect) {
-          ctx.beginPath();
-          ctx.roundRect(hudX, hudY - 11, tw, 16, 4);
-          ctx.fill();
-          ctx.stroke();
-        } else {
-          ctx.fillRect(hudX, hudY - 11, tw, 16);
-        }
-        ctx.fillStyle = col;
-        ctx.textAlign = 'left';
-        ctx.fillText(line, hudX + 6, hudY);
-        hudY += 18;
-      });
-    }
+
   } catch (e) {}
 }
 
