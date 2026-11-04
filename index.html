@@ -4077,6 +4077,7 @@ canvas#tvCanvas {
       <div class="algo-rules" id="algoRuleBook" style="display:none">
         <b style="color:#e2e8f0">GP ALGO RULE BOOK (aligned to reference)</b><br>
         ○ <b>STANDARD TF:</b> 5m / 15m / 1H / 4H / 1D · <b>OPTIONAL SCALPER:</b> 1m / 3m via History dropdown (OFF / 1m / 3m / BOTH)<br>
+        ○ <b>CANDLE CLOSING (History):</b> <b>ON</b> = wait for candle close before live entry / MT5 punch · <b>OFF</b> = when all rules pass on the forming bar, punch immediately<br>
         ○ <b>NO RANDOM AREAS</b> — only 2-touch trendline zone or validated OB<br>
         ○ <b>ENTRY = REJECTION CANDLE ONLY</b> — never mid-body / random area<br>
         ○ <b>BUY (bull):</b> <b>SUPPORT only</b> — TL ≥2 touches, then <b>next retest</b> · wick <b>sweeps</b> support · close back above<br>
@@ -4106,6 +4107,12 @@ canvas#tvCanvas {
             <option value="OFF">OFF</option><option value="1m">1 MIN</option><option value="3m">3 MIN</option><option value="BOTH">BOTH</option>
           </select>
           <span id="algoScalperStatus" style="font-size:10px;color:#64748b">scalper: off</span>
+          <label for="algoWaitCloseMode" style="font-size:10px;font-weight:700;color:#86efac">CANDLE CLOSING</label>
+          <select id="algoWaitCloseMode" onchange="algoSetWaitCandleClose(this.value==='ON')" title="ON = wait for candle close before trade · OFF = punch when all rules pass on forming bar" style="font-size:11px;font-weight:700;padding:6px 8px;border-radius:8px;border:1px solid #31506f;background:#101a29;color:#dbeafe;cursor:pointer">
+            <option value="ON">ON · wait close</option>
+            <option value="OFF">OFF · punch now</option>
+          </select>
+          <span id="algoWaitCloseStatus" style="font-size:10px;color:#86efac">entry: wait candle CLOSE</span>
           <button type="button" id="mt5TestBtn" onclick="mt5TestBridge()" style="margin-left:auto;font-size:11px;font-weight:700;padding:6px 10px;border-radius:8px;border:1px solid #2a3142;background:#151822;color:#93c5fd;cursor:pointer">TEST MT5 BRIDGE</button>
           <span id="mt5BridgeStatus" style="font-size:10px;color:#64748b">bridge: off</span>
         </div>
@@ -15255,7 +15262,9 @@ let algoState = {
   focusId: null,
   histOpen: false,
   rulesOpen: false,
-  scalperMode: 'OFF'
+  scalperMode: 'OFF',
+  // true = wait for candle CLOSE before entry; false = punch when all rules pass on forming bar
+  waitCandleClose: true
 };
 
 /** Persistent trade log — never relocates, survives refresh */
@@ -15281,6 +15290,7 @@ function algoLoadState() {
     const s = JSON.parse(localStorage.getItem(ALGO_STATE_KEY) || '{}');
     if (typeof s.armed === 'boolean') algoState.armed = s.armed;
     if (['OFF', '1m', '3m', 'BOTH'].indexOf(s.scalperMode) >= 0) algoState.scalperMode = s.scalperMode;
+    if (typeof s.waitCandleClose === 'boolean') algoState.waitCandleClose = s.waitCandleClose;
     if (s.tf && (ALGO_TF_ALLOWED[s.tf] || (ALGO_SCALPER_TFS[s.tf] && algoState.scalperMode !== 'OFF' &&
         (algoState.scalperMode === 'BOTH' || algoState.scalperMode === s.tf)))) {
       algoState.tf = s.tf;
@@ -15292,9 +15302,28 @@ function algoLoadState() {
 function algoPersistState() {
   try {
     localStorage.setItem(ALGO_STATE_KEY, JSON.stringify({
-      tf: algoState.tf, armed: algoState.armed, scalperMode: algoState.scalperMode || 'OFF'
+      tf: algoState.tf, armed: algoState.armed, scalperMode: algoState.scalperMode || 'OFF',
+      waitCandleClose: !!algoState.waitCandleClose
     }));
   } catch (e) {}
+}
+
+/** History toggle: wait for candle close before live entry (ON) vs punch when rules pass on forming bar (OFF). */
+function algoSetWaitCandleClose(on) {
+  algoState.waitCandleClose = !!on;
+  algoPersistState();
+  const sel = document.getElementById('algoWaitCloseMode');
+  if (sel) sel.value = algoState.waitCandleClose ? 'ON' : 'OFF';
+  const status = document.getElementById('algoWaitCloseStatus');
+  if (status) {
+    status.textContent = algoState.waitCandleClose
+      ? 'entry: wait candle CLOSE'
+      : 'entry: punch when rules pass (intrabar)';
+    status.style.color = algoState.waitCandleClose ? '#86efac' : '#fbbf24';
+  }
+  algoUpdateStatus(algoState.waitCandleClose
+    ? '<span class="ok">Candle Closing ON · live entries only after bar close</span>'
+    : '<span class="warn">Candle Closing OFF · live entries allowed on forming candle when all gates pass</span>');
 }
 
 function algoIsAllowedTf(tf) {
@@ -15762,6 +15791,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
     const entry = Number(c.c);
     const SL_BUF = 1.25; // mid of 1.0–1.5×ATR
     let sl, tp, risk;
+    // Fixed R:R = 1:2 — risk 1 unit, reward exactly 2 units (distance entry→TP = 2 × entry→SL).
     if (side === 'BUY') {
       const sweepLow = Math.min(c.l, zonePx);
       sl = sweepLow - atr * SL_BUF;
@@ -15770,7 +15800,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         risk = atr * 0.35;
         sl = entry - risk;
       }
-      tp = entry + risk * 3;
+      tp = entry + risk * 2;
     } else {
       const sweepHigh = Math.max(c.h, zonePx);
       sl = sweepHigh + atr * SL_BUF;
@@ -15779,7 +15809,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         risk = atr * 0.35;
         sl = entry + risk;
       }
-      tp = entry - risk * 3;
+      tp = entry - risk * 2;
     }
     out.push({
       id: id,
@@ -15790,7 +15820,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       sl: Number(sl.toFixed(2)),
       tp: Number(tp.toFixed(2)),
       risk: Number(risk.toFixed(2)),
-      rr: 3,
+      rr: 2,
       zone: Number(zonePx),
       zoneKind: zoneKind,
       time: c.time || '',
@@ -16662,6 +16692,12 @@ function openAlgoTrader(opts) {
   algoState.open = true;
   const scalperSel = document.getElementById('algoScalperMode'); if (scalperSel) scalperSel.value = algoState.scalperMode || 'OFF';
   const scalperStatus = document.getElementById('algoScalperStatus'); if (scalperStatus) scalperStatus.textContent = (algoState.scalperMode && algoState.scalperMode !== 'OFF') ? ('scalper: ' + (algoState.scalperMode === 'BOTH' ? '1m + 3m' : algoState.scalperMode.toUpperCase()) + (algoState.armed ? ' · armed' : ' · waiting for ARM')) : 'scalper: off';
+  const waitSel = document.getElementById('algoWaitCloseMode'); if (waitSel) waitSel.value = algoState.waitCandleClose !== false ? 'ON' : 'OFF';
+  const waitStatus = document.getElementById('algoWaitCloseStatus');
+  if (waitStatus) {
+    waitStatus.textContent = (algoState.waitCandleClose !== false) ? 'entry: wait candle CLOSE' : 'entry: punch when rules pass (intrabar)';
+    waitStatus.style.color = (algoState.waitCandleClose !== false) ? '#86efac' : '#fbbf24';
+  }
   document.querySelectorAll('.algo-tf-btn').forEach(b => {
     b.classList.toggle('active', b.getAttribute('data-tf') === algoState.tf);
   });
@@ -17020,10 +17056,15 @@ function algoRenderDecisionAudit(candles, tf, lines, demand, supply, actualFound
     try { algoSetDecisionAuditState(tf, 'DATA BLOCK', 'LIVE audit needs ≥30 Gold OHLC bars (have ' + (Array.isArray(candles) ? candles.length : 0) + ').', ['Insufficient OHLC history'], []); } catch (e) {}
     return;
   }
-  const i = candles.length - 1; // latest forming candle; LIVE_INTRABAR is evaluated on this candle
+  // Align audit candle with entry mode: CLOSE mode → last completed bar;
+  // OFF → current forming bar (intrabar punch path).
+  const waitCloseAudit = !(algoState && algoState.waitCandleClose === false);
+  const i = waitCloseAudit
+    ? Math.max(10, candles.length - 2)
+    : (candles.length - 1);
   const c = candles[i];
   if (!c) {
-    try { algoSetDecisionAuditState(tf, 'DATA BLOCK', 'LIVE audit: latest Gold candle missing after series load.', ['Missing forming candle'], []); } catch (e) {}
+    try { algoSetDecisionAuditState(tf, 'DATA BLOCK', 'LIVE audit: decision candle missing after series load.', ['Missing decision candle'], []); } catch (e) {}
     return;
   }
   let atrSum = 0; for (let k=Math.max(0,i-13); k<=i; k++) atrSum += Math.max(.01,candles[k].h-candles[k].l);
@@ -17102,8 +17143,9 @@ function algoRenderDecisionAudit(candles, tf, lines, demand, supply, actualFound
   const trade=found[0];
   const status=trade?'SIGNAL '+trade.side:(selected?'ENGINE GATES PASSED — SIGNAL CHECK':'WAIT · '+sideDecisions.map(d=>d.side+': '+d.reason).join(' | '));
   const blockers=sideDecisions.filter(d=>!d.passed).map(d=>d.side+' ENGINE GATE: '+d.reason);
-  const candleStamp=String(c.time||'')+' · slot '+String(c.barSlot||c.closeTime||'n/a');
-  algoSetDecisionAuditState(tf, status, trade?'Actual algoScanBar generated '+trade.side+' on '+tf+'; broker execution is separate.':(selected?'The actual live entry gates passed on '+tf+'; checking duplicate/risk/merge handling.':('Actual engine gate trace for '+tf+' candle '+candleStamp+'. '+blockers.join(' | '))), blockers, rows);
+  const candleStamp=String(c.time||'')+' · slot '+String(c.barSlot||c.closeTime||'n/a')+' · '+(waitCloseAudit?'WAIT CLOSE':'INTRABAR OK');
+  const modeNote = waitCloseAudit ? 'Candle Closing ON — entry only after completed bar. ' : 'Candle Closing OFF — entry allowed on forming bar when gates pass. ';
+  algoSetDecisionAuditState(tf, status, trade?'Actual algoScanBar generated '+trade.side+' on '+tf+'; broker execution is separate. '+modeNote:(selected?'The actual live entry gates passed on '+tf+'; checking duplicate/risk/merge handling. '+modeNote:('Actual engine gate trace for '+tf+' candle '+candleStamp+'. '+modeNote+blockers.join(' | '))), blockers, rows);
   let html='<div class="ada-head"><span>LIVE TRADE DECISION AUDIT · '+String(tf).toUpperCase()+'</span><span class="'+(trade?'ada-pass':(selected?'ada-info':'ada-wait'))+'">'+status+'</span></div>';
   const tickAt=Number(state && state._goldTickUpdatedAt)||0; const tickAge=tickAt?Math.max(0,Math.round((Date.now()-tickAt)/1000)):null; const tickFresh=tickAge!==null&&tickAge<=20;
   html+='<div class="ada-detail">TF '+String(tf).toUpperCase()+' · Candle '+(c.time||new Date(c.closeTime||Date.now()).toLocaleString())+' · slot '+String(c.barSlot||c.closeTime||'n/a')+' · OHLC '+[c.o,c.h,c.l,c.c].map(v=>Number(v).toFixed(2)).join(' / ')+' · Tick '+(tickFresh?('LIVE '+tickAge+'s ago'):(tickAge===null?'NOT RECEIVED':'STALE '+tickAge+'s'))+' · Source '+(c.priceSource||'OHLC feed')+'</div>'; 
@@ -17818,10 +17860,10 @@ async function algoLiveScanOneTf(tf, candlesPrefer) {
     demand: struct.demand,
     supply: struct.supply
   };
-  // Run both paths on every fresh series: confirmed closed-bar entries and
-  // immediate current-forming-bar entries. When all existing gates pass, the
-  // LIVE_INTRABAR candidate is merged now; it does not wait for candle close. Intrabar candidates still pass the same
-  // 1D direction, rejection, sweep, SMC/CHoCH, footprint and SL/TP gates.
+  // Closed-bar path always runs. Forming-bar (intrabar) path only runs when
+  // History → CANDLE CLOSING is OFF. When ON, trade decision waits for candle
+  // close before any live entry is initiated / punched to MT5.
+  const waitClose = !(algoState && algoState.waitCandleClose === false);
   let foundClosed = [], foundIntrabar = [];
   try {
     window.__algoLiveScanStage = 'scan confirmed candles ' + tf;
@@ -17833,15 +17875,19 @@ async function algoLiveScanOneTf(tf, candlesPrefer) {
       ['Confirmed candle evaluation exception: ' + msg], []); } catch (_) {}
     console.error('[GP Algo] confirmed candle scan failed', tf, eClosed);
   }
-  try {
-    window.__algoLiveScanStage = 'scan forming candle ' + tf;
-    foundIntrabar = algoScanSignals(candles, tf, 'LIVE_INTRABAR', scanStructure) || [];
-  } catch (eForming) {
-    const msg = String(eForming && eForming.message ? eForming.message : eForming);
-    window.__algoLiveScanStage = 'scan forming candle ' + tf + ' ERROR: ' + msg;
-    try { algoSetDecisionAuditState(tf, 'SCAN ERROR', 'Forming-candle scan failed on ' + tf + ': ' + msg,
-      ['Forming candle evaluation exception: ' + msg], []); } catch (_) {}
-    console.error('[GP Algo] forming candle scan failed', tf, eForming);
+  if (!waitClose) {
+    try {
+      window.__algoLiveScanStage = 'scan forming candle ' + tf;
+      foundIntrabar = algoScanSignals(candles, tf, 'LIVE_INTRABAR', scanStructure) || [];
+    } catch (eForming) {
+      const msg = String(eForming && eForming.message ? eForming.message : eForming);
+      window.__algoLiveScanStage = 'scan forming candle ' + tf + ' ERROR: ' + msg;
+      try { algoSetDecisionAuditState(tf, 'SCAN ERROR', 'Forming-candle scan failed on ' + tf + ': ' + msg,
+        ['Forming candle evaluation exception: ' + msg], []); } catch (_) {}
+      console.error('[GP Algo] forming candle scan failed', tf, eForming);
+    }
+  } else {
+    window.__algoLiveScanStage = 'candle-close mode ON · skip forming-bar entries ' + tf;
   }
   const found = foundClosed.concat(foundIntrabar);
   if (ALGO_SCALPER_TFS && ALGO_SCALPER_TFS[tf]) found.forEach(function (trade) {
