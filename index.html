@@ -5640,12 +5640,30 @@ function executeTradingViewRayArchitecture(data) {
       }
       if (!valid) continue;
       const price = kind === 'res' ? Number(data[i].h) : Number(data[i].l);
-      const neighbor = provisional ? data[i-1] : data[i+1];
-      const prom = kind === 'res' ? Math.abs(price-Number(neighbor.h)) : Math.abs(Number(neighbor.l)-price);
-      if (prom < atr * 0.01) continue;
+      // Authentic swing filter: measure the pivot against the surrounding
+      // reaction range, not merely the adjacent candle. This rejects the many
+      // tiny candle-bottom/candle-top pivots that create noisy trendlines.
+      const wing = Math.max(leftRight + 1, fast ? 5 : 7);
+      const lo = Math.max(0, i-wing), hi = Math.min(n-1, i+wing);
+      // Measure swing prominence using the opposite extreme (low-to-high
+      // rebound for support, high-to-low reaction for resistance). Comparing
+      // lows-to-lows / highs-to-highs incorrectly rejected nearly every pivot.
+      let reaction = 0;
+      for (let q=lo; q<=hi; q++) {
+        if (q===i) continue;
+        if (kind==='res') reaction=Math.max(reaction, price-Number(data[q].l));
+        else reaction=Math.max(reaction, Number(data[q].h)-price);
+      }
+      const prom = Math.max(0, reaction);
+      const minProminence = atr * (fast ? 0.30 : 0.40);
+      if (prom < minProminence) continue;
       const last = out[out.length-1];
-      if (last && i-last.i < pivotGap) {
-        if (prom > last.prom) out[out.length-1] = {i, p:price, prom, provisional};
+      // Demand meaningful spacing between anchors. If two candidates are too
+      // close, retain only the more extreme swing instead of linking every dip.
+      const minSwingGap = fast ? 5 : 6;
+      if (last && i-last.i < minSwingGap) {
+        const moreExtreme = kind==='res' ? price>last.p : price<last.p;
+        if (moreExtreme || prom>last.prom*1.2) out[out.length-1] = {i, p:price, prom, provisional};
       } else out.push({i, p:price, prom, provisional});
     }
     return out;
@@ -5655,7 +5673,7 @@ function executeTradingViewRayArchitecture(data) {
 
   function makeLine(a, b, side) {
     const span = b.i-a.i;
-    if (span < (fast ? 3 : 5) || span > (fast ? 100 : 180)) return null;
+    if (span < (fast ? 5 : 6) || span > (fast ? 100 : 180)) return null;
     const slope = (b.p-a.p)/span;
     if (!Number.isFinite(slope) || Math.abs(slope) > Math.max(0.8, atr * 0.8)) return null;
     const at = i => a.p + slope*(i-a.i);
@@ -5664,10 +5682,10 @@ function executeTradingViewRayArchitecture(data) {
     for (let k=a.i+1; k<b.i; k++) {
       const c=data[k], y=at(k);
       if (side==='res') {
-        if (Number(c.c) > y+breakTol) return null;
+        if (Number(c.c) > y) return null;
         if (Math.abs(Number(c.h)-y)<=touchTol && Number(c.c)<=y+touchTol*0.25) touchPts.push({i:k,p:Number(c.h)});
       } else {
-        if (Number(c.c) < y-breakTol) return null;
+        if (Number(c.c) < y) return null;
         if (Math.abs(Number(c.l)-y)<=touchTol && Number(c.c)>=y-touchTol*0.25) touchPts.push({i:k,p:Number(c.l)});
       }
     }
@@ -5676,7 +5694,7 @@ function executeTradingViewRayArchitecture(data) {
     for (let k=b.i+1; k<n; k++) {
       const c=data[k], y=at(k), forming=(k===n-1);
       const close=Number(c.c);
-      if (!forming && (side==='res' ? close>y+breakTol : close<y-breakTol)) return null;
+      if (!forming && (side==='res' ? close>y : close<y)) return null;
       const wick=side==='res'?Number(c.h):Number(c.l);
       const held=side==='res'?close<=y+touchTol*0.25:close>=y-touchTol*0.25;
       if (Math.abs(wick-y)<=touchTol && held && k-lastTouch>=pivotGap) {
@@ -5698,8 +5716,9 @@ function executeTradingViewRayArchitecture(data) {
   for (let i=0;i<highs.length-1;i++) for(let j=i+1;j<highs.length;j++) { const r=makeLine(highs[i],highs[j],'res'); if(r)candidates.push(r); }
   for (let i=0;i<lows.length-1;i++) for(let j=i+1;j<lows.length;j++) { const r=makeLine(lows[i],lows[j],'sup'); if(r)candidates.push(r); }
 
-  // Carry existing valid lines through redraws; retire only on a full completed
-  // candle close beyond the projected line (not a wick or the forming candle).
+  // Carry existing valid lines through redraws; retire on a completed candle
+  // close beyond the projected line by breakTol (not a wick). Forming candle
+  // is excluded so intrabar spikes do not erase structure mid-bar.
   const shift=oldPack ? n-Number(oldPack.length||n) : 0;
   for (const old of oldRays) {
     if (!old || !['sup','res'].includes(old.type)) continue;
@@ -5707,14 +5726,19 @@ function executeTradingViewRayArchitecture(data) {
     const m=(Number(r.y2)-Number(r.y1))/(Number(r.x2)-Number(r.x1));
     if (!Number.isFinite(m) || r.x1<0 || r.x2<0 || r.x2>=n) continue;
     let broken=false, consecutive=0;
-    for(let k=Math.max(0,Math.floor(r.x2)+1);k<=n-2;k++){
+    // Scan every closed candle after the second pivot, including the most
+    // recent closed bar (index n-2). One decisive close beyond the line
+    // retires it so broken levels disappear without a manual chart refresh.
+    const lastClosed = Math.max(0, n - 2);
+    for(let k=Math.max(0,Math.floor(r.x2)+1);k<=lastClosed;k++){
       const y=Number(r.y1)+m*(k-Number(r.x1)), c=Number(data[k].c);
-      const beyond=r.type==='res'?c>y+breakTol:c<y-breakTol;
+      const beyond=r.type==='res' ? (c > y + breakTol) : (c < y - breakTol);
       consecutive=beyond?consecutive+1:0;
       if(consecutive>=1){broken=true;break;}
     }
+    if (broken) continue;
     const yNow=Number(r.y1)+m*((n-1)-Number(r.x1));
-    if(!broken && Math.abs(livePx-yNow)<=atr*(fast?5:6)) {
+    if(Math.abs(livePx-yNow)<=atr*(fast?5:6)) {
       const duplicate=candidates.some(q=>q.type===r.type && Math.abs(q.projNow-yNow)<=touchTol*1.5 && Math.abs(q.slope-m)<=Math.max(0.01,atr*0.025));
       if(!duplicate)candidates.push({...r,slope:m,projNow:yNow,source:r.source||'PERSISTED_PIVOT_LINE'});
     }
@@ -5726,6 +5750,32 @@ function executeTradingViewRayArchitecture(data) {
   const finalRays=[...pick('sup'),...pick('res')];
   multiHorizonTrendlines=finalRays;
   trendlinePersistenceCache.set(key,{length:n,rays:finalRays.map(r=>({...r}))});
+}
+
+/** Live structure refresh for the visible chart only.
+ * Rebuilds order blocks + trendlines so broken rays disappear and new zones
+ * appear without requiring a chart refresh / TF switch. Throttled for ticks. */
+function rebuildLiveChartStructure(force) {
+  try {
+    if (!Array.isArray(candleHistory) || candleHistory.length < 15) return false;
+    if (!candlesMatchAsset || !candlesMatchAsset(candleHistory, state.chartAsset || 'gold')) return false;
+    const now = Date.now();
+    if (!force && rebuildLiveChartStructure._last && (now - rebuildLiveChartStructure._last) < 1200) return false;
+    rebuildLiveChartStructure._last = now;
+    const before = (multiHorizonTrendlines || []).length;
+    if (typeof scanAndStoreOrderBlocks === 'function') scanAndStoreOrderBlocks(candleHistory);
+    if (typeof executeTradingViewRayArchitecture === 'function') executeTradingViewRayArchitecture(candleHistory);
+    try { saveActiveStore(); } catch (eS) {}
+    const after = (multiHorizonTrendlines || []).length;
+    // Only force a full redraw when structure changed or caller forced it
+    if (force || before !== after) {
+      try { if (typeof triggerRealtimeRender === 'function') triggerRealtimeRender(); } catch (eR) {}
+    }
+    return true;
+  } catch (e) {
+    console.warn('[structure] live rebuild failed', e);
+    return false;
+  }
 }
 
 function drawTradingViewChart() {
@@ -6305,7 +6355,9 @@ function rollLocalCandle() {
   });
   if (candleHistory.length > 300) candleHistory = candleHistory.slice(-300);
   try { getInstantCandleTimer(); } catch (e) {}
-  // Structure rebuild is expensive — only on TF load, not every new bar
+  // Bar close: rebuild OBs + trendlines so broken rays auto-disappear and
+  // newly validated zones auto-appear without a manual chart refresh.
+  try { rebuildLiveChartStructure(true); } catch (eStruct) {}
   try { saveActiveStore(); } catch (e) {}
   try { triggerRealtimeRender(); } catch (e) {}
   // Bar just closed → immediate LIVE scan on this TF (no wait for rotate)
@@ -7934,6 +7986,9 @@ function tickOneSymbol(sym, pk, pctk, ok, minP, maxP, dig) {
           if (state.gold_price > cur.h) cur.h = state.gold_price;
           if (state.gold_price < cur.l) cur.l = state.gold_price;
         }
+        // Keep structure fresh while the forming candle develops (zones / break
+        // detection) without waiting for a TF switch or full page reload.
+        try { rebuildLiveChartStructure(false); } catch (eStructTick) {}
         try { triggerRealtimeRender(); } catch (eT) {}
         try {
           if (typeof algoResolveAllTrades === 'function') algoResolveAllTrades(candleHistory);
@@ -16275,13 +16330,21 @@ function algoRenderLog(filter) {
   const st = algoComputeStats(log);
   if (cnt) cnt.textContent = '(' + log.length + ')';
 
-  const filters = ['ALL', 'LIVE', 'BACKTEST', 'OPEN', 'TP', 'SL', '1m', '3m', '5m', '15m', '1h', '4h', '1d'];
+  const filters = ['ALL', 'LIVE', 'SCALPER', 'BACKTEST', 'OPEN', 'TP', 'SL', '1m', '3m', '5m', '15m', '1h', '4h', '1d'];
   let filterHtml = '<div class="algo-hist-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">';
   filters.forEach(function (f) {
     const active = filter === f;
     let n = 0;
     if (f === 'ALL') n = log.length;
-    else if (f === 'LIVE') n = log.filter(function (t) { return String(t.source || 'LIVE').toUpperCase() !== 'BACKTEST'; }).length;
+    else if (f === 'LIVE') n = log.filter(function (t) {
+      const s = String(t.source || 'LIVE').toUpperCase();
+      return s !== 'BACKTEST';
+    }).length;
+    else if (f === 'SCALPER') n = log.filter(function (t) {
+      const s = String(t.source || '').toUpperCase();
+      const tf = String(t.tf || '').toLowerCase();
+      return s === 'SCALPER' || s === 'LIVE_INTRABAR' && (tf === '1m' || tf === '3m') || (tf === '1m' || tf === '3m') && s !== 'BACKTEST';
+    }).length;
     else if (f === 'BACKTEST') n = log.filter(function (t) { return String(t.source || '').toUpperCase() === 'BACKTEST'; }).length;
     else if (f === 'OPEN') n = st.open;
     else if (f === 'TP') n = st.tp;
@@ -16308,6 +16371,11 @@ function algoRenderLog(filter) {
 
   const filtered = log.filter(function (t) {
     if (filter === 'LIVE') return String(t.source || 'LIVE').toUpperCase() !== 'BACKTEST';
+    if (filter === 'SCALPER') {
+      const s = String(t.source || '').toUpperCase();
+      const tf = String(t.tf || '').toLowerCase();
+      return s === 'SCALPER' || ((tf === '1m' || tf === '3m') && s !== 'BACKTEST');
+    }
     if (filter === 'BACKTEST') return String(t.source || '').toUpperCase() === 'BACKTEST';
     if (filter === 'OPEN') return algoIsOpenTrade(t);
     if (filter === 'TP') return t.outcome === 'TP' || t.status === 'TP';
@@ -16780,11 +16848,13 @@ function algoNormalizeBarsOffline(bars, interval) {
 async function algoFetchCandlesOffline(tf) {
   tf = String(tf || '15m').toLowerCase();
   if (!ALGO_TF_SECONDS[tf]) return [];
-  try {
-    const url = 'https://biquote.io/api/XAUUSD/ohlc?interval=' + encodeURIComponent(tf) + '&limit=1000';
+  // 3m is often not a native provider interval — build from 1m like the main chart.
+  // 1m needs a deep window so structure (pivots / OBs) can form for scalper scans.
+  async function fetchRaw(interval, limit) {
+    const url = 'https://biquote.io/api/XAUUSD/ohlc?interval=' + encodeURIComponent(interval) + '&limit=' + limit;
     const data = await Promise.race([
       fetchJson(url),
-      new Promise(function (_, rej) { setTimeout(function () { rej(new Error('timeout')); }, 7000); })
+      new Promise(function (_, rej) { setTimeout(function () { rej(new Error('timeout')); }, 9000); })
     ]);
     let bars = (data && data.bars) ? data.bars.slice() : [];
     if (bars.length > 1) {
@@ -16792,16 +16862,42 @@ async function algoFetchCandlesOffline(tf) {
       const t1 = new Date(bars[bars.length - 1].openTime || bars[bars.length - 1].t || 0).getTime();
       if (t0 > t1) bars.reverse();
     }
-    let normalized = algoNormalizeBarsOffline(bars, tf);
+    return bars;
+  }
+  function storeAndReturn(normalized) {
+    if (!(normalized && normalized.length >= 30 && (!candlesMatchAsset || candlesMatchAsset(normalized, 'gold')))) return [];
     if (normalized.length > 1000) normalized = normalized.slice(-1000);
-    if (normalized.length >= 30 && (!candlesMatchAsset || candlesMatchAsset(normalized, 'gold'))) {
+    try {
+      if (!chartStore.gold) chartStore.gold = {};
+      const prev = chartStore.gold[tf] || {};
+      chartStore.gold[tf] = Object.assign({}, prev, { candles: normalized.slice() });
+    } catch (eS) {}
+    return normalized;
+  }
+  try {
+    let normalized = [];
+    if (tf === '3m') {
+      // Prefer native 3m when available
       try {
-        if (!chartStore.gold) chartStore.gold = {};
-        const prev = chartStore.gold[tf] || {};
-        chartStore.gold[tf] = Object.assign({}, prev, { candles: normalized.slice() });
-      } catch (eS) {}
-      return normalized;
+        const bars3 = await fetchRaw('3m', 500);
+        normalized = algoNormalizeBarsOffline(bars3, '3m');
+      } catch (e3) {}
+      if (normalized.length < 30) {
+        const bars1 = await fetchRaw('1m', 1500);
+        if (typeof aggregate1mBarsToTarget === 'function') {
+          normalized = aggregate1mBarsToTarget(bars1, 180) || [];
+        } else {
+          normalized = algoNormalizeBarsOffline(bars1, '3m');
+        }
+      }
+    } else if (tf === '1m') {
+      const bars1 = await fetchRaw('1m', 1000);
+      normalized = algoNormalizeBarsOffline(bars1, '1m');
+    } else {
+      const bars = await fetchRaw(tf, 1000);
+      normalized = algoNormalizeBarsOffline(bars, tf);
     }
+    return storeAndReturn(normalized);
   } catch (e) {
     console.warn('[GP Algo] offline fetch fail', tf, e && e.message);
   }
@@ -16918,10 +17014,18 @@ function algoSetDecisionAuditState(tf, status, message, blockers, rows) {
 /** Explain every live entry gate using the same helpers and thresholds as algoScanBar. */
 function algoRenderDecisionAudit(candles, tf, lines, demand, supply, actualFound) {
   const box = document.getElementById('algoDecisionAudit');
-  if (!box || !Array.isArray(candles) || candles.length < 30) return;
+  // Always produce the canvas HUD audit state, even when the optional HTML
+  // panel is absent. Missing DOM must not suppress live trade decisions.
+  if (!Array.isArray(candles) || candles.length < 30) {
+    try { algoSetDecisionAuditState(tf, 'DATA BLOCK', 'LIVE audit needs ≥30 Gold OHLC bars (have ' + (Array.isArray(candles) ? candles.length : 0) + ').', ['Insufficient OHLC history'], []); } catch (e) {}
+    return;
+  }
   const i = candles.length - 1; // latest forming candle; LIVE_INTRABAR is evaluated on this candle
   const c = candles[i];
-  if (!c) return;
+  if (!c) {
+    try { algoSetDecisionAuditState(tf, 'DATA BLOCK', 'LIVE audit: latest Gold candle missing after series load.', ['Missing forming candle'], []); } catch (e) {}
+    return;
+  }
   let atrSum = 0; for (let k=Math.max(0,i-13); k<=i; k++) atrSum += Math.max(.01,candles[k].h-candles[k].l);
   const atr = Math.max(1, atrSum / Math.min(14,i+1));
   const buyBias=algoHigherTfBias('BUY'), sellBias=algoHigherTfBias('SELL');
@@ -17007,7 +17111,7 @@ function algoRenderDecisionAudit(candles, tf, lines, demand, supply, actualFound
   if(trade){html+='<div class="ada-row"><b>ENTRY '+trade.side+'</b><b class="ada-pass">SIGNAL GENERATED</b></div><div class="ada-detail">Entry '+Number(trade.entry).toFixed(2)+' · SL '+Number(trade.sl).toFixed(2)+' · TP '+Number(trade.tp).toFixed(2)+' · RR 1:'+trade.rr+' · '+trade.reason+'</div><div class="ada-detail">This is a strategy signal. It is not proof of MT5 execution; broker confirmation is shown separately.</div>';}
   else if(selected){html+='<div class="ada-detail">All displayed mandatory checks passed; engine returned no trade for this candle. Check duplicate/same-zone protection or final risk validation.</div>';}
   else html+='<div class="ada-detail">ENGINE TRACE · '+sideDecisions.map(d=>d.side+': '+(d.passed?'PASS':d.reason)).join(' · ')+' . This is evaluated independently on this timeframe candle; the 1D bias is intentionally shared as the primary directional authority.</div>'; 
-  box.innerHTML=html;
+  if (box) box.innerHTML=html;
 }
 
 /** Scan one TF fully offline — never changes open chart timeframe */
@@ -17064,15 +17168,35 @@ async function algoScanTf(tf, mode, allowFetch) {
 
 function algoScanNow(mode) {
   mode = mode || 'BACKTEST';
-  if (!algoIsEngineTf(algoState.tf)) {
+  // Prefer the open Gold chart TF when it is engine-supported (incl. 1m/3m scalper).
+  let scanTf = algoState.tf || '15m';
+  try {
+    const chartTf = String(state.tf_interval || '').toLowerCase();
+    if ((state.chartAsset || 'gold') === 'gold' && chartTf && algoIsEngineTf(chartTf)) {
+      if (ALGO_SCALPER_TFS[chartTf]) {
+        if (algoIsAllowedTf(chartTf)) scanTf = chartTf;
+        else {
+          algoUpdateStatus('<span class="bad">Chart is on ' + chartTf + ' — enable SCALPER MODE (' + chartTf + ' or BOTH) first</span>');
+          return;
+        }
+      } else if (ALGO_TF_ALLOWED[chartTf]) {
+        scanTf = chartTf;
+      }
+    }
+  } catch (eTf) {}
+  if (!algoIsEngineTf(scanTf)) {
     algoUpdateStatus('<span class="bad">Unsupported timeframe</span>');
     return;
   }
-  algoUpdateStatus('Scanning ' + mode + ' on ' + algoState.tf + ' (background)…');
+  if (ALGO_SCALPER_TFS[scanTf] && !algoIsAllowedTf(scanTf)) {
+    algoUpdateStatus('<span class="bad">Scalper TF ' + scanTf + ' locked — set SCALPER MODE to ' + scanTf + ' or BOTH</span>');
+    return;
+  }
+  algoUpdateStatus('Scanning ' + mode + ' on ' + scanTf + ' (background)…');
   const run = async function () {
     try {
       try { if (typeof updateChartBiasesLive === 'function') updateChartBiasesLive(); } catch (eB) {}
-      const r = await algoScanTf(algoState.tf, mode, true);
+      const r = await algoScanTf(scanTf, mode, true);
       algoState.histOpen = true;
       const pan = document.getElementById('algoHistoryPanel');
       const btn = document.getElementById('algoHistBtn');
@@ -17111,11 +17235,17 @@ async function algoAutoBacktestAllTfs(force) {
   if (!force && now - _algoMultiBtLast < 300000) return; // five-minute refresh; avoid hammering provider
   _algoMultiBtBusy = true;
   _algoMultiBtLast = now;
+  // Standard decision TFs always; append 1m/3m when Scalper Mode is enabled so
+  // BACKTEST HISTORY can show scalper-TF simulations (UI promised this).
   const tfs = ['5m', '15m', '1h', '4h', '1d'];
+  try {
+    const sc = (typeof algoScalperTfList === 'function') ? algoScalperTfList() : [];
+    sc.forEach(function (tf) { if (tfs.indexOf(tf) < 0) tfs.push(tf); });
+  } catch (eSc) {}
   let totalAdded = 0;
   const detail = [];
   try {
-    algoUpdateStatus('Refreshing REAL-OHLC backtest history · 5m / 15m / 1h / 4h / 1d…');
+    algoUpdateStatus('Refreshing REAL-OHLC backtest history · ' + tfs.join(' / ') + '…');
     for (let i = 0; i < tfs.length; i++) {
       const tf = tfs[i];
       try {
@@ -17660,11 +17790,16 @@ async function algoLiveScanOneTf(tf, candlesPrefer) {
 
   // LIVE must never scan an old cached series as if it were current market data.
   // A fresh forming bar should exist within roughly two timeframe lengths.
+  // Exception: when a live XAUUSD tick was stitched into the series within the
+  // last 20s, the series is considered current even if OHLC provider lag exists.
   const liveStepMs = (ALGO_TF_SECONDS[String(tf || '').toLowerCase()] || 300) * 1000;
   const lastLiveBar = candles[candles.length - 1] || {};
   const lastLiveSlot = Number(lastLiveBar.barSlot || lastLiveBar.openTime || lastLiveBar.t || 0);
-  if (lastLiveSlot > 0 && Date.now() - lastLiveSlot > liveStepMs * 2.5) {
-    algoSetDecisionAuditState(tf,'DATA STALE','Last Gold candle is older than 2.5 timeframe intervals; live entries paused until fresh OHLC arrives.', ['Stale Gold candle / feed not updating'], []);
+  const tickAtFresh = Number(state && state._goldTickUpdatedAt) || 0;
+  const tickIsLive = tickAtFresh > 0 && (Date.now() - tickAtFresh) <= 20000 && Number(state.gold_price) > 500;
+  const seriesFresh = lastLiveSlot > 0 && (Date.now() - lastLiveSlot) <= liveStepMs * 2.5;
+  if (lastLiveSlot > 0 && !seriesFresh && !tickIsLive) {
+    algoSetDecisionAuditState(tf,'DATA STALE','Last Gold candle is older than 2.5 timeframe intervals and no live tick is available; live entries paused until fresh OHLC arrives.', ['Stale Gold candle / feed not updating'], []);
     return { added: 0, found: 0, tf: tf, bars: candles.length, err: 'stale-candles' };
   }
 
@@ -17716,6 +17851,18 @@ async function algoLiveScanOneTf(tf, candlesPrefer) {
   const added = algoMergeNewTrades(found);
   window.__algoLiveScanStage = 'render decision audit ' + tf;
   try { algoRenderDecisionAudit(candles, tf, struct.lines, struct.demand, struct.supply, found); } catch(eAudit) { console.warn('[GP Algo] live audit',eAudit); }
+  // If this TF is the open Gold chart, publish the structure the engine just
+  // used so trendlines / OBs update live without a chart refresh.
+  try {
+    if ((state.chartAsset || 'gold') === 'gold' && String(state.tf_interval || '') === String(tf || '') &&
+        struct && Array.isArray(struct.lines)) {
+      multiHorizonTrendlines = (struct.lines || []).slice();
+      storedDemandOBs = (struct.demand || []).slice();
+      storedSupplyOBs = (struct.supply || []).slice();
+      try { saveActiveStore(); } catch (eSave) {}
+      try { if (typeof triggerRealtimeRender === 'function') triggerRealtimeRender(); } catch (eDraw) {}
+    }
+  } catch (ePub) {}
   window.__algoLiveScanStage = 'resolve open trades ' + tf;
   try { algoResolveAllTrades(candles); } catch (eR) {}
   window.__algoLiveScanStage = 'idle';
@@ -17770,9 +17917,20 @@ async function algoRunScalperLive() {
     for (const tf of tfs) {
       let candles = null;
       const now = Date.now();
+      // Prefer the open chart series when the user is already on this scalper TF —
+      // it is the freshest interbank OHLC + live forming candle.
+      try {
+        if ((state.chartAsset || 'gold') === 'gold' && String(state.tf_interval || '') === String(tf) &&
+            candleHistory && candleHistory.length >= 30 &&
+            (!candlesMatchAsset || candlesMatchAsset(candleHistory, 'gold'))) {
+          candles = candleHistory.slice();
+        }
+      } catch (eVis) {}
       algoRunScalperLive._lastFetch = algoRunScalperLive._lastFetch || {};
-      // Refresh every 12 seconds; use the latest cached series between refreshes.
-      if (!algoRunScalperLive._lastFetch[tf] || now - algoRunScalperLive._lastFetch[tf] >= 12000) {
+      // Scalper needs faster refresh than standard TFs (1m closes every minute).
+      const refreshMs = (tf === '1m') ? 5000 : 8000;
+      if ((!candles || candles.length < 30) &&
+          (!algoRunScalperLive._lastFetch[tf] || now - algoRunScalperLive._lastFetch[tf] >= refreshMs)) {
         algoRunScalperLive._lastFetch[tf] = now;
         try { candles = await algoFetchCandlesOffline(tf); } catch (eF) {}
       }
@@ -17784,7 +17942,14 @@ async function algoRunScalperLive() {
         if (r.added > 0) {
           try { algoState.histOpen = true; const pan = document.getElementById('algoHistoryPanel'); if (pan) pan.style.display = 'block'; algoRenderLog(); } catch (eH) {}
           algoUpdateStatus('<span class="ok">SCALPER ' + tf.toUpperCase() + ': +' + r.added + ' · standard TF scans remain active</span>');
+        } else if (!algoRunScalperLive._lastStatus || now - algoRunScalperLive._lastStatus > 15000) {
+          algoRunScalperLive._lastStatus = now;
+          algoUpdateStatus('<span class="warn">SCALPER ' + tf.toUpperCase() + ' scanned · bars ' + (r.bars || candles.length) +
+            ' · hits ' + (r.found || 0) + ' · ARMED (gates may still be waiting)</span>');
         }
+      } else {
+        algoUpdateStatus('<span class="bad">SCALPER ' + tf.toUpperCase() + ': insufficient OHLC (' +
+          ((candles && candles.length) || 0) + '/30) — check feed</span>');
       }
     }
   } finally { algoRunScalperLive._busy = false; }
