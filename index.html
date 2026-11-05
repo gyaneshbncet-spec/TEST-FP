@@ -17933,7 +17933,7 @@ function algoDrawExecutionHud(ctx,chartW){
   const tradeHeaderH=mobileView?12:15;
   const tradeRowH=mobileView?14:18;
   const audit=window.__algoDecisionAuditState||{tf:'—',status:'WAITING',message:'Waiting for Gold feed.',blockers:[],byTf:{}};
-  const requiredScanTfs=['5m','15m','1h','4h','1d'];
+  const requiredScanTfs=['1m','3m','5m','15m','1h','4h','1d'];
   const tfAuditRows=requiredScanTfs.map(function(tf){
     const a=(audit.byTf||{})[tf];
     let structTag='';
@@ -17946,16 +17946,19 @@ function algoDrawExecutionHud(ctx,chartW){
         structTag = ' · ' + st.dir + (bits.length ? (' ' + bits.join('/')) : '') + (st.sideways ? ' SW' : '');
       }
     } catch (eSt) {}
-    if(!a)return tf.toUpperCase()+': WAIT'+structTag;
+    if(!a){
+      if (structTag) return tf.toUpperCase()+': STRUCT'+structTag;
+      return tf.toUpperCase()+': WAIT';
+    }
     const stus = String(a.status || 'WAIT');
     // Prefer first real blocker (why no trade), skip generic "Live structure update" noise
     let why = '';
     const blockers = (a.blockers || []).filter(function (b) {
       const s = String(b || '');
-      return s && !/Live structure update|Parallel MTF|scan in progress/i.test(s);
+      return s && !/Live structure update|Parallel MTF|scan in progress|Scalper parallel|Scalper structure/i.test(s);
     });
     if (blockers.length) why = String(blockers[0]);
-    else if (a.message && !/Scanning |OHLC \+ live structure|in progress/i.test(String(a.message))) why = String(a.message);
+    else if (a.message && !/Scanning |OHLC \+ live structure|in progress|Scalper/i.test(String(a.message))) why = String(a.message);
     const shortWhy = why.length > 36 ? (why.slice(0, 34) + '…') : why;
     const age = a.updatedAt ? new Date(a.updatedAt).toLocaleTimeString() : '';
     return tf.toUpperCase()+': '+stus+structTag+(shortWhy?' · '+shortWhy:'')+(age?' · '+age:'');
@@ -18295,10 +18298,14 @@ async function algoLiveScanOneTf(tf, candlesPrefer) {
   } else {
     window.__algoLiveScanStage = 'candle-close mode ON · skip forming-bar entries ' + tf;
   }
-  const found = foundClosed.concat(foundIntrabar);
+  let found = foundClosed.concat(foundIntrabar);
   if (ALGO_SCALPER_TFS && ALGO_SCALPER_TFS[tf]) found.forEach(function (trade) {
     if (trade.source !== 'LIVE_INTRABAR') trade.source = 'SCALPER';
   });
+  // 1m/3m: always track structure for MTF panel; only open trades when Scalper Mode allows this TF
+  if (ALGO_SCALPER_TFS && ALGO_SCALPER_TFS[tf] && typeof algoIsAllowedTf === 'function' && !algoIsAllowedTf(tf)) {
+    found = []; // structure + audit still run; no live entries while scalper locked
+  }
   window.__algoLiveScanStage = 'merge live signals ' + tf;
   const added = algoMergeNewTrades(found);
   window.__algoLiveScanStage = 'render decision audit ' + tf;
@@ -18389,8 +18396,8 @@ async function algoRunScalperLive() {
       }
       if (candles && candles.length >= 30) {
         try {
-          algoSetDecisionAuditState(tf, 'SCANNING', 'Scalper structure + entry scan on ' + tf,
-            ['Scalper parallel scan'], []);
+          algoSetDecisionAuditState(tf, 'SCANNING', 'Scanning ' + tf + ' OHLC + live structure',
+            ['Live structure update'], []);
         } catch (eM) {}
         const r = await algoLiveScanOneTf(tf, candles);
         return { tf: tf, r: r, bars: candles.length };
@@ -18475,8 +18482,10 @@ function algoOnLiveTick() {
   (async function () {
     try {
       // 1) ALWAYS scan the open chart TF first with live candles (real-time path)
-      const activeTf = (state.chartAsset === 'gold' && algoIsAllowedTf(state.tf_interval))
-        ? state.tf_interval
+      // Prefer open Gold chart TF for structure + signals (1m/3m included even before scalper arm)
+      const chartTfNow = String(state.tf_interval || '').toLowerCase();
+      const activeTf = ((state.chartAsset || 'gold') === 'gold' && chartTfNow && algoIsEngineTf(chartTfNow))
+        ? chartTfNow
         : (algoState.tf || '15m');
       let liveCandles = [];
       try {
@@ -18500,7 +18509,8 @@ function algoOnLiveTick() {
       // Sequential awaits left 1H/4H/1D stuck on "WAITING FOR FIRST SCAN" while
       // one slow OHLC fetch held _busy. Each TF still gets its own candles,
       // independent structure (HH/HL or LH/LL), signal scan and byTf audit.
-      const standardDecisionTfs = ['5m','15m','1h','4h','1d'];
+      // Include 1m/3m so MTF panel always has live structure (entries still gated by Scalper Mode)
+      const standardDecisionTfs = ['1m','3m','5m','15m','1h','4h','1d'];
       const bgTfs = standardDecisionTfs.filter(function (tf) { return tf !== activeTf; });
       // Mark every pending TF as SCANNING immediately so the monitor never looks idle.
       bgTfs.forEach(function (tf) {
@@ -18541,10 +18551,10 @@ function algoOnLiveTick() {
         algoUpdateStatus('<span class="ok">LIVE multi-TF: +' + anyBgAdded + ' · parallel scan</span>');
       }
 
-      // Scalper 1m/3m runs alongside (not instead of) the standard timeframe scans.
-      if (algoState.scalperMode && algoState.scalperMode !== 'OFF') {
-        try { await algoRunScalperLive(); } catch (eSc) {}
-      }
+      // 1m/3m are already in standardDecisionTfs (same OHLC + structure path as 5m–1D).
+      // Do NOT run a second "scalper parallel" scan that overwrote status with different text.
+      // Live entries on 1m/3m remain gated by Scalper Mode inside algoLiveScanOneTf / algoIsAllowedTf.
+
 
       if ((!rMain.added) && (!algoOnLiveTick._lastStatus || now - algoOnLiveTick._lastStatus > 8000)) {
         algoOnLiveTick._lastStatus = now;
