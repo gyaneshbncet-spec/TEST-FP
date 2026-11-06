@@ -4078,19 +4078,22 @@ canvas#tvCanvas {
         <b style="color:#e2e8f0">GP ALGO RULE BOOK (aligned to reference)</b><br>
         ○ <b>STANDARD TF:</b> 5m / 15m / 1H / 4H / 1D · <b>OPTIONAL SCALPER:</b> 1m / 3m via History dropdown (OFF / 1m / 3m / BOTH)<br>
         ○ <b>CANDLE CLOSING (History):</b> <b>ON</b> = wait for candle close before live entry / MT5 punch · <b>OFF</b> = when all rules pass on the forming bar, punch immediately<br>
-        ○ <b>1D + TF STRUCTURE (ALL TF):</b> 1D bias is master. Every TF keeps its <b>own live structure</b> (HH/HL = buy structure, LH/LL = sell structure) from that TF's candles. Trade only in the 1D direction and only while that TF structure still aligns. If structure breaks (e.g. 1D BUY but TF starts LL), that TF <b>stops new entries</b> until structure realigns — never reverse against 1D<br>
+        ○ <b>1D + TF STRUCTURE (ALL TF):</b> 1D bias is master. Every TF keeps its <b>own live structure</b> (HH/HL = buy structure, LH/LL = sell structure) from that TF's candles. Trade only in the 1D direction and only while that TF structure still aligns. If structure breaks on a TF (e.g. 1m fails), <b>that TF blocks BOTH sides</b> until the failed structure passes — other TFs stay independent · never reverse against 1D<br>
         ○ <b>SIDEWAYS (scalp only):</b> 1m / 3m / 5m block entries in sideways/compressed structure; higher TFs (15m+) are not restricted by this rule<br>
+        ○ <b>STRUCTURE FAIL LOCK (ALL TF):</b> if structure fails on any individual TF (broken HH/HL or LH/LL, against 1D, or SIDEWAYS on 1m/3m/5m), true <b>BROKEN</b> structure (LL after HH / HH after LL) locks that TF for both sides until realign. <b>SIDEWAYS</b> is soft wait only (not red FAIL on HTF). Example: 15m broken → only 15m locked; 1H still free<br>
+        ○ <b>SCALP DISCOUNT / PREMIUM:</b> BUY only at <b>support + discount zone</b> (lower half of range) · SELL only at <b>resistance + premium zone</b> (upper half). <b>No premium buys / no discount sells</b><br>
         ○ <b>MAX OPEN:</b> at most <b>4</b> live open trades across <b>all</b> timeframes; if 4 are open, no new entry on any TF until one closes<br>
         ○ <b>NO RANDOM AREAS</b> — only 2-touch trendline zone or validated OB<br>
         ○ <b>ENTRY = REJECTION CANDLE ONLY</b> — never mid-body / random area<br>
-        ○ <b>BUY (bull):</b> <b>SUPPORT only</b> — TL ≥2 touches, then <b>next retest</b> · wick <b>sweeps</b> support · close back above<br>
-        &nbsp;&nbsp;+ desk <b>POSITIVE</b> + HTF <b>15m/1H/1D BULL (3+ PASS)</b><br>
-        &nbsp;&nbsp;+ vol ≥ <b>1.25 × SMA(Volume, 10)</b> <i>or</i> footprint absorption<br>
-        ○ <b>SELL (bear):</b> <b>RESISTANCE only</b> — TL ≥2 touches, then <b>next retest</b> · wick <b>sweeps</b> resistance · close back below<br>
-        &nbsp;&nbsp;+ desk <b>NEGATIVE</b> + HTF <b>15m/1H/1D BEAR (3+ PASS)</b><br>
-        &nbsp;&nbsp;+ same volume + rejection-sweep rules<br>
+        ○ <b>BUY (bull):</b> 1D BUY + <b>strict upward SUPPORT TL only</b> (higher-lows · falling support forbidden) · ≥2 touches · <b>discount zone</b> · wick sweeps support · close back above<br>
+        &nbsp;&nbsp;· downward (sell-direction) TL is <b>ignored</b> — no trade on that line<br>
+        &nbsp;&nbsp;+ desk <b>POSITIVE</b> + HTF <b>15m/1H/1D BULL (3+ PASS)</b> + vol ≥ <b>1.25 × SMA(Volume, 10)</b> <i>or</i> footprint absorption<br>
+        ○ <b>SELL (bear):</b> 1D SELL + <b>strict downward RESISTANCE TL only</b> (lower-highs · rising resistance forbidden) · ≥2 touches · <b>premium zone</b> · wick sweeps resistance · close back below<br>
+        &nbsp;&nbsp;· upward (buy-direction) TL is <b>ignored</b> — no trade on that line<br>
+        &nbsp;&nbsp;+ desk <b>NEGATIVE</b> + HTF <b>15m/1H/1D BEAR (3+ PASS)</b> + same volume + rejection-sweep rules<br>
+        ○ <b>MTF DECISION panel:</b> each TF shows live structure · <b>✕ FAIL</b> + wait pass while locked · <b>✓</b> when structure aligned / signal · independent per TF<br>
         ○ <b>NO RANDOM ZONES</b> — zone must sit at recent swing low (buy) / high (sell)<br>
-        ○ <b>Execution:</b> BUY/SELL ENTRY (AUTO) · SL above/below <b>sweep high/low + 1.0–1.5×ATR</b> · TP min <b>1:2</b><br>
+        ○ <b>Execution:</b> BUY/SELL ENTRY (AUTO) · SL beyond <b>structure support/resistance zone</b> (scalp anchors SL to discount support / premium resistance) · TP min <b>1:2</b><br>
         ○ <b>Multi-open:</b> up to 4 concurrent OPEN trades across all TFs (rules still apply); blocked at 4 until a slot frees<br>
         ○ <b>Same-level block:</b> no second entry at same side/zone (±$1.5) while OPEN<br>
         ○ <b>Auto BT:</b> BACKTEST ALL TF always scans <b>1m / 3m / 5m / 15m / 1H / 4H / 1D</b> (real provider OHLC). LIVE 1m/3m still needs SCALPER MODE ON (auto-enabled when you run BACKTEST ALL)<br>
@@ -15454,6 +15457,42 @@ function algoNearLine(c, line, i, atr) {
   return (c.l <= px + tol && c.h >= px - tol);
 }
 
+
+/**
+ * Trendline direction in PRICE space (y = price).
+ * Upward (buy-direction) support: slope > 0 (higher lows).
+ * Downward (sell-direction) resistance: slope < 0 (lower highs).
+ * Falling support must NEVER be used for BUY. Rising resistance must NEVER be used for SELL.
+ */
+function algoLineSlope(line) {
+  if (!line || line.x2 === line.x1) return NaN;
+  return (Number(line.y2) - Number(line.y1)) / (Number(line.x2) - Number(line.x1));
+}
+function algoIsUpwardSupport(line) {
+  const s = algoLineSlope(line);
+  return Number.isFinite(s) && s > 0; // strict: must be rising higher-lows support
+}
+function algoIsDownwardResistance(line) {
+  const s = algoLineSlope(line);
+  return Number.isFinite(s) && s < 0; // strict: must be falling lower-highs resistance
+}
+/** Nearest support line to this bar by price distance; returns {line, slope, px} or null */
+function algoNearestSupport(lines, c, i, atr) {
+  if (!Array.isArray(lines) || !c) return null;
+  let best = null, bestDist = Infinity;
+  for (let li = 0; li < lines.length; li++) {
+    const l = lines[li];
+    if (!l || l.type !== 'sup') continue;
+    const slope = algoLineSlope(l);
+    if (!Number.isFinite(slope)) continue;
+    const px = Number(l.y1) + slope * (i - Number(l.x1));
+    const mid = (Number(c.h) + Number(c.l)) / 2;
+    const dist = Math.abs(mid - px);
+    if (dist < bestDist) { bestDist = dist; best = { line: l, slope: slope, px: px, dist: dist }; }
+  }
+  return best;
+}
+
 /** Recent swing range — zone must sit at real support/resistance, not mid-air */
 function algoRecentRange(data, i, lookback) {
   lookback = lookback || 40;
@@ -15535,6 +15574,148 @@ function algoLocalLean(data, i) {
 function algoIsScalpTf(tf) {
   tf = String(tf || '').toLowerCase();
   return tf === '1m' || tf === '3m' || tf === '5m';
+}
+
+/**
+ * Per-TF structure-fail lock — ALL timeframes (1m / 3m / 5m / 15m / 1H / 4H / 1D).
+ * If structure fails on a TF (broken HH/HL or LH/LL, SIDEWAYS on scalp, or dir against bias),
+ * that TF is LOCKED for BOTH sides until the last failed structure fully passes on THAT TF.
+ * Other timeframes continue independently.
+ */
+window.__algoTfStructLock = window.__algoTfStructLock || {};
+// Keep legacy key in sync for any UI that still reads the old name
+window.__algoScalpStructLock = window.__algoTfStructLock;
+
+function algoGetTfStructLock(tf) {
+  tf = String(tf || '').toLowerCase();
+  if (!tf) return null;
+  window.__algoTfStructLock = window.__algoTfStructLock || {};
+  return window.__algoTfStructLock[tf] || null;
+}
+// legacy alias
+function algoGetScalpStructLock(tf) { return algoGetTfStructLock(tf); }
+
+function algoSetTfStructFail(tf, side, reason, struct) {
+  tf = String(tf || '').toLowerCase();
+  if (!tf) return;
+  window.__algoTfStructLock = window.__algoTfStructLock || {};
+  window.__algoScalpStructLock = window.__algoTfStructLock;
+  const prev = window.__algoTfStructLock[tf];
+  // Keep first fail until fully passed — do not reset mid-fail.
+  if (prev && prev.active) {
+    prev.lastSeenAt = Date.now();
+    prev.reason = reason || prev.reason;
+    if (struct) {
+      prev.detail = struct.detail || prev.detail;
+      prev.dir = struct.dir || prev.dir;
+      prev.brokenBuy = !!struct.brokenBuy;
+      prev.brokenSell = !!struct.brokenSell;
+      prev.sideways = !!struct.sideways;
+    }
+    return;
+  }
+  window.__algoTfStructLock[tf] = {
+    active: true,
+    side: side || null,
+    reason: reason || 'structure failed',
+    detail: (struct && struct.detail) || '',
+    dir: (struct && struct.dir) || '',
+    brokenBuy: !!(struct && struct.brokenBuy),
+    brokenSell: !!(struct && struct.brokenSell),
+    sideways: !!(struct && struct.sideways),
+    failedAt: Date.now(),
+    lastSeenAt: Date.now()
+  };
+  try {
+    console.warn('[GP Algo] TF structure FAIL lock ON', tf, side, reason);
+  } catch (e) {}
+}
+function algoSetScalpStructFail(tf, side, reason, struct) {
+  return algoSetTfStructFail(tf, side, reason, struct);
+}
+
+function algoClearTfStructFail(tf, reason) {
+  tf = String(tf || '').toLowerCase();
+  if (!tf) return;
+  window.__algoTfStructLock = window.__algoTfStructLock || {};
+  window.__algoScalpStructLock = window.__algoTfStructLock;
+  const prev = window.__algoTfStructLock[tf];
+  if (prev && prev.active) {
+    try {
+      console.log('[GP Algo] TF structure FAIL lock CLEARED', tf, reason || 'structure passed');
+    } catch (e) {}
+  }
+  window.__algoTfStructLock[tf] = {
+    active: false,
+    side: null,
+    reason: '',
+    detail: '',
+    dir: '',
+    brokenBuy: false,
+    brokenSell: false,
+    sideways: false,
+    clearedAt: Date.now(),
+    clearReason: reason || 'structure passed'
+  };
+}
+function algoClearScalpStructFail(tf, reason) {
+  return algoClearTfStructFail(tf, reason);
+}
+
+/**
+ * Evaluate / update structure lock for one TF.
+ * Returns { locked:bool, reason:string }.
+ * Rule: ANY structure failure on this TF blocks BOTH BUY and SELL on this TF
+ * until the last failed structure fully passes (realigns) on the same TF.
+ */
+function algoUpdateTfStructLock(tf, struct, sideWanted) {
+  tf = String(tf || '').toLowerCase();
+  if (!tf || !struct) return { locked: false, reason: '' };
+
+  const lock = algoGetTfStructLock(tf);
+
+  // HIGH-INTELLIGENCE: hard lock ONLY on true structure BREAK.
+  // SIDEWAYS / "not aligned yet" is a soft wait (gate blocks entry) — NOT a permanent ✕ FAIL
+  // on every TF. Higher TFs must not light up FAIL just because structure is neutral.
+  const hardBroken = !!struct.brokenBuy || !!struct.brokenSell;
+
+  if (hardBroken) {
+    const why = struct.brokenBuy
+      ? 'BUY structure BROKEN (LL after HH) — wait HH/HL pass'
+      : 'SELL structure BROKEN (HH after LL) — wait LH/LL pass';
+    algoSetTfStructFail(tf, struct.brokenBuy ? 'BUY' : 'SELL', why, struct);
+    return { locked: true, reason: why };
+  }
+
+  // Clear prior hard lock once structure realigns (or break flags clear with clear dir)
+  if (lock && lock.active) {
+    const buyPass = struct.alignedBuy && !struct.brokenBuy && struct.dir === 'BUY';
+    const sellPass = struct.alignedSell && !struct.brokenSell && struct.dir === 'SELL';
+    let passed = false;
+    if (lock.brokenBuy || lock.side === 'BUY') passed = buyPass;
+    else if (lock.brokenSell || lock.side === 'SELL') passed = sellPass;
+    else passed = buyPass || sellPass;
+
+    if (!passed && !struct.brokenBuy && !struct.brokenSell &&
+        (struct.dir === 'BUY' || struct.dir === 'SELL')) {
+      passed = true; // break flags gone + directional structure restored
+    }
+
+    if (passed) {
+      algoClearTfStructFail(tf, 'structure realigned · ' + (struct.detail || struct.dir));
+      return { locked: false, reason: '' };
+    }
+    return {
+      locked: true,
+      reason: 'LOCKED until BROKEN structure realigns · was: ' +
+        (lock.reason || 'BROKEN') + ' · now: ' + (struct.detail || struct.dir)
+    };
+  }
+
+  return { locked: false, reason: '' };
+}
+function algoUpdateScalpStructLock(tf, struct, sideWanted) {
+  return algoUpdateTfStructLock(tf, struct, sideWanted);
 }
 
 /** Max concurrent OPEN trades across ALL timeframes (live + paper). */
@@ -15686,7 +15867,18 @@ function algoStructureGate(side, data, i, tf, mode) {
     return { ok: false, struct: struct, reason: '1D bias NEUTRAL — no entries', daily: daily };
   }
   if (isScalp && struct.sideways) {
-    return { ok: false, struct: struct, reason: 'SIDEWAYS on scalp TF (' + tf + ') — no entries', daily: daily };
+    // Soft block only — do NOT hard-lock the TF (higher intelligence: sideways ≠ broken)
+    return { ok: false, struct: struct, reason: 'SIDEWAYS on scalp TF (' + tf + ') — wait structure', daily: daily, structLocked: false };
+  }
+
+  // ALL TF: structure-fail lock — if THIS TF previously failed structure,
+  // block BOTH sides until that last failed structure fully passes on this TF.
+  // Other timeframes are independent and can still trade.
+  if (!isBacktest) {
+    const lockEval = algoUpdateTfStructLock(tf, struct, side);
+    if (lockEval.locked) {
+      return { ok: false, struct: struct, reason: String(tf).toUpperCase() + ' ' + lockEval.reason, daily: daily, structLocked: true };
+    }
   }
 
   if (side === 'BUY') {
@@ -15696,12 +15888,15 @@ function algoStructureGate(side, data, i, tf, mode) {
     // Must show live buy structure (HH/HL). Broken or sell structure → wait realign (no reverse).
     // SIDEWAYS already blocked above for scalp TFs only; higher TFs may still pass if alignedBuy.
     if (struct.brokenBuy || struct.dir === 'SELL') {
+      algoSetTfStructFail(tf, 'BUY', 'BUY structure BROKEN (LL after HH) — wait HH/HL pass', struct);
       return { ok: false, struct: struct, reason: '1D BUY but ' + String(tf).toUpperCase() + ' structure ' + struct.dir +
         (struct.brokenBuy ? ' (broken)' : '') + ' — wait HH/HL realign · no reverse SELL', daily: daily };
     }
     if (!struct.alignedBuy) {
       return { ok: false, struct: struct, reason: '1D BUY but ' + String(tf).toUpperCase() + ' structure not HH/HL (' + struct.dir + ') — wait realign', daily: daily };
     }
+    // Healthy structure — clear any prior fail lock on this TF
+    algoClearTfStructFail(tf, 'BUY structure passed · ' + struct.detail);
     return { ok: true, struct: struct, reason: '1D BUY + ' + struct.detail, daily: daily };
   }
 
@@ -15710,12 +15905,14 @@ function algoStructureGate(side, data, i, tf, mode) {
       return { ok: false, struct: struct, reason: '1D is ' + daily + ' — SELL blocked (no reverse on this TF)', daily: daily };
     }
     if (struct.brokenSell || struct.dir === 'BUY') {
+      algoSetTfStructFail(tf, 'SELL', 'SELL structure BROKEN (HH after LL) — wait LH/LL pass', struct);
       return { ok: false, struct: struct, reason: '1D SELL but ' + String(tf).toUpperCase() + ' structure ' + struct.dir +
         (struct.brokenSell ? ' (broken)' : '') + ' — wait LH/LL realign · no reverse BUY', daily: daily };
     }
     if (!struct.alignedSell) {
       return { ok: false, struct: struct, reason: '1D SELL but ' + String(tf).toUpperCase() + ' structure not LH/LL (' + struct.dir + ') — wait realign', daily: daily };
     }
+    algoClearTfStructFail(tf, 'SELL structure passed · ' + struct.detail);
     return { ok: true, struct: struct, reason: '1D SELL + ' + struct.detail, daily: daily };
   }
   return { ok: false, struct: struct, reason: 'unknown side', daily: daily };
@@ -15902,10 +16099,12 @@ function algoSMCStructureConfirm(data, i, side, atr, demand, supply, tf) {
   for (let k = start; k <= i; k++) { hi = Math.max(hi, data[k].h); lo = Math.min(lo, data[k].l); }
   if (!(hi > lo)) return { ok: false, reason: 'range unavailable' };
   const pos = (c.c - lo) / (hi - lo);
-  // Scalp: wider premium/discount band (chop is normal on 1m)
+  // Scalp 1m/3m/5m: STRICT discount for BUY / premium for SELL only.
+  // Never buy in premium zone; never sell in discount zone.
+  // BUY must be support/discount (lower half). SELL must be resistance/premium (upper half).
   if (isScalp) {
-    if (side === 'BUY' && pos > 0.72) return { ok: false, reason: 'scalp not in discount half' };
-    if (side === 'SELL' && pos < 0.28) return { ok: false, reason: 'scalp not in premium half' };
+    if (side === 'BUY' && pos > 0.48) return { ok: false, reason: 'scalp BUY blocked — not in discount/support zone (pos ' + (pos * 100).toFixed(0) + '%)' };
+    if (side === 'SELL' && pos < 0.52) return { ok: false, reason: 'scalp SELL blocked — not in premium/resistance zone (pos ' + (pos * 100).toFixed(0) + '%)' };
   } else {
     if (side === 'BUY' && pos > 0.54) return { ok: false, reason: 'not in discount/equilibrium' };
     if (side === 'SELL' && pos < 0.46) return { ok: false, reason: 'not in premium/equilibrium' };
@@ -16048,20 +16247,43 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
     let sl, tp, risk;
     // Fixed R:R = 1:2 always — risk 1 point of risk distance → reward 2 points.
     // TP is derived from the final SL distance so the ratio cannot drift to 1:1.
+    // SCALP: SL is anchored to the support/discount (BUY) or resistance/premium (SELL)
+    // structure zone — never a random mid-range stop.
     const RR_TARGET = 2;
+    const isScalpPush = (String(tf || '').toLowerCase() === '1m' || String(tf || '').toLowerCase() === '3m' || String(tf || '').toLowerCase() === '5m');
     if (side === 'BUY') {
-      const sweepLow = Math.min(c.l, zonePx);
-      sl = sweepLow - atr * SL_BUF;
-      risk = Math.max(atr * 0.35, entry - sl);
+      // Structure support: min of wick, zone, and a small ATR buffer beyond the level
+      const structLow = Math.min(c.l, Number(zonePx) || c.l);
+      const buf = isScalpPush ? Math.max(atr * 0.55, 0.25) : atr * SL_BUF;
+      sl = structLow - buf;
+      // Ensure SL is strictly below entry and below the support zone
+      if (!(sl < entry) || !(sl < structLow + 1e-9)) sl = Math.min(entry, structLow) - buf;
+      risk = Math.max(isScalpPush ? atr * 0.25 : atr * 0.35, entry - sl);
       if (!(risk > 0)) risk = atr * 0.35;
-      sl = entry - risk; // lock SL to exact risk distance from entry
+      // Keep SL at structure — do NOT pull it up to a tighter artificial distance on scalp
+      if (isScalpPush) {
+        sl = entry - risk;
+        // Re-anchor: never allow SL above the swept support
+        if (sl > structLow - buf * 0.35) sl = structLow - buf;
+        risk = Math.max(0.15, entry - sl);
+      } else {
+        sl = entry - risk;
+      }
       tp = entry + risk * RR_TARGET;
     } else {
-      const sweepHigh = Math.max(c.h, zonePx);
-      sl = sweepHigh + atr * SL_BUF;
-      risk = Math.max(atr * 0.35, sl - entry);
+      const structHigh = Math.max(c.h, Number(zonePx) || c.h);
+      const buf = isScalpPush ? Math.max(atr * 0.55, 0.25) : atr * SL_BUF;
+      sl = structHigh + buf;
+      if (!(sl > entry) || !(sl > structHigh - 1e-9)) sl = Math.max(entry, structHigh) + buf;
+      risk = Math.max(isScalpPush ? atr * 0.25 : atr * 0.35, sl - entry);
       if (!(risk > 0)) risk = atr * 0.35;
-      sl = entry + risk; // lock SL to exact risk distance from entry
+      if (isScalpPush) {
+        sl = entry + risk;
+        if (sl < structHigh + buf * 0.35) sl = structHigh + buf;
+        risk = Math.max(0.15, sl - entry);
+      } else {
+        sl = entry + risk;
+      }
       tp = entry - risk * RR_TARGET;
     }
     out.push({
@@ -16104,10 +16326,13 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
 
   // Multi-source confluence (Footprint + AI Visual + desk + HTF + news)
 
-  // ========== BULL → BUY only at SUPPORT (teal lines / demand OB) ==========
+  // ========== BULL → BUY only at UPWARD SUPPORT (teal) / discount ==========
   // RULE: rejection candle ONLY · wick must SWEEP the zone · never random mid-range
-  // NEVER buy on red resistance lines or supply OBs
-  if (buyDirOk && algoIsRejection(c, 'BUY', isScalpBar ? 'scalp' : '') && confBuy.ok) {
+  // NEVER buy on red resistance, supply OBs, or FALLING support trendlines
+  // If the nearest support line is falling, block every BUY path on this bar (TL + OB + swing).
+  const nearestSup = algoNearestSupport(lines, c, i, atr);
+  const nearestSupFalling = !!(nearestSup && Number.isFinite(nearestSup.slope) && nearestSup.slope < 0 && nearestSup.dist <= atr * 4);
+  if (buyDirOk && !nearestSupFalling && algoIsRejection(c, 'BUY', isScalpBar ? 'scalp' : '') && confBuy.ok) {
     let tookBuy = false;
     // Prefer validated 2-touch+ support trendlines (retest after base is set)
     for (let li = 0; li < lines.length; li++) {
@@ -16122,7 +16347,9 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       const needHighBuy = (secondTouchI >= 0 && i === secondTouchI);
       if (needHighBuy && !algoIsRejection(c, 'BUY', 'high')) continue;
       if (!algoNearLine(c, l, i, atr)) continue;
-      const slope = (l.y2 - l.y1) / (l.x2 - l.x1);
+      // BUY only on STRICT upward support (higher-lows). Flat/falling support = no BUY.
+      if (!algoIsUpwardSupport(l)) continue;
+      const slope = algoLineSlope(l);
       const px = l.y1 + slope * (i - l.x1);
       const mid = (c.h + c.l) / 2;
       // Support line must sit in LOWER half of this rejection bar
@@ -16131,14 +16358,18 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       if (!algoWickSweepsZone(c, 'BUY', px, atr)) continue;
       const smcBuy = algoSMCStructureConfirm(data, i, 'BUY', atr, demand, supply, tf);
       if (!smcBuy.ok) continue;
-      // Validated support trendline + SMC structure confirmation defines the entry.
-      // Do not add a second recent-range percentile gate that can veto a genuine retest.
-      const rng = algoRecentRange(data, i, 40);
-      if (rng && px > c.c + atr * 3) continue; // abandoned far above
+      // Discount zone required with 1D BUY + upward support TL
+      const rng = algoRecentRange(data, i, isScalpBar ? 24 : 40);
+      if (rng && rng.hi > rng.lo) {
+        const posPx = (px - rng.lo) / (rng.hi - rng.lo);
+        const posC = (c.c - rng.lo) / (rng.hi - rng.lo);
+        if (posPx > 0.55 || posC > 0.58) continue; // not discount
+      }
+      if (rng && px > c.c + atr * 3) continue;
       pushTrade('BUY',
-        'BUY @ SUPPORT (teal TL) · SMC ' + smcBuy.reason + ' · ≥2 touches · rejection sweep · vol ' + vm.ratio.toFixed(2) + '×' +
+        'BUY @ SUPPORT ↑ TL · discount · SMC ' + smcBuy.reason + ' · ≥2 touches · rejection sweep · vol ' + vm.ratio.toFixed(2) + '×' +
         (vm.usedProxy ? ' (range)' : '') + ' · desk ' + deskLive.toFixed(1) + ' · 1D bull ' + buyBias.count + '/' + buyBias.n,
-        px, 'SUPPORT_TL');
+        px, 'SUPPORT_TL_BUY_DIR');
       if (out.length) out[out.length - 1].reason += ' · conf ' + confBuy.score + '/100 · ' + confBuy.bits;
       if (out.length) out[out.length - 1].conf = confBuy.score;
       tookBuy = true;
@@ -16173,21 +16404,29 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
     }
   }
 
-  // —— SCALP swing-zone BUY: when no 2-touch TL / demand OB, use recent swing low ——
-  if (isScalpBar && buyDirOk && !out.length && algoIsRejection(c, 'BUY', 'scalp') && confBuy.ok) {
+  // —— SCALP swing-zone BUY: ONLY at support / discount + never when nearest TL support is falling ——
+  if (isScalpBar && buyDirOk && !nearestSupFalling && !out.length && algoIsRejection(c, 'BUY', 'scalp') && confBuy.ok) {
     let swingLo = Infinity;
     const sn = Math.min(12, i);
     for (let k = i - sn; k < i; k++) if (k >= 0) swingLo = Math.min(swingLo, Number(data[k].l));
     if (Number.isFinite(swingLo) && swingLo > 0) {
       const mid = (c.h + c.l) / 2;
-      // Swing must sit in lower half of rejection bar
-      if (swingLo <= mid + atr * 0.35 && algoWickSweepsZone(c, 'BUY', swingLo, atr)) {
+      const rng = algoRecentRange(data, i, 24);
+      // Discount filter: swing + close must be in lower half of recent range
+      let inDiscount = true;
+      if (rng && rng.hi > rng.lo) {
+        const posClose = (c.c - rng.lo) / (rng.hi - rng.lo);
+        const posSwing = (swingLo - rng.lo) / (rng.hi - rng.lo);
+        inDiscount = (posClose <= 0.50 && posSwing <= 0.48);
+      }
+      // Swing must sit in lower half of rejection bar AND in discount zone
+      if (inDiscount && swingLo <= mid + atr * 0.25 && algoWickSweepsZone(c, 'BUY', swingLo, atr)) {
         const smcBuy = algoSMCStructureConfirm(data, i, 'BUY', atr, demand, supply, tf);
         if (smcBuy.ok) {
           pushTrade('BUY',
-            'BUY @ SCALP SWING LOW · SMC ' + smcBuy.reason + ' · rejection sweep · vol ' + vm.ratio.toFixed(2) + '× · desk ' +
+            'BUY @ SCALP SUPPORT/DISCOUNT · swing low · SMC ' + smcBuy.reason + ' · rejection sweep · vol ' + vm.ratio.toFixed(2) + '× · desk ' +
             deskLive.toFixed(1) + ' · 1D bull ' + buyBias.count + '/' + buyBias.n,
-            swingLo, 'SCALP_SWING');
+            swingLo, 'SCALP_SUPPORT_DISCOUNT');
           if (out.length) out[out.length - 1].reason += ' · conf ' + confBuy.score + '/100 · ' + confBuy.bits;
           if (out.length) out[out.length - 1].conf = confBuy.score;
         }
@@ -16212,7 +16451,9 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       const needHighSell = (secondTouchIS >= 0 && i === secondTouchIS);
       if (needHighSell && !algoIsRejection(c, 'SELL', 'high')) continue;
       if (!algoNearLine(c, l, i, atr)) continue;
-      const slope = (l.y2 - l.y1) / (l.x2 - l.x1);
+      // SELL only on STRICT downward resistance (lower-highs). Flat/rising resistance = no SELL.
+      if (!algoIsDownwardResistance(l)) continue;
+      const slope = algoLineSlope(l);
       const px = l.y1 + slope * (i - l.x1);
       const mid = (c.h + c.l) / 2;
       // Resistance line must sit in UPPER half of this rejection bar
@@ -16221,14 +16462,18 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       if (!algoWickSweepsZone(c, 'SELL', px, atr)) continue;
       const smcSell = algoSMCStructureConfirm(data, i, 'SELL', atr, demand, supply, tf);
       if (!smcSell.ok) continue;
-      // Validated resistance trendline + SMC structure confirmation defines the entry.
-      // Avoid a second range-percentile gate vetoing a genuine resistance retest.
-      const rngS = algoRecentRange(data, i, 40);
+      // Premium zone required with 1D SELL + downward resistance TL
+      const rngS = algoRecentRange(data, i, isScalpBar ? 24 : 40);
+      if (rngS && rngS.hi > rngS.lo) {
+        const posPx = (px - rngS.lo) / (rngS.hi - rngS.lo);
+        const posC = (c.c - rngS.lo) / (rngS.hi - rngS.lo);
+        if (posPx < 0.45 || posC < 0.42) continue; // not premium
+      }
       if (c.c < px - atr * 2.5) continue; // already crashed through
       pushTrade('SELL',
-        'SELL @ RESISTANCE (red TL) · ' + (counterSell.ok ? counterSell.reason + ' · ' : '') + 'SMC ' + smcSell.reason + ' · ≥2 touches · rejection sweep · vol ' + vm.ratio.toFixed(2) + '×' +
+        'SELL @ RESIST ↓ TL · premium · ' + (counterSell.ok ? counterSell.reason + ' · ' : '') + 'SMC ' + smcSell.reason + ' · ≥2 touches · rejection sweep · vol ' + vm.ratio.toFixed(2) + '×' +
         (vm.usedProxy ? ' (range)' : '') + ' · desk ' + deskLive.toFixed(1) + ' · 1D bear ' + sellBias.count + '/' + sellBias.n,
-        px, 'RESIST_TL');
+        px, 'RESIST_TL_SELL_DIR');
       if (out.length) out[out.length - 1].reason += ' · conf ' + confSell.score + '/100 · ' + confSell.bits;
       if (out.length) out[out.length - 1].conf = confSell.score;
       tookSell = true;
@@ -16262,7 +16507,8 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
     }
   }
 
-  // —— SCALP swing-zone SELL: when no 2-touch TL / supply OB, use recent swing high ——
+  // —— SCALP swing-zone SELL: ONLY at resistance / premium (recent swing high in upper range) ——
+  // Never sell mid-range or discount. Structure + premium zone mandatory.
   if (isScalpBar && liveSellAllowed && !out.some(function (t) { return t.side === 'SELL'; }) &&
       algoIsRejection(c, 'SELL', 'scalp') && confSell.ok && !out.some(function (t) { return t.side === 'BUY'; })) {
     let swingHi = -Infinity;
@@ -16270,13 +16516,20 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
     for (let k = i - sn; k < i; k++) if (k >= 0) swingHi = Math.max(swingHi, Number(data[k].h));
     if (Number.isFinite(swingHi) && swingHi > 0) {
       const mid = (c.h + c.l) / 2;
-      if (swingHi >= mid - atr * 0.35 && algoWickSweepsZone(c, 'SELL', swingHi, atr)) {
+      const rng = algoRecentRange(data, i, 24);
+      let inPremium = true;
+      if (rng && rng.hi > rng.lo) {
+        const posClose = (c.c - rng.lo) / (rng.hi - rng.lo);
+        const posSwing = (swingHi - rng.lo) / (rng.hi - rng.lo);
+        inPremium = (posClose >= 0.50 && posSwing >= 0.52);
+      }
+      if (inPremium && swingHi >= mid - atr * 0.25 && algoWickSweepsZone(c, 'SELL', swingHi, atr)) {
         const smcSell = algoSMCStructureConfirm(data, i, 'SELL', atr, demand, supply, tf);
         if (smcSell.ok) {
           pushTrade('SELL',
-            'SELL @ SCALP SWING HIGH · SMC ' + smcSell.reason + ' · rejection sweep · vol ' + vm.ratio.toFixed(2) + '× · desk ' +
+            'SELL @ SCALP RESISTANCE/PREMIUM · swing high · SMC ' + smcSell.reason + ' · rejection sweep · vol ' + vm.ratio.toFixed(2) + '× · desk ' +
             deskLive.toFixed(1) + ' · 1D bear ' + sellBias.count + '/' + sellBias.n,
-            swingHi, 'SCALP_SWING');
+            swingHi, 'SCALP_RESIST_PREMIUM');
           if (out.length) out[out.length - 1].reason += ' · conf ' + confSell.score + '/100 · ' + confSell.bits;
           if (out.length) out[out.length - 1].conf = confSell.score;
         }
@@ -17936,34 +18189,65 @@ function algoDrawExecutionHud(ctx,chartW){
   const requiredScanTfs=['1m','3m','5m','15m','1h','4h','1d'];
   const tfAuditRows=requiredScanTfs.map(function(tf){
     const a=(audit.byTf||{})[tf];
-    let structTag='';
+    let structDir='', structTag='', bits=[];
+    let broken=false, sideways=false;
     try {
       const st = (window.__algoTfStructure && window.__algoTfStructure[tf]) || null;
       if (st && st.dir) {
-        const bits = [];
+        structDir = st.dir;
         if (st.hh) bits.push('HH'); if (st.hl) bits.push('HL');
         if (st.lh) bits.push('LH'); if (st.ll) bits.push('LL');
-        structTag = ' · ' + st.dir + (bits.length ? (' ' + bits.join('/')) : '') + (st.sideways ? ' SW' : '');
+        broken = !!st.brokenBuy || !!st.brokenSell;
+        sideways = !!st.sideways || st.dir === 'SIDEWAYS';
+        structTag = (bits.length ? (' ' + bits.join('/')) : '') +
+          (st.brokenBuy ? ' BRK-B' : '') + (st.brokenSell ? ' BRK-S' : '');
       }
     } catch (eSt) {}
-    if(!a){
-      if (structTag) return tf.toUpperCase()+': STRUCT'+structTag;
-      return tf.toUpperCase()+': WAIT';
+
+    let lockActive=false, lockWhy='';
+    try {
+      const lk = (window.__algoTfStructLock && window.__algoTfStructLock[tf]) ||
+        (window.__algoScalpStructLock && window.__algoScalpStructLock[tf]) || null;
+      // Only treat as hard FAIL if lock is active AND (still broken or lock reason is BROKEN)
+      if (lk && lk.active && (broken || /BROKEN/i.test(String(lk.reason||'')))) {
+        lockActive = true;
+        lockWhy = String(lk.reason || 'BROKEN');
+      } else if (lk && lk.active && !broken) {
+        // Stale soft lock from older logic — auto-clear
+        try { if (typeof algoClearTfStructFail === 'function') algoClearTfStructFail(tf, 'stale soft lock cleared'); } catch(eC) {}
+      }
+    } catch (eLk) {}
+
+    const isScalp = (tf==='1m'||tf==='3m'||tf==='5m');
+
+    // 1) True BROKEN → red ✕ FAIL until realign
+    if (lockActive || broken) {
+      const why = (lockWhy || 'STRUCTURE BROKEN').slice(0, 30);
+      return tf.toUpperCase() + ': ✕ BROKEN · ' + why + ' · wait pass' + structTag;
     }
+
+    // 2) SIDEWAYS → amber wait (NOT red fail) — especially important on HTF
+    if (sideways || structDir === 'SIDEWAYS') {
+      return tf.toUpperCase() + ': … SIDEWAYS' + structTag + (isScalp ? ' · wait' : ' · soft');
+    }
+
+    // 3) Aligned structure
+    if (structDir === 'BUY') {
+      const sig = a && String(a.status||'').indexOf('SIGNAL')===0;
+      return tf.toUpperCase() + (sig ? ': ✓ SIGNAL BUY' : ': ✓ BUY') + structTag;
+    }
+    if (structDir === 'SELL') {
+      const sig = a && String(a.status||'').indexOf('SIGNAL')===0;
+      return tf.toUpperCase() + (sig ? ': ✓ SIGNAL SELL' : ': ✓ SELL') + structTag;
+    }
+
+    // 4) Scanning / no structure yet
+    if (!a) return tf.toUpperCase() + ': … SCANNING';
     const stus = String(a.status || 'WAIT');
-    // Prefer first real blocker (why no trade), skip generic "Live structure update" noise
-    let why = '';
-    const blockers = (a.blockers || []).filter(function (b) {
-      const s = String(b || '');
-      return s && !/Live structure update|Parallel MTF|scan in progress|Scalper parallel|Scalper structure/i.test(s);
-    });
-    if (blockers.length) why = String(blockers[0]);
-    else if (a.message && !/Scanning |OHLC \+ live structure|in progress|Scalper/i.test(String(a.message))) why = String(a.message);
-    const shortWhy = why.length > 36 ? (why.slice(0, 34) + '…') : why;
-    const age = a.updatedAt ? new Date(a.updatedAt).toLocaleTimeString() : '';
-    return tf.toUpperCase()+': '+stus+structTag+(shortWhy?' · '+shortWhy:'')+(age?' · '+age:'');
+    if (String(stus).indexOf('SIGNAL') === 0) return tf.toUpperCase() + ': ✓ ' + stus + structTag;
+    return tf.toUpperCase() + ': … ' + stus + structTag;
   });
-  const auditLines=tfAuditRows;
+const auditLines=tfAuditRows;
   const auditLineH=mobileView?7:9;
   const auditBlockH=(mobileView?21:25)+auditLines.length*auditLineH;
   const pressureRows=[['5m',5],['15m',15],['1H',60],['4H',240],['1D',1440]].map(function(x){return {tf:x[0],p:rfGetCurrentCandlePressure(x[1])};});
@@ -18023,7 +18307,20 @@ function algoDrawExecutionHud(ctx,chartW){
     const max=mobileView?42:60;
     const shown=clean.length>max?clean.slice(0,max-1)+'…':clean;
     const key=requiredScanTfs[i]; const item=(audit.byTf||{})[key];
-    ctx.fillStyle=!item?'#fbbf24':(String(item.status).indexOf('SIGNAL')===0?'#34d399':(String(item.status).indexOf('BLOCK')>=0||String(item.status).indexOf('STALE')>=0||String(item.status).indexOf('ERROR')>=0?'#fb7185':'#e2e8f0'));
+    const isBroken = /✕ BROKEN|✕ FAIL|STRUCTURE BROKEN/i.test(clean);
+    const isSideways = /SIDEWAYS/i.test(clean) && !isBroken;
+    const isOk = /✓|SIGNAL/i.test(clean) && !isBroken;
+    let rowCol = '#e2e8f0';
+    if (isBroken) rowCol = '#fb7185';
+    else if (isOk) rowCol = '#34d399';
+    else if (isSideways) rowCol = '#fbbf24';
+    else if (!item) rowCol = '#94a3b8';
+    else {
+      const st = String(item.status || '');
+      if (st.indexOf('SIGNAL') === 0) rowCol = '#34d399';
+      else if (st.indexOf('BLOCK') >= 0 || st.indexOf('STALE') >= 0 || st.indexOf('ERROR') >= 0) rowCol = '#fb7185';
+    }
+    ctx.fillStyle = rowCol;
     ctx.fillText(shown,x+7,auditY+(mobileView?12:15)+i*auditLineH);
   });
   const fpY=auditY+(mobileView?12:15)+auditLines.length*auditLineH+3;
