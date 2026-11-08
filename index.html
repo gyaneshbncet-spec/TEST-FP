@@ -4075,33 +4075,28 @@ canvas#tvCanvas {
 
       <!-- Rule book (hidden by default) -->
       <div class="algo-rules" id="algoRuleBook" style="display:none">
-        <b style="color:#e2e8f0">GP ALGO RULE BOOK (aligned to reference)</b><br>
-        ○ <b>STANDARD TF:</b> 5m / 15m / 1H / 4H / 1D · <b>OPTIONAL SCALPER:</b> 1m / 3m via History dropdown (OFF / 1m / 3m / BOTH)<br>
-        ○ <b>CANDLE CLOSING (History):</b> <b>ON</b> = wait for candle close before live entry / MT5 punch · <b>OFF</b> = when all rules pass on the forming bar, punch immediately<br>
-        ○ <b>1D + TF STRUCTURE (ALL TF):</b> 1D bias is master. Every TF keeps its <b>own live structure</b> (HH/HL = buy structure, LH/LL = sell structure) from that TF's candles. Trade only in the 1D direction and only while that TF structure still aligns. If structure breaks on a TF (e.g. 1m fails), <b>that TF blocks BOTH sides</b> until the failed structure passes — other TFs stay independent · never reverse against 1D<br>
-        ○ <b>SIDEWAYS (scalp only):</b> 1m / 3m / 5m block entries in sideways/compressed structure; higher TFs (15m+) are not restricted by this rule<br>
-        ○ <b>STRUCTURE FAIL LOCK (ALL TF):</b> if structure fails on any individual TF (broken HH/HL or LH/LL, against 1D, or SIDEWAYS on 1m/3m/5m), true <b>BROKEN</b> structure (LL after HH / HH after LL) locks that TF for both sides until realign. <b>SIDEWAYS</b> is soft wait only (not red FAIL on HTF). Example: 15m broken → only 15m locked; 1H still free<br>
-        ○ <b>SCALP DISCOUNT / PREMIUM:</b> BUY only at <b>support + discount zone</b> (lower half of range) · SELL only at <b>resistance + premium zone</b> (upper half). <b>No premium buys / no discount sells</b><br>
-        ○ <b>MAX OPEN:</b> at most <b>4</b> live open trades across <b>all</b> timeframes; if 4 are open, no new entry on any TF until one closes<br>
-        ○ <b>NO RANDOM AREAS</b> — only 2-touch trendline zone or validated OB<br>
-        ○ <b>ENTRY = REJECTION CANDLE ONLY</b> — never mid-body / random area<br>
-        ○ <b>BUY (bull):</b> 1D BUY + <b>strict upward SUPPORT TL only</b> (higher-lows · falling support forbidden) · ≥2 touches · <b>discount zone</b> · wick sweeps support · close back above<br>
-        &nbsp;&nbsp;· downward (sell-direction) TL is <b>ignored</b> — no trade on that line<br>
-        &nbsp;&nbsp;+ desk <b>POSITIVE</b> + HTF <b>15m/1H/1D BULL (3+ PASS)</b> + vol ≥ <b>1.25 × SMA(Volume, 10)</b> <i>or</i> footprint absorption<br>
-        ○ <b>SELL (bear):</b> 1D SELL + <b>strict downward RESISTANCE TL only</b> (lower-highs · rising resistance forbidden) · ≥2 touches · <b>premium zone</b> · wick sweeps resistance · close back below<br>
-        &nbsp;&nbsp;· upward (buy-direction) TL is <b>ignored</b> — no trade on that line<br>
-        &nbsp;&nbsp;+ desk <b>NEGATIVE</b> + HTF <b>15m/1H/1D BEAR (3+ PASS)</b> + same volume + rejection-sweep rules<br>
-        ○ <b>MTF DECISION panel:</b> each TF shows live structure · <b>✕ FAIL</b> + wait pass while locked · <b>✓</b> when structure aligned / signal · independent per TF<br>
-        ○ <b>NO RANDOM ZONES</b> — zone must sit at recent swing low (buy) / high (sell)<br>
-        ○ <b>Execution:</b> BUY/SELL ENTRY (AUTO) · SL beyond <b>structure support/resistance zone</b> (scalp anchors SL to discount support / premium resistance) · TP min <b>1:2</b><br>
-        ○ <b>Multi-open:</b> up to 4 concurrent OPEN trades across all TFs (rules still apply); blocked at 4 until a slot frees<br>
-        ○ <b>Same-level block:</b> no second entry at same side/zone (±$1.5) while OPEN<br>
-        ○ <b>Auto BT:</b> BACKTEST ALL TF always scans <b>1m / 3m / 5m / 15m / 1H / 4H / 1D</b> (real provider OHLC). LIVE 1m/3m still needs SCALPER MODE ON (auto-enabled when you run BACKTEST ALL)<br>
-        ○ <b>Price source:</b> <b>interbank gold only</b> (chart candles) — never OKX price (can differ $8+)<br>
-        ○ <b>OKX use:</b> footprint volume / buy-sell pressure only — not for entry, SL, TP, or zones<br>
-        ○ <b>High accuracy stack:</b> interbank candles + support/resist zone + OKX footprint pressure + AI Visual + desk corr + HTF 15m/1H/4H + news<br>
-        ○ <b>Visual:</b> Footprint pressure zone circle + markers on main Gold chart<br>
-        ○ <b>History:</b> Ledger persists · tap trade → focus plot on chart
+        <b style="color:#e2e8f0">GP ALGO RULE BOOK — SCALP + HOLD (HTF interconnected)</b><br>
+        ○ <b>TWO MODES (same engine):</b><br>
+        &nbsp;&nbsp;· <b>SCALP</b> = 1m / 3m / 5m (enable Scalper Mode in History). Faster momentum structure allowed. SL tight to zone. Best with RR 1:1.5–1:2.<br>
+        &nbsp;&nbsp;· <b>HOLD / SWING</b> = 15m / 1H / 4H (always on). Strict HH/HL or LH/LL only. Wider structure SL. Best with RR 1:2–1:4 (set in History RR TARGET).<br>
+        ○ <b>HTF INTERCONNECTION (how to take the trade):</b><br>
+        &nbsp;&nbsp;1. <b>1D bias is MASTER</b> — only trade in the 1D direction (BUY or SELL). Neutral 1D = no new entries.<br>
+        &nbsp;&nbsp;2. Check <b>4H → 1H → 15m</b> structure alignment in the same direction (MTF DECISION / Gold Execution Monitor shows each TF).<br>
+        &nbsp;&nbsp;3. Enter on the <b>active TF</b> only when THAT TF still shows matching structure (HH/HL for BUY, LH/LL for SELL) + rejection sweep of zone.<br>
+        &nbsp;&nbsp;4. Scalp (1m/3m/5m) can use short momentum lean, but still cannot reverse 1D. SIDEWAYS on scalp = wait (soft block).<br>
+        &nbsp;&nbsp;5. If any TF breaks structure (true BROKEN = LL after HH or HH after LL), that TF locks both sides until realign. Other TFs stay free.<br>
+        ○ <b>Practical checklist before entry:</b> 1D OK → 4H/1H not opposing hard → entry TF structure aligned → rejection + zone sweep → desk/footprint confluence → RR set → ARM + execute.<br>
+        ○ <b>CANDLE CLOSING (History):</b> ON = wait bar close (safer for hold) · OFF = punch on forming bar when all rules pass (faster scalp).<br>
+        ○ <b>SCALP DISCOUNT / PREMIUM:</b> BUY only support + discount · SELL only resistance + premium. No premium buys / no discount sells.<br>
+        ○ <b>MAX OPEN:</b> 4 concurrent live trades across all TFs. Same-level block ±$1.5 while OPEN.<br>
+        ○ <b>ENTRY:</b> rejection + SMC only · <b>scalp 1m/3m/5m = min 3-touch TL + mid wick test</b> · hold 15m+ = min 2-touch · or validated OB · never mid-range / floating line.<br>
+        ○ <b>STRUCTURE MAP:</b> each TF scans a deep available-candle window (full history capped). Real confirmed pivots only. <b>BOTH-SIDE RECOVERY / LIQ-GRAB:</b> SHORT (HH after LL or lows swept+reclaimed) blocks SELL until clean LH/LL; LONG (LL after HH or highs swept+reclaimed) blocks BUY until clean HH/HL.<br>
+        ○ <b>LIVE TRENDLINES:</b> rebuilt live (~0.7s). Only strong lines: real wick on every touch, no provisional pivots, scalp requires ≥3 touches + ≥1 mid test. Max 3 lines/side. Broken rays retire on close beyond line.<br>
+        ○ <b>SMC SCALP ZONES:</b> BUY only true discount (≤42% of recent range) · SELL only true premium (≥58%). Wrong-area buy/sell blocked.<br>
+        ○ <b>Execution:</b> SL beyond structure zone · TP from <b>RR TARGET</b> in History (default 1:2, changeable 1.5–5).<br>
+        ○ <b>MT5 SAFETY:</b> Refresh / re-open HTML will <b>NOT</b> auto-close live broker positions. Broker is source of truth. Close only on real SL/TP after candles + status are ready.<br>
+        ○ <b>Price source:</b> interbank gold candles only · OKX = footprint pressure only.<br>
+        ○ <b>History:</b> Ledger persists · RR TARGET + Scalper Mode + Candle Closing controls live here · tap trade → chart.
       </div>
 
       <div id="algoHistoryPanel" style="display:none">
@@ -5321,6 +5316,8 @@ function applyCandleSeries(bars, interval, asset) {
   if (candleHistory.length > CHART_HISTORY_BARS) {
     candleHistory = candleHistory.slice(-CHART_HISTORY_BARS);
   }
+  // Candles ready → allow safe trade resolve a few seconds later (prevents refresh false-close)
+  try { if (candleHistory.length >= 20 && typeof algoMarkResolveSafe === 'function') algoMarkResolveSafe(); } catch (eSafe) {}
   // Clear only the in-progress candidate pools. Keep the last completed AI
   // Structure visible until the replacement scan finishes; clearing the
   // published zones here briefly changes the HUD to WAITING and causes a flash.
@@ -5627,57 +5624,45 @@ function executeTradingViewRayArchitecture(data) {
     const b = data[i], prev = data[i-1];
     trSum += Math.max(Number(b.h)-Number(b.l), Math.abs(Number(b.h)-Number(prev.c)), Math.abs(Number(b.l)-Number(prev.c)));
   }
-  const atr = Math.max(isDxy ? 0.015 : (tfSeconds <= 60 ? 0.25 : tfSeconds <= 180 ? 0.4 : tfSeconds <= 300 ? 0.55 : 0.9), trSum / atrLen);
-  const touchTol = Math.max(isDxy ? 0.02 : 0.15, atr * (fast ? 0.22 : 0.28));
-  const breakTol = Math.max(isDxy ? 0.015 : 0.10, atr * 0.12);
+  // Tighter ATR floors and touch tolerance so lines must hug real wicks (no floating rays).
+  const atr = Math.max(isDxy ? 0.015 : (tfSeconds <= 60 ? 0.30 : tfSeconds <= 180 ? 0.45 : tfSeconds <= 300 ? 0.60 : 1.0), trSum / atrLen);
+  const touchTol = Math.max(isDxy ? 0.015 : 0.12, atr * (fast ? 0.16 : 0.22));
+  const breakTol = Math.max(isDxy ? 0.012 : 0.08, atr * 0.10);
   const livePx = isDxy ? (Number(state.dxy_price) || Number(data[n-1].c)) : (Number(state.gold_price) || Number(data[n-1].c));
 
   function pivots(kind) {
     const out = [];
-    // Confirmed pivots use left+right bars. For the newest forming bars on fast
-    // timeframes, use a provisional left-side swing so a second swing can plot
-    // immediately instead of waiting three more candles. It is intentionally
-    // recalculated on each live refresh and may move until the candle completes.
-    const liveProvisional = fast;
-    const end = liveProvisional ? n : n - leftRight;
+    // Confirmed pivots only (left+right). No provisional pivots on scalp —
+    // provisional swings caused noisy 2-point lines that never touched real candles.
+    const end = n - leftRight;
     for (let i = leftRight; i < end; i++) {
       let valid = true;
-      const provisional = liveProvisional && i >= n - leftRight;
       for (let j = 1; j <= leftRight; j++) {
         const leftOk = kind === 'res' ? Number(data[i].h) >= Number(data[i-j].h) : Number(data[i].l) <= Number(data[i-j].l);
         if (!leftOk) { valid = false; break; }
-        if (!provisional) {
-          const rightOk = kind === 'res' ? Number(data[i].h) >= Number(data[i+j].h) : Number(data[i].l) <= Number(data[i+j].l);
-          if (!rightOk) { valid = false; break; }
-        }
+        const rightOk = kind === 'res' ? Number(data[i].h) >= Number(data[i+j].h) : Number(data[i].l) <= Number(data[i+j].l);
+        if (!rightOk) { valid = false; break; }
       }
       if (!valid) continue;
       const price = kind === 'res' ? Number(data[i].h) : Number(data[i].l);
-      // Authentic swing filter: measure the pivot against the surrounding
-      // reaction range, not merely the adjacent candle. This rejects the many
-      // tiny candle-bottom/candle-top pivots that create noisy trendlines.
-      const wing = Math.max(leftRight + 1, fast ? 5 : 7);
-      const lo = Math.max(0, i-wing), hi = Math.min(n-1, i+wing);
-      // Measure swing prominence using the opposite extreme (low-to-high
-      // rebound for support, high-to-low reaction for resistance). Comparing
-      // lows-to-lows / highs-to-highs incorrectly rejected nearly every pivot.
+      const wing = Math.max(leftRight + 1, fast ? 6 : 8);
+      const lo = Math.max(0, i - wing), hi = Math.min(n - 1, i + wing);
       let reaction = 0;
-      for (let q=lo; q<=hi; q++) {
-        if (q===i) continue;
-        if (kind==='res') reaction=Math.max(reaction, price-Number(data[q].l));
-        else reaction=Math.max(reaction, Number(data[q].h)-price);
+      for (let q = lo; q <= hi; q++) {
+        if (q === i) continue;
+        if (kind === 'res') reaction = Math.max(reaction, price - Number(data[q].l));
+        else reaction = Math.max(reaction, Number(data[q].h) - price);
       }
       const prom = Math.max(0, reaction);
-      const minProminence = atr * (fast ? 0.30 : 0.40);
+      // Stronger prominence so micro noise pivots are dropped
+      const minProminence = atr * (fast ? 0.45 : 0.50);
       if (prom < minProminence) continue;
-      const last = out[out.length-1];
-      // Demand meaningful spacing between anchors. If two candidates are too
-      // close, retain only the more extreme swing instead of linking every dip.
-      const minSwingGap = fast ? 5 : 6;
-      if (last && i-last.i < minSwingGap) {
-        const moreExtreme = kind==='res' ? price>last.p : price<last.p;
-        if (moreExtreme || prom>last.prom*1.2) out[out.length-1] = {i, p:price, prom, provisional};
-      } else out.push({i, p:price, prom, provisional});
+      const last = out[out.length - 1];
+      const minSwingGap = fast ? 6 : 7;
+      if (last && i - last.i < minSwingGap) {
+        const moreExtreme = kind === 'res' ? price > last.p : price < last.p;
+        if (moreExtreme || prom > last.prom * 1.25) out[out.length - 1] = { i, p: price, prom };
+      } else out.push({ i, p: price, prom });
     }
     return out;
   }
@@ -5685,84 +5670,154 @@ function executeTradingViewRayArchitecture(data) {
   const candidates = [];
 
   function makeLine(a, b, side) {
-    const span = b.i-a.i;
-    if (span < (fast ? 5 : 6) || span > (fast ? 100 : 180)) return null;
-    const slope = (b.p-a.p)/span;
-    if (!Number.isFinite(slope) || Math.abs(slope) > Math.max(0.8, atr * 0.8)) return null;
-    const at = i => a.p + slope*(i-a.i);
-    const touchPts = [{i:a.i,p:a.p},{i:b.i,p:b.p}];
-    // Reject lines violated by intervening candle closes; count genuine wick tests.
-    for (let k=a.i+1; k<b.i; k++) {
-      const c=data[k], y=at(k);
-      if (side==='res') {
-        if (Number(c.c) > y) return null;
-        if (Math.abs(Number(c.h)-y)<=touchTol && Number(c.c)<=y+touchTol*0.25) touchPts.push({i:k,p:Number(c.h)});
-      } else {
-        if (Number(c.c) < y) return null;
-        if (Math.abs(Number(c.l)-y)<=touchTol && Number(c.c)>=y-touchTol*0.25) touchPts.push({i:k,p:Number(c.l)});
-      }
-    }
-    let lastTouch = b.i;
-    // Current candle may test the line, but only completed candles can break it.
-    for (let k=b.i+1; k<n; k++) {
-      const c=data[k], y=at(k), forming=(k===n-1);
-      const close=Number(c.c);
-      if (!forming && (side==='res' ? close>y : close<y)) return null;
-      const wick=side==='res'?Number(c.h):Number(c.l);
-      const held=side==='res'?close<=y+touchTol*0.25:close>=y-touchTol*0.25;
-      if (Math.abs(wick-y)<=touchTol && held && k-lastTouch>=pivotGap) {
-        touchPts.push({i:k,p:wick}); lastTouch=k;
-      }
-    }
-    // Remove duplicate touch indices and calculate strength from held tests.
-    const unique=[]; const seen=new Set();
-    touchPts.sort((x,y)=>x.i-y.i).forEach(t=>{if(!seen.has(t.i)){seen.add(t.i);unique.push(t);}});
-    if (unique.length<2) return null;
-    const projected=at(n-1);
-    const distance=Math.abs(livePx-projected);
-    if (distance>atr*(fast?12:9)) return null;
-    const strength=unique.length;
-    return {x1:a.i,y1:a.p,x2:b.i,y2:b.p,slope,type:side,touches:unique,touchCount:strength,
-      strength,projNow:projected,score:strength*100+Math.max(0,100-distance/atr*15)+span*0.1,
-      source:'PIVOT_STRENGTH_ENGINE'};
-  }
-  for (let i=0;i<highs.length-1;i++) for(let j=i+1;j<highs.length;j++) { const r=makeLine(highs[i],highs[j],'res'); if(r)candidates.push(r); }
-  for (let i=0;i<lows.length-1;i++) for(let j=i+1;j<lows.length;j++) { const r=makeLine(lows[i],lows[j],'sup'); if(r)candidates.push(r); }
+    const span = b.i - a.i;
+    if (span < (fast ? 6 : 7) || span > (fast ? 90 : 160)) return null;
+    const slope = (b.p - a.p) / span;
+    if (!Number.isFinite(slope) || Math.abs(slope) > Math.max(0.6, atr * 0.6)) return null;
+    // Directional slope: support must slope up (or flat-ish), resistance down (or flat-ish)
+    if (side === 'sup' && slope < -atr * 0.02) return null;
+    if (side === 'res' && slope > atr * 0.02) return null;
+    const at = function (idx) { return a.p + slope * (idx - a.i); };
 
-  // Carry existing valid lines through redraws; retire on a completed candle
-  // close beyond the projected line by breakTol (not a wick). Forming candle
-  // is excluded so intrabar spikes do not erase structure mid-bar.
-  const shift=oldPack ? n-Number(oldPack.length||n) : 0;
-  for (const old of oldRays) {
-    if (!old || !['sup','res'].includes(old.type)) continue;
-    const r={...old,x1:Number(old.x1)+shift,x2:Number(old.x2)+shift};
-    const m=(Number(r.y2)-Number(r.y1))/(Number(r.x2)-Number(r.x1));
-    if (!Number.isFinite(m) || r.x1<0 || r.x2<0 || r.x2>=n) continue;
-    let broken=false, consecutive=0;
-    // Scan every closed candle after the second pivot, including the most
-    // recent closed bar (index n-2). One decisive close beyond the line
-    // retires it so broken levels disappear without a manual chart refresh.
+    // Anchors only count if the candle wick actually sits on the geometric line
+    const anchorTol = touchTol * 1.15;
+    if (Math.abs((side === 'res' ? Number(data[a.i].h) : Number(data[a.i].l)) - a.p) > anchorTol * 0.5) return null;
+    if (Math.abs((side === 'res' ? Number(data[b.i].h) : Number(data[b.i].l)) - b.p) > anchorTol * 0.5) return null;
+
+    const touchPts = [{ i: a.i, p: a.p }, { i: b.i, p: b.p }];
+    let midTouches = 0;
+
+    // Between anchors: reject if any close breaks the line; count real wick tests
+    for (let k = a.i + 1; k < b.i; k++) {
+      const c = data[k], y = at(k);
+      if (side === 'res') {
+        if (Number(c.c) > y + breakTol) return null;
+        if (Math.abs(Number(c.h) - y) <= touchTol && Number(c.c) <= y + touchTol * 0.3) {
+          touchPts.push({ i: k, p: Number(c.h) });
+          midTouches++;
+        }
+      } else {
+        if (Number(c.c) < y - breakTol) return null;
+        if (Math.abs(Number(c.l) - y) <= touchTol && Number(c.c) >= y - touchTol * 0.3) {
+          touchPts.push({ i: k, p: Number(c.l) });
+          midTouches++;
+        }
+      }
+    }
+
+    let lastTouch = b.i;
+    // After second pivot: count further tests; break on closed candle beyond line
+    for (let k = b.i + 1; k < n; k++) {
+      const c = data[k], y = at(k), forming = (k === n - 1);
+      const close = Number(c.c);
+      if (!forming && (side === 'res' ? close > y + breakTol : close < y - breakTol)) return null;
+      const wick = side === 'res' ? Number(c.h) : Number(c.l);
+      const held = side === 'res' ? close <= y + touchTol * 0.3 : close >= y - touchTol * 0.3;
+      if (Math.abs(wick - y) <= touchTol && held && k - lastTouch >= pivotGap) {
+        touchPts.push({ i: k, p: wick });
+        lastTouch = k;
+        midTouches++;
+      }
+    }
+
+    const unique = [];
+    const seen = new Set();
+    touchPts.sort(function (x, y) { return x.i - y.i; }).forEach(function (t) {
+      if (!seen.has(t.i)) { seen.add(t.i); unique.push(t); }
+    });
+
+    // Scalp 1m/3m/5m: STRICT min 3 touches AND at least 1 intermediate wick between anchors.
+    // Hold 15m+: min 2 touches (anchors ok if both are real swings).
+    const minTouches = fast ? 3 : 2;
+    if (unique.length < minTouches) return null;
+    if (fast && midTouches < 1) return null; // no floating 2-anchor line on scalp
+
+    // Re-validate every touch sits on the line (reject drift)
+    for (let t = 0; t < unique.length; t++) {
+      const y = at(unique[t].i);
+      if (Math.abs(unique[t].p - y) > touchTol * 1.2) return null;
+    }
+
+    const projected = at(n - 1);
+    const distance = Math.abs(livePx - projected);
+    // Only keep lines still near live price (structure that matters now)
+    if (distance > atr * (fast ? 8 : 7)) return null;
+
+    const strength = unique.length;
+    return {
+      x1: a.i, y1: a.p, x2: b.i, y2: b.p, slope: slope, type: side,
+      touches: unique, touchCount: strength, strength: strength,
+      midTouches: midTouches, projNow: projected,
+      score: strength * 120 + midTouches * 40 + Math.max(0, 100 - distance / atr * 18) + span * 0.08,
+      source: 'PIVOT_STRENGTH_ENGINE', minTouches: minTouches
+    };
+  }
+  for (let i = 0; i < highs.length - 1; i++) {
+    for (let j = i + 1; j < highs.length; j++) {
+      const r = makeLine(highs[i], highs[j], 'res');
+      if (r) candidates.push(r);
+    }
+  }
+  for (let i = 0; i < lows.length - 1; i++) {
+    for (let j = i + 1; j < lows.length; j++) {
+      const r = makeLine(lows[i], lows[j], 'sup');
+      if (r) candidates.push(r);
+    }
+  }
+
+  // Persist only lines that still pass touch rules on current series (no ghost rays)
+  const shift = oldPack ? n - Number(oldPack.length || n) : 0;
+  for (let oi = 0; oi < oldRays.length; oi++) {
+    const old = oldRays[oi];
+    if (!old || (old.type !== 'sup' && old.type !== 'res')) continue;
+    const r = Object.assign({}, old, { x1: Number(old.x1) + shift, x2: Number(old.x2) + shift });
+    const m = (Number(r.y2) - Number(r.y1)) / (Number(r.x2) - Number(r.x1));
+    if (!Number.isFinite(m) || r.x1 < 0 || r.x2 < 0 || r.x2 >= n) continue;
+    // Re-count live touches on current candles
+    let liveTouches = 0, broken = false;
     const lastClosed = Math.max(0, n - 2);
-    for(let k=Math.max(0,Math.floor(r.x2)+1);k<=lastClosed;k++){
-      const y=Number(r.y1)+m*(k-Number(r.x1)), c=Number(data[k].c);
-      const beyond=r.type==='res' ? (c > y + breakTol) : (c < y - breakTol);
-      consecutive=beyond?consecutive+1:0;
-      if(consecutive>=1){broken=true;break;}
+    for (let k = Math.max(0, Math.floor(r.x1)); k <= lastClosed; k++) {
+      const y = Number(r.y1) + m * (k - Number(r.x1));
+      const c = data[k];
+      if (!c) continue;
+      const close = Number(c.c);
+      const beyond = r.type === 'res' ? (close > y + breakTol) : (close < y - breakTol);
+      if (beyond && k > r.x2) { broken = true; break; }
+      const wick = r.type === 'res' ? Number(c.h) : Number(c.l);
+      if (Math.abs(wick - y) <= touchTol * 1.1) liveTouches++;
     }
     if (broken) continue;
-    const yNow=Number(r.y1)+m*((n-1)-Number(r.x1));
-    if(Math.abs(livePx-yNow)<=atr*(fast?5:6)) {
-      const duplicate=candidates.some(q=>q.type===r.type && Math.abs(q.projNow-yNow)<=touchTol*1.5 && Math.abs(q.slope-m)<=Math.max(0.01,atr*0.025));
-      if(!duplicate)candidates.push({...r,slope:m,projNow:yNow,source:r.source||'PERSISTED_PIVOT_LINE'});
+    const need = fast ? 3 : 2;
+    if (liveTouches < need) continue; // drop weak / floating persisted lines
+    const yNow = Number(r.y1) + m * ((n - 1) - Number(r.x1));
+    if (Math.abs(livePx - yNow) > atr * (fast ? 8 : 7)) continue;
+    const duplicate = candidates.some(function (q) {
+      return q.type === r.type && Math.abs(q.projNow - yNow) <= touchTol * 1.2 &&
+        Math.abs(q.slope - m) <= Math.max(0.008, atr * 0.02);
+    });
+    if (!duplicate) {
+      candidates.push(Object.assign({}, r, {
+        slope: m, projNow: yNow, touchCount: liveTouches, strength: liveTouches,
+        score: liveTouches * 100, source: 'PERSISTED_VALIDATED'
+      }));
     }
   }
-  // Keep strongest few per side. Green = support; red = resistance.
-  const pick=side=>candidates.filter(r=>r.type===side).sort((a,b)=>b.score-a.score).filter((r,i,arr)=>
-    !arr.slice(0,i).some(q=>Math.abs(q.projNow-r.projNow)<touchTol*0.7 && Math.abs(q.slope-r.slope)<Math.max(0.005,atr*0.012))
-  ).slice(0,fast?5:4);
-  const finalRays=[...pick('sup'),...pick('res')];
-  multiHorizonTrendlines=finalRays;
-  trendlinePersistenceCache.set(key,{length:n,rays:finalRays.map(r=>({...r}))});
+
+  // Keep only strongest 2–3 per side (quality over quantity — no noise clutter)
+  const pick = function (side) {
+    return candidates.filter(function (r) { return r.type === side; })
+      .sort(function (a, b) { return b.score - a.score; })
+      .filter(function (r, i, arr) {
+        return !arr.slice(0, i).some(function (q) {
+          return Math.abs(q.projNow - r.projNow) < touchTol * 0.85 &&
+            Math.abs(q.slope - r.slope) < Math.max(0.004, atr * 0.01);
+        });
+      })
+      .slice(0, fast ? 3 : 3);
+  };
+  const finalRays = pick('sup').concat(pick('res'));
+  multiHorizonTrendlines = finalRays;
+  trendlinePersistenceCache.set(key, { length: n, rays: finalRays.map(function (r) { return Object.assign({}, r); }) });
 }
 
 /** Live structure refresh for the visible chart only.
@@ -5773,7 +5828,7 @@ function rebuildLiveChartStructure(force) {
     if (!Array.isArray(candleHistory) || candleHistory.length < 15) return false;
     if (!candlesMatchAsset || !candlesMatchAsset(candleHistory, state.chartAsset || 'gold')) return false;
     const now = Date.now();
-    if (!force && rebuildLiveChartStructure._last && (now - rebuildLiveChartStructure._last) < 1200) return false;
+    if (!force && rebuildLiveChartStructure._last && (now - rebuildLiveChartStructure._last) < 700) return false;
     rebuildLiveChartStructure._last = now;
     const before = (multiHorizonTrendlines || []).length;
     if (typeof scanAndStoreOrderBlocks === 'function') scanAndStoreOrderBlocks(candleHistory);
@@ -15372,18 +15427,32 @@ function algoHigherTfBias(dir) {
   const src = (state.tf_biases_gold && Object.keys(state.tf_biases_gold || {}).length)
     ? state.tf_biases_gold : (state.tf_biases || {});
   const read = function (key) {
+    // Prefer live independent structure map when available (true MTF interlink)
+    try {
+      const live = window.__algoTfStructure && window.__algoTfStructure[key];
+      if (live && live.dir) {
+        if (live.alignedBuy) return 'BUY';
+        if (live.alignedSell) return 'SELL';
+        if (live.dir === 'BUY') return 'BUY';
+        if (live.dir === 'SELL') return 'SELL';
+      }
+    } catch (e) {}
     const b = src[key];
     const t = b ? String(b.text || b.bias || '').toUpperCase() : '';
     return t.indexOf('BULL') >= 0 ? 'BUY' : (t.indexOf('BEAR') >= 0 ? 'SELL' : 'NEUTRAL');
   };
   const daily = read('1d');
+  const fourH = read('4h');
   const hourly = read('1h');
+  const m15 = read('15m');
   const ok = (dir === 'BUY' || dir === 'SELL') && daily === dir;
-  const support = hourly === dir;
-  const oppose = hourly !== 'NEUTRAL' && hourly !== dir;
-  const detail = '1D ' + daily + ' · 1H ' + hourly + (support ? ' (support)' : (oppose ? ' (counter)' : ' (neutral)'));
-  return { ok: ok, count: ok ? 1 : 0, n: daily === 'NEUTRAL' ? 0 : 1,
-    support: support, oppose: oppose, hourly: hourly, daily: daily, detail: detail };
+  const support = (hourly === dir) || (fourH === dir) || (m15 === dir);
+  const oppose = (hourly !== 'NEUTRAL' && hourly !== dir) || (fourH !== 'NEUTRAL' && fourH !== dir);
+  const aligned = [daily, fourH, hourly, m15].filter(function (x) { return x === dir; }).length;
+  const detail = '1D ' + daily + ' · 4H ' + fourH + ' · 1H ' + hourly + ' · 15m ' + m15 +
+    (support ? ' (HTF support)' : (oppose ? ' (HTF counter)' : ' (neutral)'));
+  return { ok: ok, count: ok ? aligned : 0, n: 4,
+    support: support, oppose: oppose, hourly: hourly, daily: daily, fourH: fourH, m15: m15, detail: detail };
 }
 
 /** Controlled counter-trend short exception: never overrides 1D casually.
@@ -15746,14 +15815,19 @@ function algoTfStructure(data, i, tf) {
   if (!Array.isArray(data) || i < 12) return empty;
   const tfKey = String(tf || '').toLowerCase();
   const isScalp = (tfKey === '1m' || tfKey === '3m' || tfKey === '5m');
-  // Scalp TFs need tighter pivots (L=1) so HH/HL still form on short series
-  const L = isScalp ? 1 : 2;
+  // Pivot width: scalp slightly tighter; HTF needs more confirmation bars.
+  // Structure always scans the FULL available candle series (not a micro 40–80 bar fragment).
+  const L = isScalp ? 2 : (tfKey === '15m' ? 3 : 4);
   const highs = [];
   const lows = [];
   const end = Math.max(L, i - L);
-  for (let k = L; k <= end; k++) {
+  // TOTAL candle map: use almost entire history so HH/HL reflects real market structure
+  const deepCap = isScalp ? 220 : (tfKey === '15m' ? 280 : 360);
+  const mapFrom = Math.max(L, i - Math.min(deepCap, i - L));
+  for (let k = mapFrom; k <= end; k++) {
     let isH = true, isL = true;
     for (let j = 1; j <= L; j++) {
+      if (k - j < 0 || k + j > i) { isH = false; isL = false; break; }
       if (!(Number(data[k].h) >= Number(data[k - j].h) && Number(data[k].h) >= Number(data[k + j].h))) isH = false;
       if (!(Number(data[k].l) <= Number(data[k - j].l) && Number(data[k].l) <= Number(data[k + j].l))) isL = false;
     }
@@ -15764,71 +15838,159 @@ function algoTfStructure(data, i, tf) {
   const ap = Math.min(14, i);
   for (let k = i - ap + 1; k <= i; k++) atrSum += Math.max(0.01, Number(data[k].h) - Number(data[k].l));
   const atr = Math.max(0.3, atrSum / ap);
-  // Wider window on higher TFs; scalps use recent 16–20 bars only
-  const win = isScalp ? Math.min(20, i + 1) : Math.min(24, i + 1);
+  // Range context also uses deep window (full series capped) so compression is not micro-noise
+  const winCap = isScalp ? 160 : (tfKey === '15m' ? 200 : 260);
+  const win = Math.min(winCap, i + 1);
   let hi = -Infinity, lo = Infinity;
   for (let k = i - win + 1; k <= i; k++) {
     hi = Math.max(hi, Number(data[k].h));
     lo = Math.min(lo, Number(data[k].l));
   }
   const range = hi - lo;
-  // Compression only flags very tight ranges; scalp needs looser threshold or almost every 1m bar was SIDEWAYS
   const compressed = isScalp ? (range < atr * 1.35) : (range < atr * 2.2);
 
-  const h1 = highs.length >= 2 ? highs[highs.length - 1] : null;
+  // Use last 3 swing pairs when available (wider structure map), not only last 2
+  const h1 = highs.length >= 1 ? highs[highs.length - 1] : null;
   const h0 = highs.length >= 2 ? highs[highs.length - 2] : null;
-  const l1 = lows.length >= 2 ? lows[lows.length - 1] : null;
+  const hPrev = highs.length >= 3 ? highs[highs.length - 3] : null;
+  const l1 = lows.length >= 1 ? lows[lows.length - 1] : null;
   const l0 = lows.length >= 2 ? lows[lows.length - 2] : null;
+  const lPrev = lows.length >= 3 ? lows[lows.length - 3] : null;
 
   const hh = !!(h1 && h0 && h1.p > h0.p);
   const hl = !!(l1 && l0 && l1.p > l0.p);
   const lh = !!(h1 && h0 && h1.p < h0.p);
   const ll = !!(l1 && l0 && l1.p < l0.p);
+  // Multi-swing confirmation (3 pivots) for stronger structure
+  const hh3 = !!(h1 && h0 && hPrev && h1.p > h0.p && h0.p > hPrev.p);
+  const ll3 = !!(l1 && l0 && lPrev && l1.p < l0.p && l0.p < lPrev.p);
 
   let brokenBuy = false, brokenSell = false;
+  // Classic break: LL after buy structure, or HH after sell structure
   if (l1 && l0 && l1.p < l0.p && hh) brokenBuy = true;
   if (h1 && h0 && h1.p > h0.p && ll) brokenSell = true;
 
-  // Momentum fallback for scalps when swing pivots are sparse: net close lean
+  // BOTH-SIDE RECOVERY / LIQUIDITY GRAB (symmetric):
+  // SHORT-RECOVERY / LIQ-GRAB: after sell structure (LH/LL) or a low-side liquidity sweep,
+  //   price prints HH / reclaim → do NOT keep selling until clean LH/LL returns.
+  // LONG-RECOVERY / LIQ-GRAB: after buy structure (HH/HL) or a high-side liquidity sweep,
+  //   price prints LL / reclaim → do NOT keep buying until clean HH/HL returns.
+  // Wick sweep of external liquidity (both sides) is treated the same as structural recovery.
+  let sellRecovery = false;
+  let buyRecovery = false;
+  let liqGrabSell = false; // liquidity taken below then reclaimed (bullish grab against shorts)
+  let liqGrabBuy = false;  // liquidity taken above then reclaimed (bearish grab against longs)
+
+  // Structural recovery from pivots
+  if (h1 && h0 && h1.p > h0.p) {
+    if (ll || (l1 && l0 && l1.p < l0.p) || brokenSell) sellRecovery = true;
+  }
+  if (l1 && l0 && l1.p < l0.p) {
+    if (hh || (h1 && h0 && h1.p > h0.p) || brokenBuy) buyRecovery = true;
+  }
+  // Strong multi-swing confirmation (both sides)
+  if (hh3 && (ll || ll3)) sellRecovery = true;
+  if (ll3 && (hh || hh3)) buyRecovery = true;
+
+  // Wick-based liquidity sweep detection on recent bars (BOTH sides)
+  try {
+    const cNow = data[i];
+    const sweepLook = isScalp ? 8 : 14;
+    let refHi = -Infinity, refLo = Infinity;
+    for (let k = Math.max(0, i - sweepLook); k < i; k++) {
+      refHi = Math.max(refHi, Number(data[k].h));
+      refLo = Math.min(refLo, Number(data[k].l));
+    }
+    const tol = Math.max(atr * 0.15, 0.2);
+    // Bullish liq grab vs shorts: wick below recent lows, close back above (stops run then reclaim)
+    for (let j = Math.max(1, i - (isScalp ? 3 : 5)); j <= i; j++) {
+      const a = data[j];
+      if (!a) continue;
+      const sweptLow = Number(a.l) <= refLo + tol;
+      const reclaimedUp = Number(a.c) > Math.min(Number(a.o), refLo + tol * 0.5) &&
+        Number(a.c) > Number(a.l) + (Number(a.h) - Number(a.l)) * 0.35;
+      if (sweptLow && reclaimedUp) {
+        liqGrabSell = true; // liquidity under lows taken → short recovery risk
+        sellRecovery = true;
+      }
+      const sweptHigh = Number(a.h) >= refHi - tol;
+      const reclaimedDown = Number(a.c) < Math.max(Number(a.o), refHi - tol * 0.5) &&
+        Number(a.c) < Number(a.h) - (Number(a.h) - Number(a.l)) * 0.35;
+      if (sweptHigh && reclaimedDown) {
+        liqGrabBuy = true; // liquidity above highs taken → long recovery risk
+        buyRecovery = true;
+      }
+    }
+    // Current bar explicit external sweep
+    if (cNow) {
+      if (Number(cNow.l) < refLo - tol * 0.25 && Number(cNow.c) > refLo) {
+        liqGrabSell = true; sellRecovery = true;
+      }
+      if (Number(cNow.h) > refHi + tol * 0.25 && Number(cNow.c) < refHi) {
+        liqGrabBuy = true; buyRecovery = true;
+      }
+    }
+  } catch (eLiq) {}
+
+  // Momentum fallback for scalps only when swings sparse — NEVER override recovery either side
   let momBuy = false, momSell = false;
-  if (isScalp && i >= 8) {
-    const c0 = Number(data[i - 8].c), c1 = Number(data[i].c);
+  if (isScalp && i >= 12 && !sellRecovery && !buyRecovery) {
+    const c0 = Number(data[i - 12].c), c1 = Number(data[i].c);
     const pct = ((c1 - c0) / Math.max(1e-9, c0)) * 100;
-    if (pct > 0.04) momBuy = true;
-    if (pct < -0.04) momSell = true;
+    if (pct > 0.06) momBuy = true;
+    if (pct < -0.06) momSell = true;
   }
 
   let dir = 'SIDEWAYS';
-  if (hh && hl && !brokenBuy) dir = 'BUY';
-  else if (lh && ll && !brokenSell) dir = 'SELL';
-  else if (hh && !ll && !brokenBuy) dir = 'BUY';
-  else if (ll && !hh && !brokenSell) dir = 'SELL';
-  else if (isScalp && hl && !ll && !brokenBuy) dir = 'BUY';
-  else if (isScalp && lh && !hh && !brokenSell) dir = 'SELL';
-  else if (isScalp && momBuy && !ll && !brokenBuy) dir = 'BUY';
-  else if (isScalp && momSell && !hh && !brokenSell) dir = 'SELL';
+  // Both-side recovery / liq-grab forces SIDEWAYS so system does not punch into the grab
+  if (sellRecovery && !hh3) {
+    dir = 'SIDEWAYS'; // SHORT-RECOVERY / LIQ-GRAB — block new SELL
+  } else if (buyRecovery && !ll3) {
+    dir = 'SIDEWAYS'; // LONG-RECOVERY / LIQ-GRAB — block new BUY
+  } else if (hh && hl && !brokenBuy && !buyRecovery) dir = 'BUY';
+  else if (lh && ll && !brokenSell && !sellRecovery) dir = 'SELL';
+  else if (hh && !ll && !brokenBuy && !buyRecovery) dir = 'BUY';
+  else if (ll && !hh && !brokenSell && !sellRecovery) dir = 'SELL';
+  else if (isScalp && hl && !ll && !brokenBuy && !buyRecovery) dir = 'BUY';
+  else if (isScalp && lh && !hh && !brokenSell && !sellRecovery) dir = 'SELL';
+  else if (isScalp && momBuy && !ll && !brokenBuy && !buyRecovery) dir = 'BUY';
+  else if (isScalp && momSell && !hh && !brokenSell && !sellRecovery) dir = 'SELL';
   else dir = 'SIDEWAYS';
 
-  // Only force SIDEWAYS when range is extremely tight (scalp uses 1.15×ATR)
   if (compressed && range < atr * (isScalp ? 1.15 : 1.6)) dir = 'SIDEWAYS';
 
-  const sideways = dir === 'SIDEWAYS';
+  // Recovery active → never report that side as aligned (both sides symmetric)
+  const alignedBuy = dir === 'BUY' && !buyRecovery;
+  const alignedSell = dir === 'SELL' && !sellRecovery;
+
+  const sideways = dir === 'SIDEWAYS' || sellRecovery || buyRecovery;
   const detail = (String(tf || '').toUpperCase() || 'TF') + ' struct ' + dir +
     (hh ? ' · HH' : '') + (hl ? ' · HL' : '') + (lh ? ' · LH' : '') + (ll ? ' · LL' : '') +
+    (hh3 ? ' · HH3' : '') + (ll3 ? ' · LL3' : '') +
     (brokenBuy ? ' · BUY-STRUCT BROKEN' : '') + (brokenSell ? ' · SELL-STRUCT BROKEN' : '') +
+    (sellRecovery ? (liqGrabSell ? ' · SHORT-RECOVERY/LIQ-GRAB' : ' · SHORT-RECOVERY') : '') +
+    (buyRecovery ? (liqGrabBuy ? ' · LONG-RECOVERY/LIQ-GRAB' : ' · LONG-RECOVERY') : '') +
     (compressed ? ' · compressed' : '');
 
   const result = {
     dir: dir,
-    alignedBuy: dir === 'BUY',
-    alignedSell: dir === 'SELL',
+    alignedBuy: alignedBuy,
+    alignedSell: alignedSell,
     sideways: sideways,
     brokenBuy: brokenBuy,
     brokenSell: brokenSell,
+    sellRecovery: sellRecovery,
+    buyRecovery: buyRecovery,
+    liqGrabSell: liqGrabSell,
+    liqGrabBuy: liqGrabBuy,
     hh: hh, hl: hl, lh: lh, ll: ll,
+    hh3: hh3, ll3: ll3,
     compressed: compressed,
     detail: detail,
     tf: String(tf || '').toLowerCase(),
+    pivotHighs: highs.length,
+    pivotLows: lows.length,
+    mapBars: win,
     at: Date.now()
   };
   try {
@@ -15885,8 +16047,13 @@ function algoStructureGate(side, data, i, tf, mode) {
     if (daily !== 'BUY') {
       return { ok: false, struct: struct, reason: '1D is ' + daily + ' — BUY blocked (no reverse on this TF)', daily: daily };
     }
+    if (struct.buyRecovery) {
+      const why = struct.liqGrabBuy
+        ? 'LONG-RECOVERY / LIQ-GRAB (highs swept then reclaimed / LL after HH)'
+        : 'LONG-RECOVERY (LL after HH)';
+      return { ok: false, struct: struct, reason: String(tf).toUpperCase() + ' ' + why + ' — wait clean HH/HL · no BUY yet', daily: daily };
+    }
     // Must show live buy structure (HH/HL). Broken or sell structure → wait realign (no reverse).
-    // SIDEWAYS already blocked above for scalp TFs only; higher TFs may still pass if alignedBuy.
     if (struct.brokenBuy || struct.dir === 'SELL') {
       algoSetTfStructFail(tf, 'BUY', 'BUY structure BROKEN (LL after HH) — wait HH/HL pass', struct);
       return { ok: false, struct: struct, reason: '1D BUY but ' + String(tf).toUpperCase() + ' structure ' + struct.dir +
@@ -15895,7 +16062,6 @@ function algoStructureGate(side, data, i, tf, mode) {
     if (!struct.alignedBuy) {
       return { ok: false, struct: struct, reason: '1D BUY but ' + String(tf).toUpperCase() + ' structure not HH/HL (' + struct.dir + ') — wait realign', daily: daily };
     }
-    // Healthy structure — clear any prior fail lock on this TF
     algoClearTfStructFail(tf, 'BUY structure passed · ' + struct.detail);
     return { ok: true, struct: struct, reason: '1D BUY + ' + struct.detail, daily: daily };
   }
@@ -15903,6 +16069,13 @@ function algoStructureGate(side, data, i, tf, mode) {
   if (side === 'SELL') {
     if (daily !== 'SELL') {
       return { ok: false, struct: struct, reason: '1D is ' + daily + ' — SELL blocked (no reverse on this TF)', daily: daily };
+    }
+    // Critical: after structure break, price making HH = short recovery / liquidity grab → NO SELL
+    if (struct.sellRecovery) {
+      const why = struct.liqGrabSell
+        ? 'SHORT-RECOVERY / LIQ-GRAB (lows swept then reclaimed / HH after LL)'
+        : 'SHORT-RECOVERY / LIQ-GRAB (HH after LL)';
+      return { ok: false, struct: struct, reason: String(tf).toUpperCase() + ' ' + why + ' — do not sell · wait clean LH/LL', daily: daily };
     }
     if (struct.brokenSell || struct.dir === 'BUY') {
       algoSetTfStructFail(tf, 'SELL', 'SELL structure BROKEN (HH after LL) — wait LH/LL pass', struct);
@@ -16099,15 +16272,14 @@ function algoSMCStructureConfirm(data, i, side, atr, demand, supply, tf) {
   for (let k = start; k <= i; k++) { hi = Math.max(hi, data[k].h); lo = Math.min(lo, data[k].l); }
   if (!(hi > lo)) return { ok: false, reason: 'range unavailable' };
   const pos = (c.c - lo) / (hi - lo);
-  // Scalp 1m/3m/5m: STRICT discount for BUY / premium for SELL only.
-  // Never buy in premium zone; never sell in discount zone.
-  // BUY must be support/discount (lower half). SELL must be resistance/premium (upper half).
+  // Scalp 1m/3m/5m: STRICT — BUY only true discount (lower ~40%), SELL only true premium (upper ~40%).
+  // Never buy mid/premium; never sell mid/discount. Prevents wrong-area scalp entries.
   if (isScalp) {
-    if (side === 'BUY' && pos > 0.48) return { ok: false, reason: 'scalp BUY blocked — not in discount/support zone (pos ' + (pos * 100).toFixed(0) + '%)' };
-    if (side === 'SELL' && pos < 0.52) return { ok: false, reason: 'scalp SELL blocked — not in premium/resistance zone (pos ' + (pos * 100).toFixed(0) + '%)' };
+    if (side === 'BUY' && pos > 0.42) return { ok: false, reason: 'scalp BUY blocked — not in discount zone (pos ' + (pos * 100).toFixed(0) + '% · need ≤42%)' };
+    if (side === 'SELL' && pos < 0.58) return { ok: false, reason: 'scalp SELL blocked — not in premium/resistance zone (pos ' + (pos * 100).toFixed(0) + '% · need ≥58%)' };
   } else {
-    if (side === 'BUY' && pos > 0.54) return { ok: false, reason: 'not in discount/equilibrium' };
-    if (side === 'SELL' && pos < 0.46) return { ok: false, reason: 'not in premium/equilibrium' };
+    if (side === 'BUY' && pos > 0.52) return { ok: false, reason: 'not in discount/equilibrium' };
+    if (side === 'SELL' && pos < 0.48) return { ok: false, reason: 'not in premium/equilibrium' };
   }
 
   // Recent swing reference
@@ -16334,17 +16506,20 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   const nearestSupFalling = !!(nearestSup && Number.isFinite(nearestSup.slope) && nearestSup.slope < 0 && nearestSup.dist <= atr * 4);
   if (buyDirOk && !nearestSupFalling && algoIsRejection(c, 'BUY', isScalpBar ? 'scalp' : '') && confBuy.ok) {
     let tookBuy = false;
-    // Prefer validated 2-touch+ support trendlines (retest after base is set)
+    // Scalp (1m/3m/5m): min 3-touch TL. Hold (15m+): min 2-touch TL.
+    const minTLTouchesBuy = isScalpBar ? 3 : 2;
     for (let li = 0; li < lines.length; li++) {
       const l = lines[li];
       if (!l || l.type !== 'sup') continue; // teal support ONLY
       const touches = (l.touches && l.touches.length) || (l.touchCount || 0);
-      if (touches < 2) continue; // structure not validated
+      if (touches < minTLTouchesBuy) continue; // structure not validated
       const tIdx = (l.touches || []).map(function (t) { return t.i; }).sort(function (a, b) { return a - b; });
-      const secondTouchI = tIdx.length >= 2 ? tIdx[1] : -1;
-      // Allow 2nd-touch bar itself if HIGH rejection; later retests use std rejection
-      if (secondTouchI >= 0 && i < secondTouchI) continue;
-      const needHighBuy = (secondTouchI >= 0 && i === secondTouchI);
+      // Scalp: require 3rd touch bar or later. Hold: allow 2nd-touch with high rejection.
+      const gateTouchI = isScalpBar
+        ? (tIdx.length >= 3 ? tIdx[2] : -1)
+        : (tIdx.length >= 2 ? tIdx[1] : -1);
+      if (gateTouchI >= 0 && i < gateTouchI) continue;
+      const needHighBuy = (!isScalpBar && gateTouchI >= 0 && i === gateTouchI);
       if (needHighBuy && !algoIsRejection(c, 'BUY', 'high')) continue;
       if (!algoNearLine(c, l, i, atr)) continue;
       // BUY only on STRICT upward support (higher-lows). Flat/falling support = no BUY.
@@ -16363,11 +16538,11 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       if (rng && rng.hi > rng.lo) {
         const posPx = (px - rng.lo) / (rng.hi - rng.lo);
         const posC = (c.c - rng.lo) / (rng.hi - rng.lo);
-        if (posPx > 0.55 || posC > 0.58) continue; // not discount
+        if (isScalpBar ? (posPx > 0.42 || posC > 0.45) : (posPx > 0.55 || posC > 0.58)) continue; // not discount
       }
       if (rng && px > c.c + atr * 3) continue;
       pushTrade('BUY',
-        'BUY @ SUPPORT ↑ TL · discount · SMC ' + smcBuy.reason + ' · ≥2 touches · rejection sweep · vol ' + vm.ratio.toFixed(2) + '×' +
+        'BUY @ SUPPORT ↑ TL · discount · SMC ' + smcBuy.reason + ' · ≥' + minTLTouchesBuy + ' touches · rejection sweep · vol ' + vm.ratio.toFixed(2) + '×' +
         (vm.usedProxy ? ' (range)' : '') + ' · desk ' + deskLive.toFixed(1) + ' · 1D bull ' + buyBias.count + '/' + buyBias.n,
         px, 'SUPPORT_TL_BUY_DIR');
       if (out.length) out[out.length - 1].reason += ' · conf ' + confBuy.score + '/100 · ' + confBuy.bits;
@@ -16417,7 +16592,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       if (rng && rng.hi > rng.lo) {
         const posClose = (c.c - rng.lo) / (rng.hi - rng.lo);
         const posSwing = (swingLo - rng.lo) / (rng.hi - rng.lo);
-        inDiscount = (posClose <= 0.50 && posSwing <= 0.48);
+        inDiscount = (posClose <= 0.42 && posSwing <= 0.40);
       }
       // Swing must sit in lower half of rejection bar AND in discount zone
       if (inDiscount && swingLo <= mid + atr * 0.25 && algoWickSweepsZone(c, 'BUY', swingLo, atr)) {
@@ -16439,16 +16614,19 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   // NEVER sell on teal/blue support lines or demand OBs
   if (liveSellAllowed && algoIsRejection(c, 'SELL', isScalpBar ? 'scalp' : '') && confSell.ok && !out.some(function (t) { return t.side === 'BUY'; })) {
     let tookSell = false;
+    // Scalp: min 3-touch resistance TL. Hold: min 2-touch.
+    const minTLTouchesSell = isScalpBar ? 3 : 2;
     for (let li = 0; li < lines.length; li++) {
       const l = lines[li];
       if (!l || l.type !== 'res') continue; // red resistance ONLY
       const touches = (l.touches && l.touches.length) || (l.touchCount || 0);
-      if (touches < 2) continue;
+      if (touches < minTLTouchesSell) continue;
       const tIdxS = (l.touches || []).map(function (t) { return t.i; }).sort(function (a, b) { return a - b; });
-      const secondTouchIS = tIdxS.length >= 2 ? tIdxS[1] : -1;
-      // Allow 2nd-touch bar itself if HIGH rejection; later retests use std rejection
-      if (secondTouchIS >= 0 && i < secondTouchIS) continue;
-      const needHighSell = (secondTouchIS >= 0 && i === secondTouchIS);
+      const gateTouchIS = isScalpBar
+        ? (tIdxS.length >= 3 ? tIdxS[2] : -1)
+        : (tIdxS.length >= 2 ? tIdxS[1] : -1);
+      if (gateTouchIS >= 0 && i < gateTouchIS) continue;
+      const needHighSell = (!isScalpBar && gateTouchIS >= 0 && i === gateTouchIS);
       if (needHighSell && !algoIsRejection(c, 'SELL', 'high')) continue;
       if (!algoNearLine(c, l, i, atr)) continue;
       // SELL only on STRICT downward resistance (lower-highs). Flat/rising resistance = no SELL.
@@ -16467,11 +16645,11 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       if (rngS && rngS.hi > rngS.lo) {
         const posPx = (px - rngS.lo) / (rngS.hi - rngS.lo);
         const posC = (c.c - rngS.lo) / (rngS.hi - rngS.lo);
-        if (posPx < 0.45 || posC < 0.42) continue; // not premium
+        if (isScalpBar ? (posPx < 0.58 || posC < 0.55) : (posPx < 0.45 || posC < 0.42)) continue; // not premium
       }
       if (c.c < px - atr * 2.5) continue; // already crashed through
       pushTrade('SELL',
-        'SELL @ RESIST ↓ TL · premium · ' + (counterSell.ok ? counterSell.reason + ' · ' : '') + 'SMC ' + smcSell.reason + ' · ≥2 touches · rejection sweep · vol ' + vm.ratio.toFixed(2) + '×' +
+        'SELL @ RESIST ↓ TL · premium · ' + (counterSell.ok ? counterSell.reason + ' · ' : '') + 'SMC ' + smcSell.reason + ' · ≥' + minTLTouchesSell + ' touches · rejection sweep · vol ' + vm.ratio.toFixed(2) + '×' +
         (vm.usedProxy ? ' (range)' : '') + ' · desk ' + deskLive.toFixed(1) + ' · 1D bear ' + sellBias.count + '/' + sellBias.n,
         px, 'RESIST_TL_SELL_DIR');
       if (out.length) out[out.length - 1].reason += ' · conf ' + confSell.score + '/100 · ' + confSell.bits;
@@ -16762,32 +16940,106 @@ function algoResolveTradeOnCandles(t, candles) {
   return mtmOnly();
 }
 
-/** Resolve each trade on its own TF — stops false SL when chart TF differs */
+/**
+ * Resolve each trade on its own TF — stops false SL when chart TF differs.
+ * CRITICAL SAFETY (refresh / re-open HTML):
+ * - Never auto-close an MT5 position just because local candle resolve thinks SL/TP hit.
+ * - Broker is source of truth: if MT5 still has the ticket open, keep local OPEN.
+ * - Only send CLOSE after: (1) resolve is "safe" (candles loaded + bridge polled once),
+ *   (2) trade has mt5Ticket, (3) high-confidence hit (own TF series, proper start bar),
+ *   (4) position is still reported open by last broker status (or we never polled yet and wait).
+ * This stops the bug where refresh/re-open instantly closes live MT5 trades without SL/TP hit.
+ */
+let _algoResolveSafeAt = 0;
+function algoMarkResolveSafe() {
+  _algoResolveSafeAt = Date.now();
+}
+function algoIsResolveSafe() {
+  // Require at least 4s after first candle/status ready so history is not half-loaded
+  return _algoResolveSafeAt > 0 && (Date.now() - _algoResolveSafeAt) > 4000;
+}
+
 function algoResolveAllTrades(candles) {
   const log = algoLoadTrades();
   if (!log.length) return { tp: 0, sl: 0, open: 0, winRate: 0, totalPnl: 0 };
+
+  // Broker open tickets (from last poll) — if present, never mark those local trades closed by candle alone
+  const brokerOpenTickets = new Set();
+  try {
+    const d = (typeof MT5_BRIDGE !== 'undefined' && MT5_BRIDGE.lastStatus) ? MT5_BRIDGE.lastStatus : null;
+    const positions = (d && Array.isArray(d.positions)) ? d.positions : [];
+    positions.forEach(function (p) {
+      if (!p) return;
+      if (p.ticket != null) brokerOpenTickets.add(String(p.ticket));
+      if (p.identifier != null) brokerOpenTickets.add(String(p.identifier));
+    });
+  } catch (eB) {}
+
   let changed = false;
   const next = log.map(function (t) {
     if (!t) return t;
     if (t.outcome === 'TP' || t.outcome === 'SL') return t;
+
+    // If this trade is still open on the broker, force local OPEN (ignore candle false-hits)
+    const ticket = t.mt5Ticket != null ? String(t.mt5Ticket) : '';
+    const posId = t.mt5PositionId != null ? String(t.mt5PositionId) : '';
+    const stillOnBroker = (ticket && brokerOpenTickets.has(ticket)) || (posId && brokerOpenTickets.has(posId));
+    if (stillOnBroker) {
+      // Keep OPEN + MTM only
+      const livePx = (typeof state !== 'undefined' && state.gold_price > 500) ? state.gold_price : 0;
+      const mtm = livePx > 0 ? algoPnlPoints(t.side, Number(t.entry), livePx, t.lots || 1) : (t.pnl || 0);
+      return Object.assign({}, t, {
+        status: 'OPEN', outcome: null, exit: null,
+        pnl: Number(Number(mtm).toFixed(2)), mtm: true,
+        mt5Closed: false
+      });
+    }
+
     const series = algoCandlesForTradeTf(t.tf) || candles || [];
     const r = algoResolveTradeOnCandles(t, series);
     if (!r) return t;
+
+    // Extra guard: if resolve wants to close but we have no own-TF series depth, keep OPEN
+    if ((r.outcome === 'TP' || r.outcome === 'SL') && (!series || series.length < 15)) {
+      return Object.assign({}, t, { status: 'OPEN', outcome: null, exit: null, mtm: true });
+    }
+
     if (r.outcome !== t.outcome || r.status !== t.status ||
         Number(r.pnl) !== Number(t.pnl) || r.exit !== t.exit) {
       changed = true;
     }
     return r;
   });
+
   if (changed) {
-    // SL/TP hit → close on MT5 when market touched level (auto)
+    // SL/TP hit → close on MT5 ONLY when safe + high confidence (never on cold refresh)
     try {
+      const safe = algoIsResolveSafe();
       for (let i = 0; i < next.length; i++) {
         const a = log[i], b = next[i];
         if (!b || !a) continue;
         const wasOpen = !(a.outcome === 'TP' || a.outcome === 'SL' || a.status === 'TP' || a.status === 'SL');
         const nowClosed = (b.outcome === 'TP' || b.outcome === 'SL');
-        if (wasOpen && nowClosed && !b.mt5Closed && typeof mt5SendClose === 'function') {
+        if (!wasOpen || !nowClosed || b.mt5Closed) continue;
+        // Must have real broker ticket
+        if (!b.mt5Ticket) continue;
+        // Never close on first seconds after reload / incomplete history
+        if (!safe) {
+          // Revert this row back to OPEN for safety
+          next[i] = Object.assign({}, a, {
+            status: 'OPEN', outcome: null, exit: null,
+            pnl: a.pnl, mtm: true
+          });
+          continue;
+        }
+        // Position must NOT still appear open on last broker status
+        const tk = String(b.mt5Ticket);
+        const pid = b.mt5PositionId != null ? String(b.mt5PositionId) : '';
+        if (brokerOpenTickets.has(tk) || (pid && brokerOpenTickets.has(pid))) {
+          next[i] = Object.assign({}, a, { status: 'OPEN', outcome: null, exit: null, mtm: true });
+          continue;
+        }
+        if (typeof mt5SendClose === 'function') {
           mt5SendClose(b, b.outcome);
         }
       }
@@ -17572,7 +17824,10 @@ async function algoGetCandlesForTf(tf, allowFetch) {
     const now = Date.now();
     algoGetCandlesForTf._lastFetch = algoGetCandlesForTf._lastFetch || {};
     const last = algoGetCandlesForTf._lastFetch[tf] || 0;
-    if (now - last >= 12000) {
+    const tfKey = String(tf || '').toLowerCase();
+    const minGap = (tfKey === '1m' || tfKey === '3m') ? 5000
+      : ((tfKey === '5m' || tfKey === '15m') ? 7000 : 10000);
+    if (now - last >= minGap) {
       algoGetCandlesForTf._lastFetch[tf] = now;
       try {
         const fresh = await algoFetchCandlesOffline(tf);
@@ -18058,6 +18313,8 @@ async function mt5RefreshStatus() {
     const terminalReady=!!(d.terminal_connected&&d.account_connected&&d.tick_available);
     MT5_BRIDGE.connected=terminalReady&&!!(d.trade_allowed&&d.account_trade_allowed);
     MT5_BRIDGE.lastErr=MT5_BRIDGE.connected?'':(terminalReady?'trading permission disabled':(d.error||'terminal/tick unavailable'));
+    // First successful broker status → allow safe resolve a few seconds later
+    try { if (typeof algoMarkResolveSafe === 'function') algoMarkResolveSafe(); } catch (eSafe) {}
     const positions=Array.isArray(d.positions)?d.positions:[];
     const closed=Array.isArray(d.closed_positions)?d.closed_positions:[];
     const log=algoLoadTrades(); let changed=false;
@@ -18071,13 +18328,26 @@ async function mt5RefreshStatus() {
         t.mt5PositionId=p.identifier||p.ticket;
         if(t.mt5Status!=='MT5_FILLED'||!t.mt5Confirmed){t.mt5Status='MT5_FILLED';t.mt5Confirmed=true;t.mt5=true;changed=true;}
         t.mt5LastBrokerPrice=Number(p.price_current)||t.mt5LastBrokerPrice;
+        // Broker still has position → NEVER treat local as TP/SL closed (fixes refresh auto-close)
+        if (t.outcome === 'TP' || t.outcome === 'SL' || t.status === 'TP' || t.status === 'SL') {
+          t.outcome = null;
+          t.status = 'OPEN';
+          t.exit = null;
+          t.mt5Closed = false;
+          t.mt5ClosePending = false;
+          changed = true;
+        }
       } else if(t.mt5Ticket||t.mt5PositionId){
         const c=closed.find(x=>String(x.position_id)===String(t.mt5PositionId||t.mt5Ticket));
         if(c&&t.mt5Status!=='MT5_CLOSED'){t.mt5Status='MT5_CLOSED';t.mt5Closed=true;t.mt5BrokerExit=Number(c.price)||null;t.mt5BrokerProfit=Number(c.profit)||0;t.mt5BrokerCloseTime=Number(c.time)||0;changed=true;}
         else if(!c && t.mt5Status==='MT5_FILLED'){t.mt5Status='MT5_POSITION_NOT_VISIBLE';changed=true;}
       }
-      // If HTML strategy exit fired but broker position remains, retry matching close.
-      if(p&&(t.outcome==='TP'||t.outcome==='SL')&&!t.mt5Closed&&!t.mt5ClosePending)mt5SendClose(t,t.outcome);
+      // Only retry strategy close when resolve is safe AND broker still shows position AND outcome is real
+      if (p && (t.outcome === 'TP' || t.outcome === 'SL') && !t.mt5Closed && !t.mt5ClosePending) {
+        if (typeof algoIsResolveSafe === 'function' && algoIsResolveSafe()) {
+          mt5SendClose(t, t.outcome);
+        }
+      }
     });
     if(changed){algoSaveTrades(log);try{algoRenderLog();}catch(e){}}
     mt5PaintStatus();
@@ -18448,15 +18718,19 @@ function algoStitchLiveGoldTick(tf, sourceCandles) {
   const candles = Array.isArray(sourceCandles) ? sourceCandles.slice() : [];
   const price = Number(state && state.gold_price);
   const tickAt = Number(state && state._goldTickUpdatedAt) || 0;
-  const tickFresh = Number.isFinite(price) && price > 500 && tickAt > 0 &&
-    (Date.now() - tickAt) <= 20000;
-  if (!tickFresh) return candles;
+  // Accept live price even if tick timestamp lag is up to 90s (mobile / tab throttle).
+  // Previously 20s caused every background TF to flip DATA STALE and stop MTF scanning.
+  const priceOk = Number.isFinite(price) && price > 500;
+  const tickFresh = priceOk && tickAt > 0 && (Date.now() - tickAt) <= 90000;
+  if (!priceOk) return candles;
   const seconds = ALGO_TF_SECONDS[String(tf || '').toLowerCase()] || 300;
   const stepMs = seconds * 1000;
-  const tickTime = tickAt || Date.now();
-  const slot = Math.floor(tickTime / stepMs) * stepMs;
+  const tickTime = (tickFresh ? tickAt : Date.now());
+  const slot = Math.floor(Date.now() / stepMs) * stepMs;
   const d = new Date(slot);
-  const time = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  const time = (String(tf || '').toLowerCase() === '1d')
+    ? ((d.getMonth() + 1) + '/' + d.getDate())
+    : (String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
   const last = candles[candles.length - 1];
   if (last && Number(last.barSlot) === slot) {
     last.c = price;
@@ -18465,11 +18739,100 @@ function algoStitchLiveGoldTick(tf, sourceCandles) {
     last.tickUpdatedAt = tickTime;
     last.priceSource = 'XAUUSD live tick';
   } else if (!last || Number(last.barSlot) < slot) {
-    candles.push({ o: price, h: price, l: price, c: price, v: 0, quoteVol: 0,
+    // Always open the current forming bar for this TF so MTF scanners stay series-fresh
+    const openPx = (last && Number(last.c) > 500) ? Number(last.c) : price;
+    candles.push({ o: openPx, h: Math.max(openPx, price), l: Math.min(openPx, price), c: price, v: 0, quoteVol: 0,
       time: time, barSlot: slot, closeTime: slot + stepMs,
       tickUpdatedAt: tickTime, priceSource: 'XAUUSD live tick' });
+  } else if (last && Number(last.barSlot) > slot) {
+    // Provider clock skew: clamp last bar into current slot instead of marking STALE
+    last.barSlot = slot;
+    last.closeTime = slot + stepMs;
+    last.c = price;
+    last.h = Math.max(Number(last.h) || price, price);
+    last.l = Math.min(Number(last.l) || price, price);
+    last.tickUpdatedAt = tickTime;
+    last.priceSource = 'XAUUSD live tick';
   }
   return candles.slice(-1000);
+}
+
+
+/** Higher TFs that must inform a lower TF before it punches a trade.
+ * Example: 5m sees 15m + 1h + 4h + 1d support/resistance; 15m sees 1h+. */
+function algoHigherTfList(tf) {
+  const order = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
+  const key = String(tf || '').toLowerCase();
+  const idx = order.indexOf(key);
+  if (idx < 0) return ['15m', '1h', '4h', '1d'];
+  return order.slice(idx + 1);
+}
+
+/** Merge higher-timeframe demand/supply/rays into the active TF scan set.
+ * Zones keep their price levels (absolute) so a 15m support is visible on 1m/5m.
+ * Rays from HTF are converted to horizontal price levels at the last known y2
+ * when slope is flat-ish; otherwise the live projected price at "now" is stored
+ * as a synthetic support/resistance line for near-zone checks.
+ */
+function algoMergeHigherTfZones(tf, base) {
+  const out = {
+    lines: Array.isArray(base && base.lines) ? base.lines.slice() : [],
+    demand: Array.isArray(base && base.demand) ? base.demand.slice() : [],
+    supply: Array.isArray(base && base.supply) ? base.supply.slice() : []
+  };
+  const htfList = algoHigherTfList(tf);
+  const store = (typeof chartStore !== 'undefined' && chartStore.gold) ? chartStore.gold : {};
+  htfList.forEach(function (htf) {
+    const pack = store[htf];
+    if (!pack) return;
+    const tag = String(htf).toUpperCase();
+    (pack.demand || []).forEach(function (ob) {
+      if (!ob || ob.top == null || ob.bottom == null) return;
+      out.demand.push(Object.assign({}, ob, {
+        tfName: (ob.tfName ? ob.tfName + '+' : '') + tag,
+        htfSource: htf,
+        startIndex: null // never age-out by LTF bar index
+      }));
+    });
+    (pack.supply || []).forEach(function (ob) {
+      if (!ob || ob.top == null || ob.bottom == null) return;
+      out.supply.push(Object.assign({}, ob, {
+        tfName: (ob.tfName ? ob.tfName + '+' : '') + tag,
+        htfSource: htf,
+        startIndex: null
+      }));
+    });
+    (pack.rays || []).forEach(function (l) {
+      if (!l || l.y1 == null || l.y2 == null) return;
+      const x1 = Number(l.x1), x2 = Number(l.x2);
+      const y1 = Number(l.y1), y2 = Number(l.y2);
+      if (!(Number.isFinite(y1) && Number.isFinite(y2))) return;
+      const slope = (Number.isFinite(x1) && Number.isFinite(x2) && x2 !== x1)
+        ? (y2 - y1) / (x2 - x1) : 0;
+      // Horizontal-ish HTF rays become fixed price levels; otherwise keep slope metadata
+      const level = (Math.abs(slope) < 1e-6) ? y2 : y2;
+      out.lines.push({
+        type: l.type || (l.side === 'sup' ? 'sup' : (l.side === 'res' ? 'res' : l.type)),
+        x1: 0, y1: level, x2: 50, y2: level,
+        slope: 0,
+        touches: Array.isArray(l.touches) ? l.touches.slice() : [{ i: 0, p: level }, { i: 1, p: level }, { i: 2, p: level }],
+        htfSource: htf,
+        tfName: tag,
+        label: tag + ' ' + String(l.type || 'TL').toUpperCase()
+      });
+    });
+  });
+  try {
+    window.__algoHtfZones = window.__algoHtfZones || {};
+    window.__algoHtfZones[String(tf || '').toLowerCase()] = {
+      htf: htfList.slice(),
+      demandN: out.demand.length,
+      supplyN: out.supply.length,
+      linesN: out.lines.length,
+      at: Date.now()
+    };
+  } catch (e) {}
+  return out;
 }
 
 /** Run LIVE closed-bar + forming-bar scan on one TF — never changes chart TF.
@@ -18527,19 +18890,27 @@ async function algoLiveScanOneTf(tf, candlesPrefer) {
   try { candles = algoStitchLiveGoldTick(tf, candles); } catch (eTick2) {}
   if (candles.length < 30) { if ((state.chartAsset||'gold')==='gold') algoSetDecisionAuditState(tf,'DATA BLOCK','LIVE scanner ran at '+new Date().toLocaleTimeString()+' but received only '+candles.length+'/30 valid Gold OHLC candles. The visible tick price alone cannot replace the missing candle history.', ['Gold OHLC history incomplete: '+candles.length+'/30 bars'], []); return { added: 0, found: 0, tf: tf, err: 'no-candles', bars:candles.length }; }
 
-  // LIVE must never scan an old cached series as if it were current market data.
-  // A fresh forming bar should exist within roughly two timeframe lengths.
-  // Exception: when a live XAUUSD tick was stitched into the series within the
-  // last 20s, the series is considered current even if OHLC provider lag exists.
+  // Freshness: prefer stitched live price. Never hard-abort the whole TF scan —
+  // MTF structure must keep updating on every timeframe even if OHLC provider lags.
+  // Only live ENTRY generation is gated when the series is truly dead.
   const liveStepMs = (ALGO_TF_SECONDS[String(tf || '').toLowerCase()] || 300) * 1000;
   const lastLiveBar = candles[candles.length - 1] || {};
   const lastLiveSlot = Number(lastLiveBar.barSlot || lastLiveBar.openTime || lastLiveBar.t || 0);
   const tickAtFresh = Number(state && state._goldTickUpdatedAt) || 0;
-  const tickIsLive = tickAtFresh > 0 && (Date.now() - tickAtFresh) <= 20000 && Number(state.gold_price) > 500;
-  const seriesFresh = lastLiveSlot > 0 && (Date.now() - lastLiveSlot) <= liveStepMs * 2.5;
-  if (lastLiveSlot > 0 && !seriesFresh && !tickIsLive) {
-    algoSetDecisionAuditState(tf,'DATA STALE','Last Gold candle is older than 2.5 timeframe intervals and no live tick is available; live entries paused until fresh OHLC arrives.', ['Stale Gold candle / feed not updating'], []);
-    return { added: 0, found: 0, tf: tf, bars: candles.length, err: 'stale-candles' };
+  const priceOk = Number(state.gold_price) > 500;
+  const tickIsLive = tickAtFresh > 0 && (Date.now() - tickAtFresh) <= 90000 && priceOk;
+  // HTF bars stay valid for more intervals (4h/1d naturally slow); LTF tighter.
+  const tfKeyFresh = String(tf || '').toLowerCase();
+  const freshMult = (tfKeyFresh === '1d') ? 3.5 : ((tfKeyFresh === '4h' || tfKeyFresh === '1h') ? 3.0 : 2.5);
+  const seriesFresh = lastLiveSlot > 0 && (Date.now() - lastLiveSlot) <= liveStepMs * freshMult;
+  let entriesAllowed = true;
+  if (lastLiveSlot > 0 && !seriesFresh && !tickIsLive && !priceOk) {
+    entriesAllowed = false;
+    algoSetDecisionAuditState(tf,'DATA STALE','OHLC lag + no live XAUUSD tick — structure still updates; live entries paused until feed recovers.',
+      ['Stale Gold candle / feed not updating'], []);
+  } else if (lastLiveSlot > 0 && !seriesFresh && priceOk) {
+    // Price is alive: force-stitch already applied above; treat as soft-fresh for entries
+    entriesAllowed = true;
   }
 
   window.__algoLiveScanStage = 'update timeframe cache ' + tf;
@@ -18552,11 +18923,17 @@ async function algoLiveScanOneTf(tf, candlesPrefer) {
 
   window.__algoLiveScanStage = 'build market structure ' + tf;
   const struct = algoBuildStructureOffline(candles, tf);
-  const scanStructure = {
-    lines: struct.lines,
-    demand: struct.demand,
-    supply: struct.supply
+  // Interlink HTF S/R into this TF so scalping still sees 15m/1H/4H/1D zones
+  let scanStructure = {
+    lines: (struct.lines || []).slice(),
+    demand: (struct.demand || []).slice(),
+    supply: (struct.supply || []).slice()
   };
+  try {
+    if (typeof algoMergeHigherTfZones === 'function') {
+      scanStructure = algoMergeHigherTfZones(tf, scanStructure);
+    }
+  } catch (eHtf) {}
   // Always publish independent TF structure (HH/HL / LH/LL) for live monitor + gates
   try {
     const iLast = candles.length - 1;
@@ -18603,6 +18980,8 @@ async function algoLiveScanOneTf(tf, candlesPrefer) {
   if (ALGO_SCALPER_TFS && ALGO_SCALPER_TFS[tf] && typeof algoIsAllowedTf === 'function' && !algoIsAllowedTf(tf)) {
     found = []; // structure + audit still run; no live entries while scalper locked
   }
+  // Hard data death only blocks entries; structure + MTF board already published above
+  if (!entriesAllowed) found = [];
   window.__algoLiveScanStage = 'merge live signals ' + tf;
   const added = algoMergeNewTrades(found);
   window.__algoLiveScanStage = 'render decision audit ' + tf;
