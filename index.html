@@ -15646,14 +15646,56 @@ function algoIsScalpTf(tf) {
 }
 
 /**
- * Per-TF structure-fail lock — ALL timeframes (1m / 3m / 5m / 15m / 1H / 4H / 1D).
- * If structure fails on a TF (broken HH/HL or LH/LL, SIDEWAYS on scalp, or dir against bias),
- * that TF is LOCKED for BOTH sides until the last failed structure fully passes on THAT TF.
- * Other timeframes continue independently.
+ * Per-TF structure-fail lock — SIDE-AWARE (not both sides).
+ * - BUY structure BROKEN only locks BUY entries on that TF.
+ * - SELL structure BROKEN only locks SELL entries on that TF.
+ * When 1D bias flips (neutral→BUY / neutral→SELL / BUY↔SELL), opposite-side
+ * locks are cleared and MTF scanning retargets to the new 1D direction.
+ * Other timeframes stay independent.
  */
 window.__algoTfStructLock = window.__algoTfStructLock || {};
-// Keep legacy key in sync for any UI that still reads the old name
 window.__algoScalpStructLock = window.__algoTfStructLock;
+window.__algoLastDailyBias = window.__algoLastDailyBias || null;
+
+function algoReadDailyBiasDir() {
+  try {
+    const b = algoHigherTfBias('BUY');
+    if (b && b.daily === 'BUY') return 'BUY';
+    if (b && b.daily === 'SELL') return 'SELL';
+  } catch (e) {}
+  try {
+    const src = (state.tf_biases_gold && Object.keys(state.tf_biases_gold || {}).length)
+      ? state.tf_biases_gold : (state.tf_biases || {});
+    const t = String((src['1d'] && (src['1d'].text || src['1d'].bias)) || '').toUpperCase();
+    if (t.indexOf('BULL') >= 0) return 'BUY';
+    if (t.indexOf('BEAR') >= 0) return 'SELL';
+  } catch (e2) {}
+  return 'NEUTRAL';
+}
+
+/** On 1D bias change: drop opposite-side locks so scanner hunts the NEW side. */
+function algoOnDailyBiasChange(newDir) {
+  const prev = window.__algoLastDailyBias;
+  window.__algoLastDailyBias = newDir;
+  if (!newDir || newDir === 'NEUTRAL') return { changed: false, prev: prev, next: newDir };
+  if (prev === newDir) return { changed: false, prev: prev, next: newDir };
+  const dropSide = (newDir === 'BUY') ? 'SELL' : 'BUY';
+  window.__algoTfStructLock = window.__algoTfStructLock || {};
+  Object.keys(window.__algoTfStructLock).forEach(function (tf) {
+    const lk = window.__algoTfStructLock[tf];
+    if (!lk || !lk.active) return;
+    const opp = (lk.side === dropSide) ||
+      (dropSide === 'SELL' && lk.brokenSell && !lk.brokenBuy) ||
+      (dropSide === 'BUY' && lk.brokenBuy && !lk.brokenSell);
+    if (opp) {
+      try { algoClearTfStructFail(tf, '1D bias → ' + newDir + ' · cleared opposite ' + dropSide + ' lock'); } catch (e) {}
+    }
+  });
+  try {
+    console.log('[GP Algo] 1D bias change', prev, '→', newDir, '· retarget MTF to', newDir);
+  } catch (e) {}
+  return { changed: true, prev: prev, next: newDir };
+}
 
 function algoGetTfStructLock(tf) {
   tf = String(tf || '').toLowerCase();
@@ -15661,7 +15703,6 @@ function algoGetTfStructLock(tf) {
   window.__algoTfStructLock = window.__algoTfStructLock || {};
   return window.__algoTfStructLock[tf] || null;
 }
-// legacy alias
 function algoGetScalpStructLock(tf) { return algoGetTfStructLock(tf); }
 
 function algoSetTfStructFail(tf, side, reason, struct) {
@@ -15670,10 +15711,13 @@ function algoSetTfStructFail(tf, side, reason, struct) {
   window.__algoTfStructLock = window.__algoTfStructLock || {};
   window.__algoScalpStructLock = window.__algoTfStructLock;
   const prev = window.__algoTfStructLock[tf];
-  // Keep first fail until fully passed — do not reset mid-fail.
-  if (prev && prev.active) {
+  // Same-side fail: refresh reason. Opposite-side fail: replace so 1D retarget works.
+  if (prev && prev.active && prev.side && side && prev.side !== side) {
+    // Switching lock side — fall through and replace
+  } else if (prev && prev.active && (!side || prev.side === side)) {
     prev.lastSeenAt = Date.now();
     prev.reason = reason || prev.reason;
+    if (side) prev.side = side;
     if (struct) {
       prev.detail = struct.detail || prev.detail;
       prev.dir = struct.dir || prev.dir;
@@ -15724,7 +15768,7 @@ function algoClearTfStructFail(tf, reason) {
     brokenSell: false,
     sideways: false,
     clearedAt: Date.now(),
-    clearReason: reason || 'structure passed'
+    clearReason: reason || ''
   };
 }
 function algoClearScalpStructFail(tf, reason) {
@@ -15732,51 +15776,77 @@ function algoClearScalpStructFail(tf, reason) {
 }
 
 /**
- * Evaluate / update structure lock for one TF.
- * Returns { locked:bool, reason:string }.
- * Rule: ANY structure failure on this TF blocks BOTH BUY and SELL on this TF
- * until the last failed structure fully passes (realigns) on the same TF.
+ * Side-aware structure lock.
+ * sideWanted = 'BUY' | 'SELL' | null — only the matching side can be locked/blocked.
+ * Opposite-side breaks are informational only (do not block the 1D target side).
  */
 function algoUpdateTfStructLock(tf, struct, sideWanted) {
   tf = String(tf || '').toLowerCase();
   if (!tf || !struct) return { locked: false, reason: '' };
 
+  // Keep 1D bias tracker hot — clears opposite locks on flip
+  let dailyDir = 'NEUTRAL';
+  try { dailyDir = algoReadDailyBiasDir(); algoOnDailyBiasChange(dailyDir); } catch (eD) {}
+
+  const want = (sideWanted === 'BUY' || sideWanted === 'SELL')
+    ? sideWanted
+    : ((dailyDir === 'BUY' || dailyDir === 'SELL') ? dailyDir : null);
+
   const lock = algoGetTfStructLock(tf);
 
-  // HIGH-INTELLIGENCE: hard lock ONLY on true structure BREAK.
-  // SIDEWAYS / "not aligned yet" is a soft wait (gate blocks entry) — NOT a permanent ✕ FAIL
-  // on every TF. Higher TFs must not light up FAIL just because structure is neutral.
-  const hardBroken = !!struct.brokenBuy || !!struct.brokenSell;
+  // Only the SIDE WE ARE TRADING can hard-lock this TF.
+  // Example: 1D BUY + SELL structure "broken" (HH after LL) is BULLISH transition —
+  // do NOT lock the TF for BUY. That was the bug: system kept hunting SELL only.
+  const buyBroken = !!struct.brokenBuy;
+  const sellBroken = !!struct.brokenSell;
 
-  if (hardBroken) {
-    const why = struct.brokenBuy
-      ? 'BUY structure BROKEN (LL after HH) — wait HH/HL pass'
-      : 'SELL structure BROKEN (HH after LL) — wait LH/LL pass';
-    algoSetTfStructFail(tf, struct.brokenBuy ? 'BUY' : 'SELL', why, struct);
+  if (want === 'BUY' && buyBroken) {
+    const why = 'BUY structure BROKEN (LL after HH) — wait HH/HL pass';
+    algoSetTfStructFail(tf, 'BUY', why, struct);
+    return { locked: true, reason: why };
+  }
+  if (want === 'SELL' && sellBroken) {
+    const why = 'SELL structure BROKEN (HH after LL) — wait LH/LL pass';
+    algoSetTfStructFail(tf, 'SELL', why, struct);
     return { locked: true, reason: why };
   }
 
-  // Clear prior hard lock once structure realigns (or break flags clear with clear dir)
+  // Opposite-side break while hunting this side → clear stale opposite lock, not locked
   if (lock && lock.active) {
+    if (want && lock.side && lock.side !== want) {
+      algoClearTfStructFail(tf, '1D/side target ' + want + ' · drop opposite lock ' + lock.side);
+      return { locked: false, reason: '' };
+    }
+    // Realign check for the locked side only
     const buyPass = struct.alignedBuy && !struct.brokenBuy && struct.dir === 'BUY';
     const sellPass = struct.alignedSell && !struct.brokenSell && struct.dir === 'SELL';
     let passed = false;
-    if (lock.brokenBuy || lock.side === 'BUY') passed = buyPass;
-    else if (lock.brokenSell || lock.side === 'SELL') passed = sellPass;
-    else passed = buyPass || sellPass;
-
-    if (!passed && !struct.brokenBuy && !struct.brokenSell &&
-        (struct.dir === 'BUY' || struct.dir === 'SELL')) {
-      passed = true; // break flags gone + directional structure restored
+    if (lock.side === 'BUY' || lock.brokenBuy) {
+      passed = buyPass || (!buyBroken && (struct.dir === 'BUY' || struct.alignedBuy));
+    } else if (lock.side === 'SELL' || lock.brokenSell) {
+      passed = sellPass || (!sellBroken && (struct.dir === 'SELL' || struct.alignedSell));
+    } else {
+      passed = buyPass || sellPass || (!buyBroken && !sellBroken && (struct.dir === 'BUY' || struct.dir === 'SELL'));
+    }
+    if (!passed && !buyBroken && !sellBroken && struct.dir !== 'SIDEWAYS') passed = true;
+    if (!passed && !buyBroken && !sellBroken && want === 'BUY' && !struct.buyRecovery) {
+      if (lock.side === 'SELL') passed = true;
+    }
+    if (!passed && !buyBroken && !sellBroken && want === 'SELL' && !struct.sellRecovery) {
+      if (lock.side === 'BUY') passed = true;
     }
 
     if (passed) {
       algoClearTfStructFail(tf, 'structure realigned · ' + (struct.detail || struct.dir));
       return { locked: false, reason: '' };
     }
+    // Only report locked if lock side matches what we want to trade
+    if (want && lock.side && lock.side !== want) {
+      return { locked: false, reason: '' };
+    }
     return {
       locked: true,
-      reason: 'LOCKED until BROKEN structure realigns · was: ' +
+      reason: 'LOCKED ' + (lock.side || '') + ' until structure realigns · ' +
         (lock.reason || 'BROKEN') + ' · now: ' + (struct.detail || struct.dir)
     };
   }
@@ -18474,31 +18544,67 @@ function algoDrawExecutionHud(ctx,chartW){
       }
     } catch (eSt) {}
 
-    let lockActive=false, lockWhy='';
+    // 1D target side drives MTF display + which BROKEN matters
+    let dailyWant = 'NEUTRAL';
+    try {
+      if (typeof algoReadDailyBiasDir === 'function') dailyWant = algoReadDailyBiasDir();
+      if (typeof algoOnDailyBiasChange === 'function') algoOnDailyBiasChange(dailyWant);
+    } catch (eDw) {}
+
+    let lockActive=false, lockWhy='', lockSide=null;
     try {
       const lk = (window.__algoTfStructLock && window.__algoTfStructLock[tf]) ||
         (window.__algoScalpStructLock && window.__algoScalpStructLock[tf]) || null;
-      // Only treat as hard FAIL if lock is active AND (still broken or lock reason is BROKEN)
-      if (lk && lk.active && (broken || /BROKEN/i.test(String(lk.reason||'')))) {
-        lockActive = true;
-        lockWhy = String(lk.reason || 'BROKEN');
-      } else if (lk && lk.active && !broken) {
-        // Stale soft lock from older logic — auto-clear
-        try { if (typeof algoClearTfStructFail === 'function') algoClearTfStructFail(tf, 'stale soft lock cleared'); } catch(eC) {}
+      if (lk && lk.active) {
+        lockSide = lk.side || null;
+        // Opposite-side lock vs current 1D target → clear, do not show as BROKEN
+        if (dailyWant === 'BUY' && lockSide === 'SELL') {
+          try { if (typeof algoClearTfStructFail === 'function') algoClearTfStructFail(tf, '1D BUY · drop SELL lock (display)'); } catch(eC) {}
+        } else if (dailyWant === 'SELL' && lockSide === 'BUY') {
+          try { if (typeof algoClearTfStructFail === 'function') algoClearTfStructFail(tf, '1D SELL · drop BUY lock (display)'); } catch(eC) {}
+        } else {
+          const relevantBroken = (dailyWant === 'BUY' && (lk.brokenBuy || lockSide === 'BUY')) ||
+            (dailyWant === 'SELL' && (lk.brokenSell || lockSide === 'SELL')) ||
+            (dailyWant === 'NEUTRAL' && (broken || /BROKEN/i.test(String(lk.reason||''))));
+          if (relevantBroken) {
+            lockActive = true;
+            lockWhy = String(lk.reason || 'BROKEN');
+          } else if (!broken) {
+            try { if (typeof algoClearTfStructFail === 'function') algoClearTfStructFail(tf, 'stale soft lock cleared'); } catch(eC) {}
+          }
+        }
       }
     } catch (eLk) {}
 
     const isScalp = (tf==='1m'||tf==='3m'||tf==='5m');
+    // Only the 1D target side's break counts as hard FAIL for this row
+    const stObj = (window.__algoTfStructure && window.__algoTfStructure[tf]) || null;
+    const buyBrk = !!(stObj && stObj.brokenBuy);
+    const sellBrk = !!(stObj && stObj.brokenSell);
+    const relevantStructBroken =
+      (dailyWant === 'BUY' && buyBrk) ||
+      (dailyWant === 'SELL' && sellBrk) ||
+      (dailyWant === 'NEUTRAL' && (buyBrk || sellBrk));
 
-    // 1) True BROKEN → red ✕ FAIL until realign
-    if (lockActive || broken) {
-      const why = (lockWhy || 'STRUCTURE BROKEN').slice(0, 30);
-      return tf.toUpperCase() + ': ✕ BROKEN · ' + why + ' · wait pass' + structTag;
+    // 1) True BROKEN on the 1D target side only → red ✕ FAIL until realign
+    if (lockActive || relevantStructBroken) {
+      const why = (lockWhy || (dailyWant === 'BUY' ? 'BUY structure BROKEN' :
+        (dailyWant === 'SELL' ? 'SELL structure BROKEN' : 'STRUCTURE BROKEN'))).slice(0, 32);
+      return tf.toUpperCase() + ': ✕ BROKEN · ' + why + ' · wait ' + (dailyWant === 'SELL' ? 'LH/LL' : 'HH/HL') + structTag;
+    }
+
+    // Transition info: opposite-side break while hunting 1D side = recovery path, not fail
+    if (dailyWant === 'BUY' && sellBrk && !buyBrk) {
+      return tf.toUpperCase() + ': → BUY hunt' + structTag + ' · was SELL-brk (ok)';
+    }
+    if (dailyWant === 'SELL' && buyBrk && !sellBrk) {
+      return tf.toUpperCase() + ': → SELL hunt' + structTag + ' · was BUY-brk (ok)';
     }
 
     // 2) SIDEWAYS → amber wait (NOT red fail) — especially important on HTF
     if (sideways || structDir === 'SIDEWAYS') {
-      return tf.toUpperCase() + ': … SIDEWAYS' + structTag + (isScalp ? ' · wait' : ' · soft');
+      const hunt = (dailyWant === 'BUY' || dailyWant === 'SELL') ? (' · hunt ' + dailyWant) : '';
+      return tf.toUpperCase() + ': … SIDEWAYS' + structTag + hunt + (isScalp ? ' · wait' : ' · soft');
     }
 
     // 3) Aligned structure
@@ -19112,6 +19218,12 @@ async function algoRunScalperLive() {
 function algoOnLiveTick() {
   const now = Date.now();
   if (algoOnLiveTick._busy) return;
+  // Retarget MTF to current 1D bias every tick (clears opposite SELL/BUY locks on flip)
+  try {
+    if (typeof algoReadDailyBiasDir === 'function' && typeof algoOnDailyBiasChange === 'function') {
+      algoOnDailyBiasChange(algoReadDailyBiasDir());
+    }
+  } catch (eBias) {}
   // OPEN trade MTM + chart HUD
   try {
     const hasOpen = (function () {
