@@ -15426,22 +15426,55 @@ function algoSetScalperMode(mode) {
 function algoHigherTfBias(dir) {
   const src = (state.tf_biases_gold && Object.keys(state.tf_biases_gold || {}).length)
     ? state.tf_biases_gold : (state.tf_biases || {});
-  const read = function (key) {
-    // Prefer live independent structure map when available (true MTF interlink)
+  // 1D MASTER = desk signal + session bias ONLY.
+  // Live 1D pivot structure (LH/LL residual) must NEVER flip the plan to SELL
+  // while SIGNAL: BUY GOLD / 1D BULLISH is on the header.
+  const readDailyMaster = function () {
     try {
-      const live = window.__algoTfStructure && window.__algoTfStructure[key];
-      if (live && live.dir) {
-        if (live.alignedBuy) return 'BUY';
-        if (live.alignedSell) return 'SELL';
-        if (live.dir === 'BUY') return 'BUY';
-        if (live.dir === 'SELL') return 'SELL';
+      const sig = String(state.signal_text || '').toUpperCase();
+      if (sig.indexOf('BUY') >= 0) return 'BUY';
+      if (sig.indexOf('SELL') >= 0) return 'SELL';
+    } catch (e0) {}
+    try {
+      const sc = Number(state.smoothed_score);
+      if (Number.isFinite(sc)) {
+        if (sc > 8) return 'BUY';
+        if (sc < -8) return 'SELL';
       }
-    } catch (e) {}
+    } catch (e1) {}
+    try {
+      const b1 = src['1d'];
+      const t = b1 ? String(b1.text || b1.bias || '').toUpperCase() : '';
+      if (t.indexOf('BULL') >= 0) return 'BUY';
+      if (t.indexOf('BEAR') >= 0) return 'SELL';
+    } catch (e2) {}
+    try {
+      const d = Number(state.gold_pct);
+      if (Number.isFinite(d)) {
+        if (d >= 0.06) return 'BUY';
+        if (d <= -0.06) return 'SELL';
+      }
+    } catch (e3) {}
+    return 'NEUTRAL';
+  };
+  const read = function (key) {
+    // Lower HTFs may use live structure for support/oppose confluence only — not 1D
+    if (key !== '1d') {
+      try {
+        const live = window.__algoTfStructure && window.__algoTfStructure[key];
+        if (live && live.dir) {
+          if (live.alignedBuy) return 'BUY';
+          if (live.alignedSell) return 'SELL';
+          if (live.dir === 'BUY') return 'BUY';
+          if (live.dir === 'SELL') return 'SELL';
+        }
+      } catch (e) {}
+    }
     const b = src[key];
     const t = b ? String(b.text || b.bias || '').toUpperCase() : '';
     return t.indexOf('BULL') >= 0 ? 'BUY' : (t.indexOf('BEAR') >= 0 ? 'SELL' : 'NEUTRAL');
   };
-  const daily = read('1d');
+  const daily = readDailyMaster();
   const fourH = read('4h');
   const hourly = read('1h');
   const m15 = read('15m');
@@ -15455,12 +15488,6 @@ function algoHigherTfBias(dir) {
     support: support, oppose: oppose, hourly: hourly, daily: daily, fourH: fourH, m15: m15, detail: detail };
 }
 
-/** Controlled counter-trend short exception: never overrides 1D casually.
- * Allowed only on 5m/15m when 1D is bullish but BOTH 1H and 4H are bearish,
- * the local candle lean is SELL, the candle is a strong rejection, and the
- * independent confluence score is at least 85/100. The normal resistance /
- * supply-zone sweep and SMC confirmation remain mandatory below.
- */
 function algoCountertrendSellException(tf, local, candle, confSell) {
   const src = (state.tf_biases_gold && Object.keys(state.tf_biases_gold || {}).length)
     ? state.tf_biases_gold : (state.tf_biases || {});
@@ -15658,11 +15685,19 @@ window.__algoScalpStructLock = window.__algoTfStructLock;
 window.__algoLastDailyBias = window.__algoLastDailyBias || null;
 
 function algoReadDailyBiasDir() {
+  // Single source of truth: plan BUY or SELL for every TF scanner
   try {
-    const b = algoHigherTfBias('BUY');
-    if (b && b.daily === 'BUY') return 'BUY';
-    if (b && b.daily === 'SELL') return 'SELL';
-  } catch (e) {}
+    const sig = String(state.signal_text || '').toUpperCase();
+    if (sig.indexOf('BUY') >= 0) return 'BUY';
+    if (sig.indexOf('SELL') >= 0) return 'SELL';
+  } catch (e0) {}
+  try {
+    const sc = Number(state.smoothed_score);
+    if (Number.isFinite(sc)) {
+      if (sc > 8) return 'BUY';
+      if (sc < -8) return 'SELL';
+    }
+  } catch (e1) {}
   try {
     const src = (state.tf_biases_gold && Object.keys(state.tf_biases_gold || {}).length)
       ? state.tf_biases_gold : (state.tf_biases || {});
@@ -15670,6 +15705,13 @@ function algoReadDailyBiasDir() {
     if (t.indexOf('BULL') >= 0) return 'BUY';
     if (t.indexOf('BEAR') >= 0) return 'SELL';
   } catch (e2) {}
+  try {
+    const d = Number(state.gold_pct);
+    if (Number.isFinite(d)) {
+      if (d >= 0.06) return 'BUY';
+      if (d <= -0.06) return 'SELL';
+    }
+  } catch (e3) {}
   return 'NEUTRAL';
 }
 
@@ -16469,10 +16511,16 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   // structure must follow 1D; broken structure waits for realignment (no reverse).
   const gateBuy = algoStructureGate('BUY', data, i, tf, mode);
   const gateSell = algoStructureGate('SELL', data, i, tf, mode);
-  const buyBiasOk = buyBias.ok;
-  const sellBiasOk = sellBias.ok;
-  const buyDirOk = !!gateBuy.ok;
-  const sellDirOk = !!gateSell.ok;
+  // HARD plan from 1D master (signal / desk / session) — never hunt the opposite side
+  let dailyPlan = 'NEUTRAL';
+  try {
+    dailyPlan = (typeof algoReadDailyBiasDir === 'function') ? algoReadDailyBiasDir() : (buyBias.daily || 'NEUTRAL');
+  } catch (eP) { dailyPlan = buyBias.daily || 'NEUTRAL'; }
+  const buyBiasOk = (dailyPlan === 'BUY') || buyBias.ok;
+  const sellBiasOk = (dailyPlan === 'SELL') || sellBias.ok;
+  // Only evaluate the 1D plan side for live entries
+  const buyDirOk = (dailyPlan === 'BUY') && !!gateBuy.ok;
+  const sellDirOk = (dailyPlan === 'SELL') && !!gateSell.ok;
   const counterSell = { ok: false, reason: 'disabled — structure must follow 1D bias only' };
   const liveSellAllowed = sellDirOk;
   const tfStruct = gateBuy.struct || gateSell.struct || algoTfStructure(data, i, tf);
@@ -18010,7 +18058,10 @@ function algoRenderDecisionAudit(candles, tf, lines, demand, supply, actualFound
   let atrSum = 0; for (let k=Math.max(0,i-13); k<=i; k++) atrSum += Math.max(.01,candles[k].h-candles[k].l);
   const atr = Math.max(1, atrSum / Math.min(14,i+1));
   const buyBias=algoHigherTfBias('BUY'), sellBias=algoHigherTfBias('SELL');
-  const sides = buyBias.ok ? ['BUY'] : (sellBias.ok ? ['SELL'] : ['BUY','SELL']);
+  let dailyPlanAudit = 'NEUTRAL';
+  try { dailyPlanAudit = (typeof algoReadDailyBiasDir === 'function') ? algoReadDailyBiasDir() : (buyBias.daily || 'NEUTRAL'); } catch (eA) {}
+  // Audit + decision rows follow 1D plan only (BUY plan → BUY gates; SELL plan → SELL gates)
+  const sides = dailyPlanAudit === 'BUY' ? ['BUY'] : (dailyPlanAudit === 'SELL' ? ['SELL'] : (buyBias.ok ? ['BUY'] : (sellBias.ok ? ['SELL'] : [])));
   const rows=[]; let selected=null; const sideDecisions=[];
   function add(label, ok, detail, optional) { rows.push({label,ok,detail,optional:!!optional}); }
   sides.forEach(side=>{
@@ -19465,9 +19516,13 @@ function algoEvaluateGates() {
   } catch (e) { structLabel = 'SMC —'; }
   gates.push({ id: 'SMC', ok: structOk, label: structLabel });
 
-  // Side lean summary
+  // Side lean summary — always follow 1D plan first
   let lean = 'WAIT';
-  if (buyB.ok && deskBuy) lean = 'BUY';
+  let plan = 'NEUTRAL';
+  try { plan = (typeof algoReadDailyBiasDir === 'function') ? algoReadDailyBiasDir() : (buyB.daily || 'NEUTRAL'); } catch (eL) {}
+  if (plan === 'BUY') lean = deskBuy || desk >= 0 ? 'BUY' : 'BUY?';
+  else if (plan === 'SELL') lean = deskSell || desk <= 0 ? 'SELL' : 'SELL?';
+  else if (buyB.ok && deskBuy) lean = 'BUY';
   else if (sellB.ok && deskSell) lean = 'SELL';
   else if (buyB.ok) lean = 'BUY?';
   else if (sellB.ok) lean = 'SELL?';
