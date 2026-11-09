@@ -16384,11 +16384,10 @@ function algoSMCStructureConfirm(data, i, side, atr, demand, supply, tf) {
   for (let k = start; k <= i; k++) { hi = Math.max(hi, data[k].h); lo = Math.min(lo, data[k].l); }
   if (!(hi > lo)) return { ok: false, reason: 'range unavailable' };
   const pos = (c.c - lo) / (hi - lo);
-  // Scalp 1m/3m/5m: STRICT — BUY only true discount (lower ~40%), SELL only true premium (upper ~40%).
-  // Never buy mid/premium; never sell mid/discount. Prevents wrong-area scalp entries.
+  // Scalp: BUY lower ~55%, SELL upper ~55% (was 42/58 — too tight after fast 1m swings).
   if (isScalp) {
-    if (side === 'BUY' && pos > 0.42) return { ok: false, reason: 'scalp BUY blocked — not in discount zone (pos ' + (pos * 100).toFixed(0) + '% · need ≤42%)' };
-    if (side === 'SELL' && pos < 0.58) return { ok: false, reason: 'scalp SELL blocked — not in premium/resistance zone (pos ' + (pos * 100).toFixed(0) + '% · need ≥58%)' };
+    if (side === 'BUY' && pos > 0.55) return { ok: false, reason: 'scalp BUY blocked — not in discount zone (pos ' + (pos * 100).toFixed(0) + '% · need ≤55%)' };
+    if (side === 'SELL' && pos < 0.45) return { ok: false, reason: 'scalp SELL blocked — not in premium/resistance zone (pos ' + (pos * 100).toFixed(0) + '% · need ≥45%)' };
   } else {
     if (side === 'BUY' && pos > 0.52) return { ok: false, reason: 'not in discount/equilibrium' };
     if (side === 'SELL' && pos < 0.48) return { ok: false, reason: 'not in premium/equilibrium' };
@@ -16404,11 +16403,18 @@ function algoSMCStructureConfirm(data, i, side, atr, demand, supply, tf) {
 
   if (isScalp) {
     // Same-bar liquidity grab: wick takes prior swing, close reclaims
-    const tol = Math.max((atr || 1) * 0.15, 0.3);
+    const tol = Math.max((atr || 1) * 0.22, 0.35);
     if (side === 'BUY') {
       const grabbed = c.l <= swingLo + tol;
       const reclaimed = c.c > Math.min(c.o, swingLo + tol * 0.5);
       if (grabbed && reclaimed) return { ok: true, reason: 'scalp swing-low sweep + reclaim' };
+      // Rejection candle itself with lower wick near swing counts (1m micro-structure)
+      const range = Math.max(1e-9, c.h - c.l);
+      const lower = Math.min(c.o, c.c) - c.l;
+      if (lower / range >= 0.15 && (c.c - c.l) / range >= 0.38 &&
+          c.l <= swingLo + tol * 1.5) {
+        return { ok: true, reason: 'scalp rejection near swing-low' };
+      }
       // Prior 1–3 bars sweep also OK if this bar is still a rejection close
       for (let j = Math.max(1, i - 3); j <= i; j++) {
         const a = data[j];
@@ -16618,30 +16624,32 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
 
   // ========== BULL → BUY only at UPWARD SUPPORT (teal) / discount ==========
   // RULE: rejection candle ONLY · wick must SWEEP the zone · never random mid-range
-  // NEVER buy on red resistance, supply OBs, or FALLING support trendlines
-  // If the nearest support line is falling, block every BUY path on this bar (TL + OB + swing).
+  // NEVER buy on red resistance / supply OBs.
+  // Falling nearest ray blocks TL path only — NOT swing-low or demand-OB paths.
+  // (After a dump, a falling ray near price used to zero ALL scalp buys even at true support.)
   const nearestSup = algoNearestSupport(lines, c, i, atr);
   const nearestSupFalling = !!(nearestSup && Number.isFinite(nearestSup.slope) && nearestSup.slope < 0 && nearestSup.dist <= atr * 4);
-  if (buyDirOk && !nearestSupFalling && algoIsRejection(c, 'BUY', isScalpBar ? 'scalp' : '') && confBuy.ok) {
+  if (buyDirOk && algoIsRejection(c, 'BUY', isScalpBar ? 'scalp' : '') && confBuy.ok) {
     let tookBuy = false;
-    // Scalp (1m/3m/5m): min 3-touch TL. Hold (15m+): min 2-touch TL.
-    const minTLTouchesBuy = isScalpBar ? 3 : 2;
+    // Scalp: 2-touch TL is enough when 1D plan is BUY + structure aligned (was 3 → missed real supports).
+    // Hold (15m+): still min 2-touch.
+    const minTLTouchesBuy = 2;
     for (let li = 0; li < lines.length; li++) {
       const l = lines[li];
       if (!l || l.type !== 'sup') continue; // teal support ONLY
       const touches = (l.touches && l.touches.length) || (l.touchCount || 0);
       if (touches < minTLTouchesBuy) continue; // structure not validated
       const tIdx = (l.touches || []).map(function (t) { return t.i; }).sort(function (a, b) { return a - b; });
-      // Scalp: require 3rd touch bar or later. Hold: allow 2nd-touch with high rejection.
-      const gateTouchI = isScalpBar
-        ? (tIdx.length >= 3 ? tIdx[2] : -1)
-        : (tIdx.length >= 2 ? tIdx[1] : -1);
+      // Scalp + hold: allow from 2nd validated touch (was scalp 3rd-only → blocked 1m buys).
+      const gateTouchI = (tIdx.length >= 2) ? tIdx[1] : -1;
       if (gateTouchI >= 0 && i < gateTouchI) continue;
       const needHighBuy = (!isScalpBar && gateTouchI >= 0 && i === gateTouchI);
       if (needHighBuy && !algoIsRejection(c, 'BUY', 'high')) continue;
       if (!algoNearLine(c, l, i, atr)) continue;
-      // BUY only on STRICT upward support (higher-lows). Flat/falling support = no BUY.
-      if (!algoIsUpwardSupport(l)) continue;
+      // TL path: rising or flat-ish support only (strict rising preferred)
+      const slopeTL = algoLineSlope(l);
+      if (!(Number.isFinite(slopeTL) && slopeTL >= -1e-6)) continue; // falling TL = no BUY on this ray
+      if (nearestSupFalling && nearestSup && nearestSup.line === l) continue;
       const slope = algoLineSlope(l);
       const px = l.y1 + slope * (i - l.x1);
       const mid = (c.h + c.l) / 2;
@@ -16697,27 +16705,33 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
     }
   }
 
-  // —— SCALP swing-zone BUY: ONLY at support / discount + never when nearest TL support is falling ——
-  if (isScalpBar && buyDirOk && !nearestSupFalling && !out.length && algoIsRejection(c, 'BUY', 'scalp') && confBuy.ok) {
+  // —— SCALP swing-zone BUY: rejection at recent swing low / discount (independent of falling TL ray) ——
+  if (isScalpBar && buyDirOk && !out.length && algoIsRejection(c, 'BUY', 'scalp') && confBuy.ok) {
     let swingLo = Infinity;
     const sn = Math.min(12, i);
     for (let k = i - sn; k < i; k++) if (k >= 0) swingLo = Math.min(swingLo, Number(data[k].l));
     if (Number.isFinite(swingLo) && swingLo > 0) {
       const mid = (c.h + c.l) / 2;
       const rng = algoRecentRange(data, i, 24);
-      // Discount filter: swing + close must be in lower half of recent range
+      // Scalp discount: lower ~55% of recent range (was 42% — blocked many valid 1m reclaims)
       let inDiscount = true;
       if (rng && rng.hi > rng.lo) {
         const posClose = (c.c - rng.lo) / (rng.hi - rng.lo);
         const posSwing = (swingLo - rng.lo) / (rng.hi - rng.lo);
-        inDiscount = (posClose <= 0.42 && posSwing <= 0.40);
+        inDiscount = (posClose <= 0.55 && posSwing <= 0.52);
       }
-      // Swing must sit in lower half of rejection bar AND in discount zone
-      if (inDiscount && swingLo <= mid + atr * 0.25 && algoWickSweepsZone(c, 'BUY', swingLo, atr)) {
+      // Wick must engage the swing low (sweep or touch within ATR band)
+      const sweeps = algoWickSweepsZone(c, 'BUY', swingLo, atr) ||
+        (Number(c.l) <= swingLo + Math.max(atr * 0.35, 0.4) && Number(c.c) > swingLo);
+      if (inDiscount && swingLo <= mid + atr * 0.35 && sweeps) {
         const smcBuy = algoSMCStructureConfirm(data, i, 'BUY', atr, demand, supply, tf);
-        if (smcBuy.ok) {
+        // If SMC only failed on tight discount %, still allow when structure+rejection+sweep clear
+        const smcOk = smcBuy.ok || (String(smcBuy.reason || '').indexOf('not in discount') >= 0 &&
+          inDiscount && algoIsRejection(c, 'BUY', 'scalp'));
+        if (smcOk) {
           pushTrade('BUY',
-            'BUY @ SCALP SUPPORT/DISCOUNT · swing low · SMC ' + smcBuy.reason + ' · rejection sweep · vol ' + vm.ratio.toFixed(2) + '× · desk ' +
+            'BUY @ SCALP SUPPORT/DISCOUNT · swing low · ' + (smcBuy.ok ? ('SMC ' + smcBuy.reason) : 'rejection+sweep (scalp)') +
+            ' · vol ' + vm.ratio.toFixed(2) + '× · desk ' +
             deskLive.toFixed(1) + ' · 1D bull ' + buyBias.count + '/' + buyBias.n,
             swingLo, 'SCALP_SUPPORT_DISCOUNT');
           if (out.length) out[out.length - 1].reason += ' · conf ' + confBuy.score + '/100 · ' + confBuy.bits;
@@ -16727,13 +16741,67 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
     }
   }
 
+  // —— SCALPER FAST BUY (1m/3m): structure BUY + rejection + near support/swing ——
+  // Does not require 3-touch TL or perfect SMC CHoCH — those were zeroing real scalp setups.
+  if (isScalpBar && buyDirOk && !out.length && confBuy.ok && algoIsRejection(c, 'BUY', 'scalp')) {
+    try {
+      const tfK = String(tf || '').toLowerCase();
+      const isFast = (tfK === '1m' || tfK === '3m');
+      if (isFast) {
+        let zonePx = null, zoneKind = 'SCALP_FAST_SUPPORT';
+        let swingLo = Infinity;
+        for (let k = Math.max(0, i - 10); k < i; k++) swingLo = Math.min(swingLo, Number(data[k].l));
+        // Prefer nearest rising/flat support line within ATR band
+        for (let li = 0; li < lines.length && zonePx == null; li++) {
+          const l = lines[li];
+          if (!l || l.type !== 'sup') continue;
+          const touches = (l.touches && l.touches.length) || (l.touchCount || 0);
+          if (touches < 1) continue;
+          const slope = algoLineSlope(l);
+          if (!(Number.isFinite(slope) && slope >= -1e-5)) continue;
+          const px = Number(l.y1) + slope * (i - Number(l.x1));
+          if (!(px > 0)) continue;
+          if (Math.abs(((c.h + c.l) / 2) - px) > atr * 3.5) continue;
+          if (Number(c.l) <= px + Math.max(atr * 0.5, 0.5) && Number(c.c) >= px - atr * 0.15) {
+            zonePx = px; zoneKind = 'SCALP_FAST_TL';
+          }
+        }
+        // Fallback: recent swing low if wick engaged it
+        if (zonePx == null && Number.isFinite(swingLo) && swingLo > 0) {
+          if (Number(c.l) <= swingLo + Math.max(atr * 0.45, 0.5) && Number(c.c) > swingLo - atr * 0.1) {
+            zonePx = swingLo; zoneKind = 'SCALP_FAST_SWING';
+          }
+        }
+        // Fallback: demand OB mid if price wicked into block
+        if (zonePx == null && Array.isArray(demand)) {
+          for (let oi = 0; oi < demand.length; oi++) {
+            const ob = demand[oi];
+            if (!ob || ob.bottom == null || ob.top == null) continue;
+            if (Number(c.l) <= Number(ob.top) + atr * 0.25 && Number(c.c) >= Number(ob.bottom) - atr * 0.1) {
+              zonePx = (Number(ob.top) + Number(ob.bottom)) / 2;
+              zoneKind = 'SCALP_FAST_OB';
+              break;
+            }
+          }
+        }
+        if (zonePx != null && zonePx > 0) {
+          pushTrade('BUY',
+            'BUY @ SCALP FAST · ' + zoneKind + ' · 1m/3m structure+rejection · desk ' +
+            deskLive.toFixed(1) + ' · conf ' + confBuy.score + '/100',
+            zonePx, zoneKind);
+          if (out.length) out[out.length - 1].conf = confBuy.score;
+        }
+      }
+    } catch (eFast) {}
+  }
+
   // ========== BEAR → SELL only at RESISTANCE (red lines / supply OB) ==========
   // RULE: rejection candle ONLY · wick must SWEEP the zone · never random mid-range
   // NEVER sell on teal/blue support lines or demand OBs
   if (liveSellAllowed && algoIsRejection(c, 'SELL', isScalpBar ? 'scalp' : '') && confSell.ok && !out.some(function (t) { return t.side === 'BUY'; })) {
     let tookSell = false;
-    // Scalp: min 3-touch resistance TL. Hold: min 2-touch.
-    const minTLTouchesSell = isScalpBar ? 3 : 2;
+    // Scalp + hold: min 2-touch resistance TL (was scalp 3 — blocked valid 1m tops).
+    const minTLTouchesSell = 2;
     for (let li = 0; li < lines.length; li++) {
       const l = lines[li];
       if (!l || l.type !== 'res') continue; // red resistance ONLY
@@ -19104,6 +19172,11 @@ async function algoLiveScanOneTf(tf, candlesPrefer) {
   // History → CANDLE CLOSING is OFF. When ON, trade decision waits for candle
   // close before any live entry is initiated / punched to MT5.
   const waitClose = !(algoState && algoState.waitCandleClose === false);
+  // BUG FIX: 1m/3m scalping must evaluate the forming bar even when "candle close" is ON.
+  // Otherwise rejection-at-support is visible on chart but never scanned until too late.
+  const scalperTfLive = !!(ALGO_SCALPER_TFS && ALGO_SCALPER_TFS[String(tf || '').toLowerCase()] &&
+    typeof algoIsAllowedTf === 'function' && algoIsAllowedTf(tf));
+  const allowIntrabar = (!waitClose) || scalperTfLive;
   let foundClosed = [], foundIntrabar = [];
   try {
     window.__algoLiveScanStage = 'scan confirmed candles ' + tf;
@@ -19115,9 +19188,9 @@ async function algoLiveScanOneTf(tf, candlesPrefer) {
       ['Confirmed candle evaluation exception: ' + msg], []); } catch (_) {}
     console.error('[GP Algo] confirmed candle scan failed', tf, eClosed);
   }
-  if (!waitClose) {
+  if (allowIntrabar) {
     try {
-      window.__algoLiveScanStage = 'scan forming candle ' + tf;
+      window.__algoLiveScanStage = 'scan forming candle ' + tf + (scalperTfLive ? ' (scalper)' : '');
       foundIntrabar = algoScanSignals(candles, tf, 'LIVE_INTRABAR', scanStructure) || [];
     } catch (eForming) {
       const msg = String(eForming && eForming.message ? eForming.message : eForming);
