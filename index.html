@@ -15835,93 +15835,162 @@ function algoUpdateMssState(tf, struct, barIndex, price) {
   // Per-TF only — never read/write another timeframe's MSS
   const prev = window.__algoMssState[tf] || {
     mssActive: false, waitStructure: false, allowedSide: null,
-    lastMss: null, events: [], lastDir: '', armedForBreak: true
+    lastMss: null, events: [], lastDir: '', lastAligned: '',
+    armedForBreak: true, validSide: null
   };
   const brokenBuy = !!struct.brokenBuy;
   const brokenSell = !!struct.brokenSell;
+  const structureFail = struct.structureFail || (brokenBuy ? 'BUY' : (brokenSell ? 'SELL' : null));
   const dir = String(struct.dir || '').toUpperCase();
   const alignedBuy = !!struct.alignedBuy;
   const alignedSell = !!struct.alignedSell;
+  const hh = !!struct.hh, hl = !!struct.hl, lh = !!struct.lh, ll = !!struct.ll;
   let waitStructure = !!prev.waitStructure;
   let allowedSide = prev.allowedSide || null;
   let mssActive = !!prev.mssActive;
   let lastMss = prev.lastMss || null;
   let events = Array.isArray(prev.events) ? prev.events.slice() : [];
-  // Re-arm after a clean structure cycle so THIS TF can fire the next MSS independently
+  let validSide = prev.validSide || null; // last confirmed valid structure side on THIS TF
   let armedForBreak = (prev.armedForBreak !== false);
-  if (!mssActive && !waitStructure && (alignedBuy || alignedSell) && !brokenBuy && !brokenSell) {
+  const prevDir = String(prev.lastDir || '').toUpperCase();
+
+  // Track last confirmed VALID structure on this TF
+  if (alignedBuy && dir === 'BUY' && !brokenBuy) validSide = 'BUY';
+  if (alignedSell && dir === 'SELL' && !brokenSell) validSide = 'SELL';
+
+  // Re-arm when we hold a clean valid structure
+  if (!mssActive && !waitStructure && validSide && !brokenBuy && !brokenSell) {
     armedForBreak = true;
   }
-  // Detect a NEW MSS only for this TF when armed
+
+  // —— MSS triggers (THIS TF only) ——
+  // 1) Valid structure FAIL (brokenBuy / brokenSell / structureFail)
+  // 2) Direction flip BUY↔SELL on live structure scan
+  // 3) Break while already scalping the opposite side
   let mss = null;
-  if (armedForBreak) {
-    if (brokenBuy && (!lastMss || lastMss.side !== 'SELL' || !mssActive)) {
-      mss = {
-        side: 'SELL', from: 'BUY', tf: tf,
-        reason: 'MSS ' + tf.toUpperCase() + ' BUY→SELL (HH/HL broken)',
-        at: Date.now(), barIndex: barIndex, price: price, id: tf + '-mss-' + Date.now()
-      };
-    } else if (brokenSell && (!lastMss || lastMss.side !== 'BUY' || !mssActive)) {
-      mss = {
-        side: 'BUY', from: 'SELL', tf: tf,
-        reason: 'MSS ' + tf.toUpperCase() + ' SELL→BUY (LH/LL broken)',
-        at: Date.now(), barIndex: barIndex, price: price, id: tf + '-mss-' + Date.now()
-      };
+  const breakIdx = (struct.breakBarIndex != null && struct.breakBarIndex >= 0)
+    ? Number(struct.breakBarIndex) : barIndex;
+  const breakPx = (struct.breakPrice != null && Number(struct.breakPrice) > 0)
+    ? Number(struct.breakPrice) : price;
+
+  function makeMss(side, from, why) {
+    return {
+      side: side, from: from, tf: tf,
+      reason: 'MSS ' + tf.toUpperCase() + ' ' + from + '→' + side + ' · ' + why,
+      at: Date.now(),
+      barIndex: breakIdx,
+      price: breakPx,
+      id: tf + '-mss-' + breakIdx + '-' + Date.now()
+    };
+  }
+
+  if (armedForBreak || (mssActive && allowedSide)) {
+    // Structure FAIL of a previously valid side
+    if ((structureFail === 'BUY' || brokenBuy) && (validSide === 'BUY' || prevDir === 'BUY' || allowedSide === 'BUY' || (!mssActive && armedForBreak))) {
+      if (!lastMss || lastMss.side !== 'SELL' || !mssActive || allowedSide === 'BUY') {
+        mss = makeMss('SELL', 'BUY', 'valid BUY structure FAILED');
+      }
+    } else if ((structureFail === 'SELL' || brokenSell) && (validSide === 'SELL' || prevDir === 'SELL' || allowedSide === 'SELL' || (!mssActive && armedForBreak))) {
+      if (!lastMss || lastMss.side !== 'BUY' || !mssActive || allowedSide === 'SELL') {
+        mss = makeMss('BUY', 'SELL', 'valid SELL structure FAILED');
+      }
+    }
+    // Live dir flip even without classic broken flags
+    if (!mss && prevDir === 'BUY' && dir === 'SELL' && !alignedBuy) {
+      mss = makeMss('SELL', 'BUY', 'live structure flipped BUY→SELL');
+    } else if (!mss && prevDir === 'SELL' && dir === 'BUY' && !alignedSell) {
+      mss = makeMss('BUY', 'SELL', 'live structure flipped SELL→BUY');
     }
   }
-  // Also: if currently scalping one side and opposite break appears on THIS TF → new MSS
-  if (!mss && mssActive && !waitStructure && allowedSide) {
-    if (allowedSide === 'BUY' && brokenBuy) {
-      mss = {
-        side: 'SELL', from: 'BUY', tf: tf,
-        reason: 'MSS ' + tf.toUpperCase() + ' BUY→SELL (structure break while long bias)',
-        at: Date.now(), barIndex: barIndex, price: price, id: tf + '-mss-' + Date.now()
-      };
-    } else if (allowedSide === 'SELL' && brokenSell) {
-      mss = {
-        side: 'BUY', from: 'SELL', tf: tf,
-        reason: 'MSS ' + tf.toUpperCase() + ' SELL→BUY (structure break while short bias)',
-        at: Date.now(), barIndex: barIndex, price: price, id: tf + '-mss-' + Date.now()
-      };
-    }
-  }
+
   if (mss) {
-    mssActive = true;
-    waitStructure = true;
-    allowedSide = null;
-    armedForBreak = false;
-    lastMss = mss;
-    events.push(mss);
-    if (events.length > 12) events = events.slice(-12); // keep last 12 MSS for this TF only
-    try { console.log('[GP Algo] MSS', tf, mss.reason); } catch (e) {}
-  }
-  // Unlock after FIRST structure on the NEW side — still this TF only
-  if (mssActive && waitStructure) {
-    const target = (lastMss && lastMss.side) || null;
-    if (target === 'BUY' && alignedBuy && dir === 'BUY' && !brokenBuy) {
-      waitStructure = false;
-      allowedSide = 'BUY';
-      try { console.log('[GP Algo] MSS', tf, 'first structure BUY unlocked'); } catch (e) {}
-    } else if (target === 'SELL' && alignedSell && dir === 'SELL' && !brokenSell) {
-      waitStructure = false;
-      allowedSide = 'SELL';
-      try { console.log('[GP Algo] MSS', tf, 'first structure SELL unlocked'); } catch (e) {}
+    // Avoid duplicate marks on same break bar for this TF
+    const dup = events.some(function (e) {
+      return e && e.tf === tf && e.side === mss.side &&
+        Number(e.barIndex) === Number(mss.barIndex) &&
+        Math.abs((Number(e.at) || 0) - (Number(mss.at) || 0)) < 120000;
+    });
+    if (!dup) {
+      mssActive = true;
+      waitStructure = true;
+      allowedSide = null;
+      armedForBreak = false;
+      lastMss = mss;
+      events.push(mss);
+      if (events.length > 16) events = events.slice(-16);
+      try { console.log('[GP Algo] MSS', tf, mss.reason, 'bar', mss.barIndex); } catch (e) {}
     }
   }
+
+  // —— Unlock: first structure on the NEW side (THIS TF) ——
+  // After MSS, do not stay stuck on WAIT. Valid structure FAIL already chose the side;
+  // first LH/LL (or HH/HL) OR continued broken flag unlocks scalping that side.
+  if (mssActive && waitStructure && lastMss) {
+    const target = String(lastMss.side || '').toUpperCase();
+    const barsSince = (barIndex != null && lastMss.barIndex != null)
+      ? (Number(barIndex) - Number(lastMss.barIndex)) : 99;
+    if (target === 'BUY') {
+      const buyReady =
+        (alignedBuy && !brokenBuy) ||
+        (dir === 'BUY' && !brokenBuy) ||
+        (hh && hl && !brokenBuy) ||
+        (hh && !ll && !brokenBuy) ||
+        (brokenSell && barsSince >= 1) ||
+        (structureFail === 'SELL' && barsSince >= 1);
+      if (buyReady) {
+        waitStructure = false;
+        allowedSide = 'BUY';
+        validSide = 'BUY';
+        try { console.log('[GP Algo] MSS', tf, 'first structure BUY unlocked', struct.detail); } catch (e) {}
+      }
+    } else if (target === 'SELL') {
+      const sellReady =
+        (alignedSell && !brokenSell) ||
+        (dir === 'SELL' && !brokenSell) ||
+        (lh && ll && !brokenSell) ||
+        (lh && !hh && !brokenSell) ||
+        (ll && !hh && !brokenSell) ||
+        // BUY structure failed → treat as SELL bias once at least 1 bar past the break
+        (brokenBuy && barsSince >= 1) ||
+        (structureFail === 'BUY' && barsSince >= 1) ||
+        // Lower-high pressure after MSS even if recovery flags force SIDEWAYS
+        (lh && barsSince >= 2 && !alignedBuy);
+      if (sellReady) {
+        waitStructure = false;
+        allowedSide = 'SELL';
+        validSide = 'SELL';
+        try { console.log('[GP Algo] MSS', tf, 'first structure SELL unlocked', struct.detail); } catch (e) {}
+      }
+    }
+  }
+
+  // If unlocked and structure stays valid, keep allowedSide
+  if (mssActive && !waitStructure && allowedSide) {
+    if (allowedSide === 'BUY' && brokenBuy) {
+      // will form new MSS on next pass
+    } else if (allowedSide === 'SELL' && brokenSell) {
+      // will form new MSS on next pass
+    }
+  }
+
   const st = {
-    tf: tf, // explicit TF tag
+    tf: tf,
     mssActive: mssActive,
     waitStructure: waitStructure,
     allowedSide: allowedSide,
     lastMss: lastMss,
     events: events,
     dir: dir,
+    lastDir: dir,
+    validSide: validSide,
     brokenBuy: brokenBuy,
     brokenSell: brokenSell,
+    structureFail: structureFail,
     armedForBreak: armedForBreak,
+    detail: struct.detail || '',
     updatedAt: Date.now()
   };
-  window.__algoMssState[tf] = st; // isolated key = this TF only
+  window.__algoMssState[tf] = st;
   return st;
 }
 
@@ -16194,6 +16263,28 @@ function algoTfStructure(data, i, tf) {
     (buyRecovery ? (liqGrabBuy ? ' · LONG-RECOVERY/LIQ-GRAB' : ' · LONG-RECOVERY') : '') +
     (compressed ? ' · compressed' : '');
 
+  // Where the structure FAIL happened (for MSS chart mark on the correct bar)
+  let breakBarIndex = -1, breakPrice = null, structureFail = null;
+  if (brokenBuy && l1) {
+    breakBarIndex = Number(l1.i);
+    breakPrice = Number(l1.p);
+    structureFail = 'BUY'; // valid BUY structure failed → MSS toward SELL
+  } else if (brokenSell && h1) {
+    breakBarIndex = Number(h1.i);
+    breakPrice = Number(h1.p);
+    structureFail = 'SELL'; // valid SELL structure failed → MSS toward BUY
+  } else if (brokenBuy) {
+    breakBarIndex = i;
+    breakPrice = data[i] ? Number(data[i].l) : null;
+    structureFail = 'BUY';
+  } else if (brokenSell) {
+    breakBarIndex = i;
+    breakPrice = data[i] ? Number(data[i].h) : null;
+    structureFail = 'SELL';
+  }
+  // Soft structure fail for scalp: was HH/HL path then lost it without classic broken flag
+  // (covered via dir transition in MSS state machine)
+
   const result = {
     dir: dir,
     alignedBuy: alignedBuy,
@@ -16201,6 +16292,9 @@ function algoTfStructure(data, i, tf) {
     sideways: sideways,
     brokenBuy: brokenBuy,
     brokenSell: brokenSell,
+    structureFail: structureFail,
+    breakBarIndex: breakBarIndex,
+    breakPrice: breakPrice,
     sellRecovery: sellRecovery,
     buyRecovery: buyRecovery,
     liqGrabSell: liqGrabSell,
@@ -16732,7 +16826,9 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   // Update MSS state for this TF (detect shift, wait for first structure)
   let mssSt = null;
   try {
-    mssSt = algoUpdateMssState(tf, tfStruct, i, Number(c.c));
+    mssSt = algoUpdateMssState(tf, tfStruct,
+      (tfStruct.breakBarIndex != null && tfStruct.breakBarIndex >= 0) ? tfStruct.breakBarIndex : i,
+      (tfStruct.breakPrice != null) ? tfStruct.breakPrice : Number(c.c));
   } catch (eMss) {}
   const sidewaysMarket = !!(tfStruct && (tfStruct.sideways || structDir === 'SIDEWAYS' || structDir === 'NEUTRAL' || structDir === ''));
   // BUY blocked in falling market. Micro needs local BUY structure.
@@ -19510,7 +19606,9 @@ async function algoLiveScanOneTf(tf, candlesPrefer) {
       window.__algoTfStructure = window.__algoTfStructure || {};
       window.__algoTfStructure[String(tf).toLowerCase()] = liveStruct;
       if (typeof algoUpdateMssState === 'function') {
-        algoUpdateMssState(String(tf).toLowerCase(), liveStruct, iLast, Number(candles[iLast].c));
+        algoUpdateMssState(String(tf).toLowerCase(), liveStruct,
+          (liveStruct.breakBarIndex != null && liveStruct.breakBarIndex >= 0) ? liveStruct.breakBarIndex : iLast,
+          (liveStruct.breakPrice != null) ? liveStruct.breakPrice : Number(candles[iLast].c));
       }
     }
   } catch (eLiveStruct) {}
