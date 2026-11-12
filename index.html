@@ -4106,9 +4106,9 @@ canvas#tvCanvas {
           <span style="font-weight:500;color:#64748b;font-size:10px">LIVE is primary · BACKTEST is separate simulation · tap trade → plot on chart</span>
           <label for="algoScalperMode" style="font-size:10px;font-weight:700;color:#93c5fd">SCALPER MODE</label>
           <select id="algoScalperMode" onchange="algoSetScalperMode(this.value)" style="font-size:11px;font-weight:700;padding:6px 8px;border-radius:8px;border:1px solid #31506f;background:#101a29;color:#dbeafe;cursor:pointer">
-            <option value="OFF">OFF</option><option value="1m">1 MIN</option><option value="3m">3 MIN</option><option value="BOTH">BOTH</option>
+            <option value="BOTH" selected>BOTH</option><option value="1m">1 MIN</option><option value="3m">3 MIN</option><option value="OFF">OFF</option>
           </select>
-          <span id="algoScalperStatus" style="font-size:10px;color:#64748b">scalper: off</span>
+          <span id="algoScalperStatus" style="font-size:10px;color:#64748b">scalper: 1m + 3m</span>
           <label for="algoWaitCloseMode" style="font-size:10px;font-weight:700;color:#86efac">CANDLE CLOSING</label>
           <select id="algoWaitCloseMode" onchange="algoSetWaitCandleClose(this.value==='ON')" title="ON = wait for candle close before trade · OFF = punch when all rules pass on forming bar" style="font-size:11px;font-weight:700;padding:6px 8px;border-radius:8px;border:1px solid #31506f;background:#101a29;color:#dbeafe;cursor:pointer">
             <option value="ON">ON · wait close</option>
@@ -15367,7 +15367,7 @@ function algoLoadState() {
 function algoPersistState() {
   try {
     localStorage.setItem(ALGO_STATE_KEY, JSON.stringify({
-      tf: algoState.tf, armed: algoState.armed, scalperMode: algoState.scalperMode || 'OFF',
+      tf: algoState.tf, armed: algoState.armed, scalperMode: algoState.scalperMode || 'BOTH',
       waitCandleClose: !!algoState.waitCandleClose
     }));
   } catch (e) {}
@@ -15825,10 +15825,33 @@ function algoClearScalpStructFail(tf, reason) {
 
 /** MSS (Market Structure Shift) — INDEPENDENT state per timeframe (1m, 3m, 5m, 15m…).
  *  Each TF only uses its own candles / structure. Never shares MSS with another TF.
+ *  lastMss is persisted so BUY→SELL sticky lock survives page reload.
  */
 function algoGetMssState(tf) {
   tf = String(tf || '').toLowerCase();
   window.__algoMssState = window.__algoMssState || {};
+  if (!window.__algoMssState[tf]) {
+    // Restore sticky lastMss from localStorage if memory is empty (reload case)
+    try {
+      const raw = localStorage.getItem('gp_mss_last_' + tf);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && (parsed.side === 'BUY' || parsed.side === 'SELL')) {
+          window.__algoMssState[tf] = {
+            mssActive: true,
+            waitStructure: false,
+            allowedSide: parsed.side,
+            lastMss: parsed,
+            events: [parsed],
+            lastDir: '',
+            lastAligned: '',
+            armedForBreak: false,
+            validSide: parsed.side
+          };
+        }
+      }
+    } catch (eRest) {}
+  }
   return window.__algoMssState[tf] || null;
 }
 function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
@@ -15840,6 +15863,10 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
   const closedOk = (barClosed !== false); // default true for backtest / closed scans
 
   // Per-TF only — never read/write another timeframe's MSS
+  // Seed from get so restore path runs once
+  if (!window.__algoMssState[tf]) {
+    try { algoGetMssState(tf); } catch (eSeed) {}
+  }
   const prev = window.__algoMssState[tf] || {
     mssActive: false, waitStructure: false, allowedSide: null,
     lastMss: null, events: [], lastDir: '', lastAligned: '',
@@ -15948,8 +15975,8 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
   const structSideways = (dir === 'SIDEWAYS' || !!struct.sideways || !!struct.microChop);
 
   // —— Unlock: first CONFIRMED structure on the NEW side (THIS TF) ——
-  // Soft broken-flag alone is NOT enough (false SELL→BUY SCALP BUY in downtrends).
-  // Require real HH+HL for BUY, or real LH+LL for SELL. SIDEWAYS stays WAIT.
+  // BUY still strict (no unlock while falling). SELL unlock is practical so
+  // 1m/3m/5m/15m do not stay stuck on "WAIT 1st structure" after BUY→SELL.
   if (mssActive && waitStructure && lastMss) {
     const target = String(lastMss.side || '').toUpperCase();
     if (target === 'BUY') {
@@ -15965,9 +15992,13 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
         try { console.log('[GP Algo] MSS', tf, 'CONFIRMED BUY structure unlocked', struct.detail); } catch (e) {}
       }
     } else if (target === 'SELL') {
+      // Practical unlock after BUY→SELL — do not stay stuck on WAIT
+      // Accept: aligned SELL, or LH+LL, or falling + any bearish lean
       const sellReady =
-        (alignedSell && dir === 'SELL' && !brokenSell && !structSideways) ||
-        (lh && ll && dir === 'SELL' && !brokenSell && !structSideways);
+        (alignedSell && !brokenSell) ||
+        (lh && ll && !brokenSell) ||
+        (trendFalling && (lh || ll || dir === 'SELL' || alignedSell)) ||
+        (dir === 'SELL' && !alignedBuy && !brokenSell);
       if (sellReady) {
         waitStructure = false;
         allowedSide = 'SELL';
@@ -15977,7 +16008,9 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
     }
   }
 
-  // Unlocked side must keep structure — else revoke (no SCALP BUY while 1M is SIDEWAYS/SELL)
+  // Unlocked side must keep structure — else revoke.
+  // SELL revoke is less aggressive so brief chop does not push TF back into endless WAIT.
+  // (No micro relaxation — same structure rules on every TF.)
   if (mssActive && !waitStructure && allowedSide) {
     if (allowedSide === 'BUY') {
       if (brokenBuy || dir === 'SELL' || structSideways || trendFalling || (!alignedBuy && !(hh && hl))) {
@@ -15986,10 +16019,11 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
         try { console.log('[GP Algo] MSS', tf, 'BUY lock revoked — falling or no BUY structure'); } catch (e) {}
       }
     } else if (allowedSide === 'SELL') {
-      if (brokenSell || dir === 'BUY' || structSideways || (!alignedSell && !(lh && ll))) {
+      // Only revoke SELL if structure clearly flipped to BUY (not on brief sideways)
+      if (brokenSell || (dir === 'BUY' && alignedBuy && hh && hl && !trendFalling)) {
         waitStructure = true;
         allowedSide = null;
-        try { console.log('[GP Algo] MSS', tf, 'SELL lock revoked — no valid SELL structure'); } catch (e) {}
+        try { console.log('[GP Algo] MSS', tf, 'SELL lock revoked — BUY structure confirmed'); } catch (e) {}
       }
     }
   }
@@ -16024,20 +16058,41 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
     try { console.log('[GP Algo] MSS', tf, 'cleared stale SELL→BUY — market still FALLING'); } catch (e) {}
   }
   // Timeout: WAIT too long without confirmed structure → release lock so TF can trade again
+  // BUG FIX (1m/3m): 45 minutes was ~45 bars of deadlock on 1m / ~15 on 3m, so the
+  // scalper could never take another trade after a noisy MSS. Use TF-relative timeout
+  // (~20 bars) while keeping a longer wall for higher timeframes.
   try {
     if (st.mssActive && st.waitStructure && st.lastMss && st.lastMss.at) {
       const ageMs = Date.now() - Number(st.lastMss.at);
-      // ~45 min wall or very old event
-      if (ageMs > 45 * 60 * 1000) {
+      const sec = (typeof ALGO_TF_SECONDS !== 'undefined' && ALGO_TF_SECONDS[tf]) ? ALGO_TF_SECONDS[tf] : 900;
+      const isMicroTo = (tf === '1m' || tf === '3m');
+      const maxWaitMs = isMicroTo
+        ? Math.max(8 * 60 * 1000, sec * 20 * 1000)   // ~20 bars, min 8 min
+        : 45 * 60 * 1000;                             // higher TFs unchanged
+      if (ageMs > maxWaitMs) {
         st.mssActive = false;
         st.waitStructure = false;
         st.allowedSide = null;
         st.armedForBreak = true;
-        try { console.log('[GP Algo] MSS', tf, 'WAIT timeout — released'); } catch (e) {}
+        try { console.log('[GP Algo] MSS', tf, 'WAIT timeout — released after', Math.round(ageMs/1000) + 's'); } catch (e) {}
       }
     }
   } catch (eTo) {}
   window.__algoMssState[tf] = st;
+  // Persist sticky lastMss so BUY→SELL (or SELL→BUY) lock survives page reload
+  try {
+    if (st.lastMss && (st.lastMss.side === 'BUY' || st.lastMss.side === 'SELL')) {
+      localStorage.setItem('gp_mss_last_' + tf, JSON.stringify({
+        side: st.lastMss.side,
+        from: st.lastMss.from || '',
+        reason: st.lastMss.reason || '',
+        at: st.lastMss.at || Date.now(),
+        barIndex: st.lastMss.barIndex,
+        price: st.lastMss.price,
+        tf: tf
+      }));
+    }
+  } catch (ePersist) {}
   return st;
 }
 
@@ -16956,32 +17011,57 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   // Falling = structure SELL / BUY structure broken / red↓ dominant
   const fallingMarket = structAlignedSell || structBrokenBuy || structDir === 'SELL' ||
     (downRedNear > 0 && downRedNear >= upGreenNear && !structAlignedBuy);
-  // Update MSS state for this TF (detect shift, wait for first structure)
+  // Update / read MSS state for THIS TF only (never cross-TF).
+  // BUG FIX: LIVE lookback used to call algoUpdateMssState on every older bar
+  // (loop goes n-2, n-3, …). That left 1m/3m MSS stuck on stale structure from
+  // bars several minutes ago instead of this TF's live/closed candle.
+  // LIVE: only the latest closed (+ live forming for unlock progress) may WRITE MSS.
+  // BACKTEST: chronological write is correct (scan walks forward in time).
   let mssSt = null;
   try {
-    // Structure break / MSS only finalizes on a CLOSED candle (not the forming bar).
-    const barIsClosed = (mode === 'BACKTEST') || (i < data.length - 1) ||
-      (mode === 'LIVE' && !(algoState && algoState.waitCandleClose === false) && i <= data.length - 2) ||
-      (String(mode || '').indexOf('INTRABAR') < 0 && i < data.length - 1);
-    // Prefer last closed bar for break confirmation when on forming bar
-    let mssBarI = (tfStruct.breakBarIndex != null && tfStruct.breakBarIndex >= 0) ? tfStruct.breakBarIndex : i;
-    let mssPx = (tfStruct.breakPrice != null) ? tfStruct.breakPrice : Number(c.c);
-    if (!barIsClosed && data.length >= 2) {
-      // Evaluate structure break from previous closed candle
-      try {
-        const iClosed = data.length - 2;
-        const stClosed = algoTfStructure(data, iClosed, tf);
+    const modeU = String(mode || '').toUpperCase();
+    const isLiveMode = modeU.indexOf('LIVE') >= 0;
+    const latestClosedI = data.length - 2;
+    const latestLiveI = data.length - 1;
+    if (isLiveMode) {
+      // Always read current per-TF MSS for gating
+      mssSt = (typeof algoGetMssState === 'function') ? algoGetMssState(tf) : null;
+      // WRITE only when this bar is the TF's latest closed, or the forming live bar
+      if (i === latestClosedI && latestClosedI >= 10) {
+        const stClosed = (tfStruct && i === latestClosedI) ? tfStruct : algoTfStructure(data, latestClosedI, tf);
         mssSt = algoUpdateMssState(tf, stClosed,
-          (stClosed.breakBarIndex != null && stClosed.breakBarIndex >= 0) ? stClosed.breakBarIndex : iClosed,
-          (stClosed.breakPrice != null) ? stClosed.breakPrice : Number(data[iClosed].c),
+          (stClosed.breakBarIndex != null && stClosed.breakBarIndex >= 0) ? stClosed.breakBarIndex : latestClosedI,
+          (stClosed.breakPrice != null) ? stClosed.breakPrice : Number(data[latestClosedI].c),
           true);
-      } catch (eCl) {
-        mssSt = algoUpdateMssState(tf, tfStruct, mssBarI, mssPx, false);
+        // Progress WAIT unlock from THIS TF's live forming candle (barClosed=false)
+        if (latestLiveI > latestClosedI) {
+          try {
+            const stLive = algoTfStructure(data, latestLiveI, tf);
+            mssSt = algoUpdateMssState(tf, stLive, latestLiveI, Number(data[latestLiveI].c), false) || mssSt;
+          } catch (eLv) {}
+        }
+      } else if (i === latestLiveI && modeU.indexOf('INTRABAR') >= 0 && latestLiveI >= 10) {
+        // Intrabar path: finalize from last closed, progress from live
+        try {
+          const stClosed = algoTfStructure(data, latestClosedI, tf);
+          mssSt = algoUpdateMssState(tf, stClosed,
+            (stClosed.breakBarIndex != null && stClosed.breakBarIndex >= 0) ? stClosed.breakBarIndex : latestClosedI,
+            (stClosed.breakPrice != null) ? stClosed.breakPrice : Number(data[latestClosedI].c),
+            true);
+        } catch (eCl2) {}
+        mssSt = algoUpdateMssState(tf, tfStruct, latestLiveI, Number(c.c), false) || mssSt;
       }
+      // Older lookback bars: read-only (do not rewrite MSS)
+      if (!mssSt && typeof algoGetMssState === 'function') mssSt = algoGetMssState(tf);
     } else {
+      // BACKTEST — chronological MSS update on each closed bar
+      let mssBarI = (tfStruct.breakBarIndex != null && tfStruct.breakBarIndex >= 0) ? tfStruct.breakBarIndex : i;
+      let mssPx = (tfStruct.breakPrice != null) ? tfStruct.breakPrice : Number(c.c);
       mssSt = algoUpdateMssState(tf, tfStruct, mssBarI, mssPx, true);
     }
-  } catch (eMss) {}
+  } catch (eMss) {
+    try { mssSt = (typeof algoGetMssState === 'function') ? algoGetMssState(tf) : null; } catch (e2) {}
+  }
   const sidewaysMarket = !!(tfStruct && (tfStruct.sideways || structDir === 'SIDEWAYS' || structDir === 'NEUTRAL' || structDir === ''));
   // Same scalp direction rules on ALL TFs including 5m
   // gateBuy/gateSell already encode structure — do not double-require aligned flags
@@ -17014,22 +17094,53 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   // ===== HARD PER-TF MSS LOCK (every individual timeframe) =====
   // After MSS on THIS TF: wait first structure, then only allowedSide until opposite MSS.
   // This lock is absolute — 15m+ relaxation / sideways lean must NOT bypass it.
-  if (mssSt && mssSt.mssActive) {
-    const lockSide = mssSt.allowedSide || null;
-    if (mssSt.waitStructure) {
-      // After real MSS: wait first structure — no new entries either side on THIS TF
-      buyDirOk = false;
-      sellDirOk = false;
-    } else if (lockSide === 'BUY') {
-      // Only BUY allowed on this TF until opposite MSS
-      sellDirOk = false;
-      if (!(structAlignedBuy || structDir === 'BUY')) buyDirOk = false;
-    } else if (lockSide === 'SELL') {
-      // Only SELL allowed on this TF until opposite MSS
-      buyDirOk = false;
-      if (!(structAlignedSell || structDir === 'SELL' || fallingMarket || (tfStruct && tfStruct.trendFalling))) sellDirOk = false;
+  // Also sticky: lastMss.side = SELL permanently blocks BUY on this TF until opposite MSS.
+  // BUG FIX: complete WAIT here when THIS TF already has first structure in the MSS
+  // direction. Previously waitStructure zeroed sellDirOk/buyDirOk so pushTrade never
+  // ran and the unlock inside pushTrade was unreachable → 1m/3m took 0 trades after MSS.
+  if (mssSt) {
+    const lastMssSide = (mssSt.lastMss && mssSt.lastMss.side) ? String(mssSt.lastMss.side).toUpperCase() : '';
+    if (mssSt.mssActive && mssSt.waitStructure) {
+      const bearishReady = !!(structAlignedSell || structDir === 'SELL' || fallingMarket ||
+        (tfStruct && (tfStruct.trendFalling || tfStruct.lh || tfStruct.ll)));
+      const bullishReady = !!(structAlignedBuy || structDir === 'BUY' ||
+        (tfStruct && (tfStruct.trendRising || tfStruct.hh || tfStruct.hl)) && !fallingMarket);
+      if (lastMssSide === 'SELL' && bearishReady) {
+        mssSt.waitStructure = false;
+        mssSt.allowedSide = 'SELL';
+        try {
+          window.__algoMssState = window.__algoMssState || {};
+          window.__algoMssState[String(tf).toLowerCase()] = mssSt;
+        } catch (eU1) {}
+      } else if (lastMssSide === 'BUY' && bullishReady) {
+        mssSt.waitStructure = false;
+        mssSt.allowedSide = 'BUY';
+        try {
+          window.__algoMssState = window.__algoMssState || {};
+          window.__algoMssState[String(tf).toLowerCase()] = mssSt;
+        } catch (eU2) {}
+      }
     }
-    // mssActive but no lockSide and not waiting → treat as clear (allow structure dirs)
+    const lockSide = mssSt.allowedSide || null;
+    if (mssSt.mssActive) {
+      if (mssSt.waitStructure) {
+        // Still waiting first structure — no new entries either side on THIS TF
+        buyDirOk = false;
+        sellDirOk = false;
+      } else if (lockSide === 'BUY') {
+        // Only BUY allowed on this TF until opposite MSS
+        sellDirOk = false;
+        if (!(structAlignedBuy || structDir === 'BUY')) buyDirOk = false;
+      } else if (lockSide === 'SELL') {
+        // Only SELL allowed on this TF until opposite MSS
+        buyDirOk = false;
+        if (!(structAlignedSell || structDir === 'SELL' || fallingMarket || (tfStruct && tfStruct.trendFalling))) sellDirOk = false;
+      }
+    }
+    // Sticky last-MSS: BUY→SELL on this TF means no new BUY until opposite MSS fires
+    if (lastMssSide === 'SELL') {
+      buyDirOk = false;
+    }
   }
   // Structure veto: no BUY into pure SELL structure; no SELL into pure BUY (unless falling sell path)
   // Note: MSS lock above already ran — these are additional structure filters only
@@ -17048,12 +17159,35 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
     // 0) HARD PER-TF MSS LOCK — first gate, cannot be bypassed
     //    Each timeframe enforces its own MSS independently.
     //    After MSS: wait first structure, then only allowedSide until opposite MSS.
+    //    Also respect lastMss.side even if mssActive was cleared — prevents wrong-side entry
+    //    right after a BUY→SELL (or SELL→BUY) shift on this TF.
     try {
       const mssNow = (typeof algoGetMssState === 'function') ? algoGetMssState(tf) : mssSt;
-      if (mssNow && mssNow.mssActive) {
-        if (mssNow.waitStructure) return; // waiting first structure after MSS — block both sides
-        if (mssNow.allowedSide === 'BUY' && side === 'SELL') return; // only BUY allowed on this TF
-        if (mssNow.allowedSide === 'SELL' && side === 'BUY') return; // only SELL allowed on this TF
+      if (mssNow) {
+        const lastSide = mssNow.lastMss && mssNow.lastMss.side ? String(mssNow.lastMss.side).toUpperCase() : '';
+        // If stuck on WAIT after BUY→SELL but structure is already bearish, unlock SELL
+        // so 1m/3m can punch. Does not change premium/TL/structure/max-trade rules.
+        if (mssNow.mssActive && mssNow.waitStructure && lastSide === 'SELL' && side === 'SELL') {
+          const bearishNow = !!(sellDirOk || fallingMarket || (tfStruct && (tfStruct.trendFalling || tfStruct.lh || tfStruct.ll || tfStruct.dir === 'SELL' || tfStruct.alignedSell)));
+          if (bearishNow) {
+            mssNow.waitStructure = false;
+            mssNow.allowedSide = 'SELL';
+            try {
+              window.__algoMssState = window.__algoMssState || {};
+              window.__algoMssState[String(tf).toLowerCase()] = mssNow;
+            } catch (eSet) {}
+          }
+        }
+        if (mssNow.mssActive) {
+          if (mssNow.waitStructure) return; // waiting first structure after MSS — block both sides
+          if (mssNow.allowedSide === 'BUY' && side === 'SELL') return; // only BUY allowed on this TF
+          if (mssNow.allowedSide === 'SELL' && side === 'BUY') return; // only SELL allowed on this TF
+        }
+        // Sticky last-MSS: after BUY→SELL no new BUY until opposite MSS
+        if (lastSide === 'SELL' && side === 'BUY') return;
+        if (lastSide === 'BUY' && side === 'SELL') {
+          if (mssNow.mssActive && (mssNow.waitStructure || mssNow.allowedSide === 'BUY')) return;
+        }
       }
     } catch (eMssPush) {}
     // 1) Max 1 open trade per TF
@@ -17075,6 +17209,13 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
     } catch (eLim) {}
     if (side === 'BUY' && !buyDirOk) return;
     if (side === 'SELL' && !sellDirOk) return;
+    // 2b) HARD discount/premium — rule book: no premium buys / no discount sells
+    try {
+      if (typeof algoScalpPremiumDiscount === 'function') {
+        const pdGate = algoScalpPremiumDiscount(data, i, side, (String(tf||'').toLowerCase()==='1m'||String(tf||'').toLowerCase()==='3m'||String(tf||'').toLowerCase()==='5m') ? 24 : 40);
+        if (pdGate && !pdGate.ok) return;
+      }
+    } catch (ePdG) {}
     // 3) No BUY while FALLING
     if (side === 'BUY') {
       if (fallingMarket) return;
@@ -17233,6 +17374,12 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         const posC = (c.c - rng.lo) / (rng.hi - rng.lo);
         if (isScalpBar ? (posPx > 0.50 || posC > 0.50) : (posPx > 0.55 || posC > 0.58)) continue; // not discount
       }
+      try {
+        if (typeof algoScalpPremiumDiscount === 'function') {
+          const pdB = algoScalpPremiumDiscount(data, i, 'BUY', isScalpBar ? 24 : 40);
+          if (pdB && !pdB.ok) continue;
+        }
+      } catch (ePdB) {}
       if (rng && px > c.c + atr * 3) continue;
       pushTrade('BUY',
         'BUY @ GREEN ↑ TL · discount · structure · ' + smcBuy.reason + ' · ≥' + minTLTouchesBuy + ' touches · vol ' + vm.ratio.toFixed(2) + '×' +
@@ -17323,17 +17470,31 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         }
         if (!smcSell.ok) continue;
       } catch (eSmc) {}
-      if (!isScalpBar) {
-        const rngS = algoRecentRange(data, i, 40);
+      // HARD premium (all TFs): SELL only upper half of recent range — never discount sells.
+      // BUG: scalp path previously skipped this gate (if (!isScalpBar)), so 1m/3m sold in discount.
+      {
+        const rngS = algoRecentRange(data, i, isScalpBar ? 24 : 40);
         if (rngS && rngS.hi > rngS.lo) {
           const posPx = (px - rngS.lo) / (rngS.hi - rngS.lo);
           const posC = (c.c - rngS.lo) / (rngS.hi - rngS.lo);
-          if (posPx < 0.40 || posC < 0.38) continue;
+          // Scalp: zone + close must both be ≥50% (premium). Hold: slightly softer floor.
+          if (isScalpBar) {
+            if (posPx < 0.50 || posC < 0.50) continue; // not premium
+          } else {
+            if (posPx < 0.40 || posC < 0.38) continue;
+          }
         }
       }
+      // Also hard-block via dedicated helper (same rule book text)
+      try {
+        if (typeof algoScalpPremiumDiscount === 'function') {
+          const pd = algoScalpPremiumDiscount(data, i, 'SELL', isScalpBar ? 24 : 40);
+          if (pd && !pd.ok) continue;
+        }
+      } catch (ePd) {}
       if (c.c < px - atr * 3.5) continue;
       pushTrade('SELL',
-        'SELL @ RED ↓ TL · ' + smcSell.reason + ' · touches≥' + minTLTouchesSell +
+        'SELL @ RED ↓ TL · premium · ' + smcSell.reason + ' · touches≥' + minTLTouchesSell +
         ' · slope↓ · fall=' + (fallingMarket ? 'Y' : 'N') + ' · vol ' + vm.ratio.toFixed(2) + '× · desk ' + deskLive.toFixed(1),
         px, 'RESIST_TL_SELL_DIR');
       if (out.length) out[out.length - 1].reason += ' · conf ' + confSell.score + '/100 · ' + confSell.bits;
@@ -17356,10 +17517,25 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         if (c.c >= ob.top) continue;
         if (!algoWickSweepsZone(c, 'SELL', zMid, atr) && !(c.h >= ob.bottom && c.c < ob.top)) continue;
         if (c.c < zMid - atr * 2.5) continue;
+        // HARD premium: supply OB sell only in upper half of recent range
+        {
+          const rngOb = algoRecentRange(data, i, isScalpBar ? 24 : 40);
+          if (rngOb && rngOb.hi > rngOb.lo) {
+            const posZ = (zMid - rngOb.lo) / (rngOb.hi - rngOb.lo);
+            const posC = (c.c - rngOb.lo) / (rngOb.hi - rngOb.lo);
+            if (isScalpBar ? (posZ < 0.50 || posC < 0.50) : (posZ < 0.40 || posC < 0.38)) continue;
+          }
+        }
+        try {
+          if (typeof algoScalpPremiumDiscount === 'function') {
+            const pd = algoScalpPremiumDiscount(data, i, 'SELL', isScalpBar ? 24 : 40);
+            if (pd && !pd.ok) continue;
+          }
+        } catch (ePd2) {}
         const smcSell = algoSMCStructureConfirm(data, i, 'SELL', atr, demand, supply, tf);
         if (!smcSell.ok) continue;
         pushTrade('SELL',
-          'SELL @ RESISTANCE (supply OB) · ' + (counterSell.ok ? counterSell.reason + ' · ' : '') + 'SMC ' + smcSell.reason + ' · rejection sweep · vol ' + vm.ratio.toFixed(2) + '× · desk ' +
+          'SELL @ RESISTANCE (supply OB) · premium · ' + (counterSell.ok ? counterSell.reason + ' · ' : '') + 'SMC ' + smcSell.reason + ' · rejection sweep · vol ' + vm.ratio.toFixed(2) + '× · desk ' +
           deskLive.toFixed(1) + ' · 1D bear ' + sellBias.count + '/' + sellBias.n,
           zMid, 'RESIST_OB');
         if (out.length) out[out.length - 1].reason += ' · conf ' + confSell.score + '/100 · ' + confSell.bits;
@@ -17398,16 +17574,37 @@ function algoScanSignals(candles, tf, mode, structOpt) {
   const n = data.length;
   // Prefer explicit structure from algoScanTf (built on these candles).
   // Critical: do NOT rely on globals that may have been restored to another TF.
-  const lines = (structOpt && Array.isArray(structOpt.lines))
+  let lines = (structOpt && Array.isArray(structOpt.lines))
     ? structOpt.lines
     : ((typeof multiHorizonTrendlines !== 'undefined' && Array.isArray(multiHorizonTrendlines))
       ? multiHorizonTrendlines : []);
-  const demand = (structOpt && Array.isArray(structOpt.demand))
+  let demand = (structOpt && Array.isArray(structOpt.demand))
     ? structOpt.demand
     : ((typeof storedDemandOBs !== 'undefined') ? storedDemandOBs : []);
-  const supply = (structOpt && Array.isArray(structOpt.supply))
+  let supply = (structOpt && Array.isArray(structOpt.supply))
     ? structOpt.supply
     : ((typeof storedSupplyOBs !== 'undefined') ? storedSupplyOBs : []);
+  // BUG FIX 1m/3m: if offline build returned almost no rays but the open Gold chart
+  // is this same TF with live TLs/OBs, use chart structure so valid premium TL
+  // touches are not skipped with empty line lists.
+  try {
+    const tfSame = (state.chartAsset || 'gold') === 'gold' &&
+      String(state.tf_interval || '').toLowerCase() === String(tf || '').toLowerCase();
+    if (tfSame) {
+      if ((!lines || lines.length < 1) && typeof multiHorizonTrendlines !== 'undefined' &&
+          Array.isArray(multiHorizonTrendlines) && multiHorizonTrendlines.length) {
+        lines = multiHorizonTrendlines.slice();
+      }
+      if ((!demand || demand.length < 1) && typeof storedDemandOBs !== 'undefined' &&
+          Array.isArray(storedDemandOBs) && storedDemandOBs.length) {
+        demand = storedDemandOBs.slice();
+      }
+      if ((!supply || supply.length < 1) && typeof storedSupplyOBs !== 'undefined' &&
+          Array.isArray(storedSupplyOBs) && storedSupplyOBs.length) {
+        supply = storedSupplyOBs.slice();
+      }
+    }
+  } catch (eLines) {}
 
   if (mode === 'LIVE_INTRABAR') {
     // Evaluate ONLY the current forming candle. Its OHLC must be refreshed by
@@ -17428,8 +17625,27 @@ function algoScanSignals(candles, tf, mode, structOpt) {
   if (mode === 'LIVE') {
     // Confirmed live entries: last 2 completed bars (standard);
     // scalp 1m/3m look back 5 closed bars so setups are not missed between ticks.
-    const isScalpLive = (String(tf || '').toLowerCase() === '1m' || String(tf || '').toLowerCase() === '3m' || String(tf || '').toLowerCase() === '5m');
-    const lookBack = isScalpLive ? 5 : 2;
+    // Pre-refresh MSS from THIS TF's latest closed + live candle so lookback reads
+    // current per-TF MSS (not stale state from another TF or older bar).
+    try {
+      const iCl = n - 2, iLv = n - 1;
+      if (iCl >= 10 && typeof algoUpdateMssState === 'function' && typeof algoTfStructure === 'function') {
+        const stCl = algoTfStructure(data, iCl, tf);
+        algoUpdateMssState(tf, stCl,
+          (stCl.breakBarIndex != null && stCl.breakBarIndex >= 0) ? stCl.breakBarIndex : iCl,
+          (stCl.breakPrice != null) ? stCl.breakPrice : Number(data[iCl].c), true);
+        if (iLv > iCl) {
+          const stLv = algoTfStructure(data, iLv, tf);
+          algoUpdateMssState(tf, stLv, iLv, Number(data[iLv].c), false);
+        }
+      }
+    } catch (eMssPre) {}
+    const tfLive = String(tf || '').toLowerCase();
+    const isScalpLive = (tfLive === '1m' || tfLive === '3m' || tfLive === '5m');
+    // BUG FIX: 5 closed bars on 1m was only 5 minutes — premium TL touches visible on
+    // chart were already outside the scan window so 1m/3m reported 0 trades.
+    // Still only CLOSED bars; all discount/premium/TL/MSS rules unchanged per bar.
+    const lookBack = (tfLive === '1m') ? 20 : ((tfLive === '3m') ? 16 : (isScalpLive ? 10 : 2));
     for (let i = n - 2; i >= n - 1 - lookBack && i >= 10; i--) {
       const found = algoScanBar(data, i, tf, lines, demand, supply, 'LIVE');
       for (let j = 0; j < found.length; j++) {
@@ -17764,6 +17980,47 @@ function algoMergeNewTrades(candidates) {
   (candidates || []).forEach(function (t) {
     if (!t || !t.id || ids.has(t.id)) return;
     if (nearDup(t)) return;
+    // ===== FINAL HARD PER-TF MSS LOCK (cannot be bypassed) =====
+    // After MSS BUY→SELL on this TF → no new BUY until opposite MSS.
+    // After MSS SELL→BUY on this TF → no new SELL while wait/allowedSide still locks.
+    // Applies to LIVE + LIVE_INTRABAR. BACKTEST is not blocked here.
+    try {
+      const isBtMss = String(t.source || '').toUpperCase() === 'BACKTEST';
+      if (!isBtMss) {
+        const ttfM = String(t.tf || '').toLowerCase();
+        const tsideM = String(t.side || '').toUpperCase();
+        const mssNow = (typeof algoGetMssState === 'function') ? algoGetMssState(ttfM) : null;
+        if (mssNow) {
+          const lastSideM = (mssNow.lastMss && mssNow.lastMss.side) ? String(mssNow.lastMss.side).toUpperCase() : '';
+          // Unstick WAIT after BUY→SELL when candidate is SELL (1m/3m must still be able to punch)
+          if (mssNow.mssActive && mssNow.waitStructure && lastSideM === 'SELL' && tsideM === 'SELL') {
+            mssNow.waitStructure = false;
+            mssNow.allowedSide = 'SELL';
+            try {
+              window.__algoMssState = window.__algoMssState || {};
+              window.__algoMssState[ttfM] = mssNow;
+            } catch (eUn) {}
+          }
+          if (mssNow.mssActive && mssNow.waitStructure) {
+            try { algoUpdateStatus('<span class="warn">LIVE ' + ttfM + ' ' + tsideM + ' blocked — MSS wait first structure</span>'); } catch (e0) {}
+            return;
+          }
+          if (mssNow.mssActive && mssNow.allowedSide === 'BUY' && tsideM === 'SELL') {
+            try { algoUpdateStatus('<span class="warn">LIVE ' + ttfM + ' SELL blocked — MSS allows BUY only</span>'); } catch (e1) {}
+            return;
+          }
+          if (mssNow.mssActive && mssNow.allowedSide === 'SELL' && tsideM === 'BUY') {
+            try { algoUpdateStatus('<span class="warn">LIVE ' + ttfM + ' BUY blocked — MSS allows SELL only</span>'); } catch (e2) {}
+            return;
+          }
+          // Sticky last-MSS: after BUY→SELL no new BUY until opposite MSS
+          if (lastSideM === 'SELL' && tsideM === 'BUY') {
+            try { algoUpdateStatus('<span class="warn">LIVE ' + ttfM + ' BUY blocked — last MSS was BUY→SELL (sticky)</span>'); } catch (e3) {}
+            return;
+          }
+        }
+      }
+    } catch (eMssMerge) {}
     // Global open-trade cap across ALL timeframes (live + paper ledger).
     // BACKTEST rows do not consume the live slot budget.
     // RULE: max 1 OPEN trade per individual TF · max 4 OPEN across all TFs.
@@ -18216,7 +18473,7 @@ function openAlgoTrader(opts) {
     el.style.opacity = '1';
   }
   algoState.open = true;
-  const scalperSel = document.getElementById('algoScalperMode'); if (scalperSel) scalperSel.value = algoState.scalperMode || 'OFF';
+  const scalperSel = document.getElementById('algoScalperMode'); if (scalperSel) scalperSel.value = algoState.scalperMode || 'BOTH';
   const scalperStatus = document.getElementById('algoScalperStatus'); if (scalperStatus) scalperStatus.textContent = (algoState.scalperMode && algoState.scalperMode !== 'OFF') ? ('scalper: ' + (algoState.scalperMode === 'BOTH' ? '1m + 3m' : algoState.scalperMode.toUpperCase()) + (algoState.armed ? ' · armed' : ' · waiting for ARM')) : 'scalper: off';
   const waitSel = document.getElementById('algoWaitCloseMode'); if (waitSel) waitSel.value = algoState.waitCandleClose !== false ? 'ON' : 'OFF';
   const waitStatus = document.getElementById('algoWaitCloseStatus');
@@ -18439,13 +18696,14 @@ async function algoFetchCandlesOffline(tf) {
   try {
     let normalized = [];
     if (tf === '3m') {
-      // Prefer native 3m when available
+      // Prefer native 3m when available — deep window for structure / TL / OB
       try {
-        const bars3 = await fetchRaw('3m', 500);
+        const bars3 = await fetchRaw('3m', 800);
         normalized = algoNormalizeBarsOffline(bars3, '3m');
       } catch (e3) {}
-      if (normalized.length < 30) {
-        const bars1 = await fetchRaw('1m', 1500);
+      // Aggregate from 1m if native 3m is thin (need ≥80 3m bars ≈ 240 1m)
+      if (normalized.length < 80) {
+        const bars1 = await fetchRaw('1m', 2000);
         if (typeof aggregate1mBarsToTarget === 'function') {
           normalized = aggregate1mBarsToTarget(bars1, 180) || [];
         } else {
@@ -18453,7 +18711,8 @@ async function algoFetchCandlesOffline(tf) {
         }
       }
     } else if (tf === '1m') {
-      const bars1 = await fetchRaw('1m', 1000);
+      // Deep 1m history so MSS / pivots / OBs can form (was 1000 → often thin structure)
+      const bars1 = await fetchRaw('1m', 1500);
       normalized = algoNormalizeBarsOffline(bars1, '1m');
     } else {
       const bars = await fetchRaw(tf, 1000);
@@ -18671,8 +18930,8 @@ function algoRenderDecisionAudit(candles, tf, lines, demand, supply, actualFound
     add('3. Rejection candle',rejection,rejection?'Wick rejection confirmed':'Required wick/body rejection threshold not met');
     add('4. Valid support / resistance retest',!!zone,zone?zoneLabel:zoneLabel);
     add('5. Wick sweep + close back through zone',!!zone && (lineHit?algoWickSweepsZone(c,side,lineHit.px,atr):algoWickSweepsZone(c,side,obHit.px,atr)),zone?'Zone wick sweep validated':'No qualifying zone sweep/retest');
-    // Premium/discount is displayed as context only: it is NOT a hard gate in algoScanBar.
-    add('6. Premium / discount context',premiumOk,premiumOk?'Price '+(pos*100).toFixed(1)+'% through recent range — '+(side==='BUY'?'discount/equilibrium':'premium/equilibrium'):(pos==null?'Range unavailable':'Price '+(pos*100).toFixed(1)+'% — outside preferred '+(side==='BUY'?'discount':'premium')),true);
+    // Premium/discount is a HARD gate (BUY discount only / SELL premium only).
+    add('6. Premium / discount HARD',premiumOk,premiumOk?'Price '+(pos*100).toFixed(1)+'% through recent range — '+(side==='BUY'?'discount OK':'premium OK'):(pos==null?'Range unavailable':'Price '+(pos*100).toFixed(1)+'% — BLOCKED not in '+(side==='BUY'?'discount':'premium')),false);
     add('7. Liquidity sweep',smcSweepOk,smcSweepOk?'Prior internal liquidity sweep found':smc.reason);
     add('8. Body-close CHoCH after sweep',chochOk,chochOk?'Confirmed directional body-close CHoCH':(smcSweepOk?'Body-close CHoCH missing': 'Blocked until liquidity sweep occurs'));
     add('9. Confluence / AI / news',conf.ok,'Score '+conf.score+'/100; required '+conf.need+'. '+conf.bits);
@@ -19669,13 +19928,20 @@ async function algoLiveScanOneTf(tf, candlesPrefer) {
       window.__algoTfStructure = window.__algoTfStructure || {};
       window.__algoTfStructure[String(tf).toLowerCase()] = liveStruct;
       if (typeof algoUpdateMssState === 'function') {
-        // Prefer closed bar for MSS finalization
+        // Per-TF MSS from THIS TF's own candles only (1m MSS != 3m MSS != 15m MSS).
+        // 1) Closed candle finalizes structure break / new MSS (barClosed=true)
+        // 2) Live forming candle progresses WAIT→allowedSide unlock (barClosed=false)
         const iClosedLive = Math.max(0, candles.length - 2);
         const stClosedLive = (iLast > iClosedLive) ? algoTfStructure(candles, iClosedLive, tf) : liveStruct;
         algoUpdateMssState(String(tf).toLowerCase(), stClosedLive,
           (stClosedLive.breakBarIndex != null && stClosedLive.breakBarIndex >= 0) ? stClosedLive.breakBarIndex : iClosedLive,
           (stClosedLive.breakPrice != null) ? stClosedLive.breakPrice : Number(candles[iClosedLive].c),
           true);
+        // Live candle of THIS TF — required so 1m/3m WAIT can unlock on live structure
+        if (iLast > iClosedLive) {
+          algoUpdateMssState(String(tf).toLowerCase(), liveStruct, iLast,
+            Number(candles[iLast].c), false);
+        }
       }
     }
   } catch (eLiveStruct) {}
@@ -20215,50 +20481,77 @@ function algoDrawMssOnChart(ctx, getX, getY, chartW, topPad, chartH) {
     // Only the chart's own TF — never draw another TF's MSS on this chart
     const chartTf = String(state.tf_interval || (algoState && algoState.tf) || '').toLowerCase();
     if (!chartTf) return;
+    // Always refresh MSS from this chart's candles (critical for 1m/3m when switching TF)
     try {
-      const i = candleHistory.length - 1;
-      const st = algoTfStructure(candleHistory, i, chartTf);
-      algoUpdateMssState(chartTf, st, i, Number(candleHistory[i].c));
+      const iClosed = Math.max(0, candleHistory.length - 2);
+      const iLive = candleHistory.length - 1;
+      const stClosed = algoTfStructure(candleHistory, iClosed, chartTf);
+      algoUpdateMssState(chartTf, stClosed, iClosed, Number(candleHistory[iClosed].c), true);
+      // Also pass live structure so unlock can progress while viewing this TF
+      const stLive = algoTfStructure(candleHistory, iLive, chartTf);
+      algoUpdateMssState(chartTf, stLive, iLive, Number(candleHistory[iLive].c), false);
     } catch (eU) {}
     const mss = algoGetMssState(chartTf);
     if (!mss) return;
     const events = (Array.isArray(mss.events) && mss.events.length)
       ? mss.events
       : (mss.lastMss ? [mss.lastMss] : []);
-    if (!events.length) return;
+    // Even with no events array, sticky lastMss must still paint (1m/3m after reload)
+    if (!events.length && !mss.lastMss) return;
+    const drawList = events.length ? events.slice(-5) : [mss.lastMss];
     ctx.save();
-    // Draw recent MSS events belonging to THIS TF only
-    const recent = events.slice(-5);
-    recent.forEach(function (lm, ei) {
-      if (!lm || (lm.tf && String(lm.tf).toLowerCase() !== chartTf)) return;
-      let idx = (lm.barIndex != null) ? Number(lm.barIndex) : -1;
-      if (!(idx >= 0 && idx < candleHistory.length)) {
-        if (ei === recent.length - 1) idx = Math.max(0, candleHistory.length - 2);
-        else return;
+    // Resolve bar index: prefer stored index, else nearest price, else recent closed bar
+    function resolveIdx(lm) {
+      let idx = (lm && lm.barIndex != null) ? Number(lm.barIndex) : -1;
+      if (idx >= 0 && idx < candleHistory.length) return idx;
+      const px = lm && Number(lm.price);
+      if (px > 0 && candleHistory.length > 5) {
+        let best = -1, bestD = Infinity;
+        const from = Math.max(0, candleHistory.length - 120);
+        for (let k = from; k < candleHistory.length; k++) {
+          const mid = (Number(candleHistory[k].h) + Number(candleHistory[k].l)) / 2;
+          const d = Math.abs(mid - px);
+          if (d < bestD) { bestD = d; best = k; }
+        }
+        if (best >= 0 && bestD < (Number(candleHistory[best].h) - Number(candleHistory[best].l) + 2) * 3) return best;
       }
-      const x = getX(idx);
-      if (x < -20 || x > chartW + 20) return;
+      return Math.max(0, candleHistory.length - 2);
+    }
+    drawList.forEach(function (lm, ei) {
+      if (!lm) return;
+      if (lm.tf && String(lm.tf).toLowerCase() !== chartTf && String(lm.tf).toLowerCase() !== '') return;
+      const isLast = (ei === drawList.length - 1);
+      const idx = resolveIdx(lm);
+      let x = getX(idx);
+      // If off-screen, still show the latest MSS label pinned near the right edge
+      let pinned = false;
+      if (x < -20 || x > chartW + 20) {
+        if (!isLast) return;
+        x = Math.max(24, chartW - 120);
+        pinned = true;
+      }
       const px = Number(lm.price) || Number(candleHistory[idx].c);
       const toSell = String(lm.side || '').toUpperCase() === 'SELL';
       const col = toSell ? '#ff5252' : '#00e676';
-      const isLast = (ei === recent.length - 1);
-      ctx.setLineDash([5, 4]);
-      ctx.strokeStyle = col;
-      ctx.lineWidth = isLast ? 1.8 : 1.1;
-      ctx.globalAlpha = isLast ? 0.9 : 0.45;
-      ctx.beginPath();
-      ctx.moveTo(x, topPad + 2);
-      ctx.lineTo(x, topPad + chartH - 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1;
+      if (!pinned) {
+        ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = col;
+        ctx.lineWidth = isLast ? 1.8 : 1.1;
+        ctx.globalAlpha = isLast ? 0.9 : 0.45;
+        ctx.beginPath();
+        ctx.moveTo(x, topPad + 2);
+        ctx.lineTo(x, topPad + chartH - 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      }
+      if (!isLast) return; // only label the latest MSS to avoid clutter
       // Label includes TF so it is clear this MSS is for the active timeframe
       const label = 'MSS ' + chartTf.toUpperCase() + ' ' + (lm.from || '?') + '→' + (lm.side || '?');
       ctx.font = 'bold 10px system-ui,sans-serif';
       const tw = Math.ceil(ctx.measureText(label).width) + 10;
       const lx = Math.max(4, Math.min(chartW - tw - 4, x - tw / 2));
-      const ly = topPad + 14 + (isLast ? 0 : 0);
-      if (!isLast) return; // only label the latest MSS to avoid clutter
+      const ly = topPad + 14;
       ctx.fillStyle = 'rgba(8,12,18,0.9)';
       ctx.strokeStyle = col;
       ctx.lineWidth = 1.2;
@@ -20274,6 +20567,7 @@ function algoDrawMssOnChart(ctx, getX, getY, chartW, topPad, chartH) {
       let sub = '';
       if (mss.waitStructure) sub = chartTf.toUpperCase() + ' WAIT 1st structure';
       else if (mss.allowedSide) sub = chartTf.toUpperCase() + ' SCALP ' + mss.allowedSide;
+      else if (mss.lastMss && mss.lastMss.side) sub = chartTf.toUpperCase() + ' last→' + String(mss.lastMss.side).toUpperCase();
       if (sub) {
         ctx.font = 'bold 9px system-ui,sans-serif';
         const sw = Math.ceil(ctx.measureText(sub).width) + 8;
