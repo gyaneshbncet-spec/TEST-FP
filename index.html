@@ -4089,7 +4089,7 @@ canvas#tvCanvas {
         ○ <b>CANDLE CLOSING (History):</b> ON = wait bar close (safer for hold) · OFF = punch on forming bar when all rules pass (faster scalp).<br>
         ○ <b>SCALP DISCOUNT / PREMIUM:</b> BUY only support + discount · SELL only resistance + premium. No premium buys / no discount sells.<br>
         ○ <b>MAX OPEN:</b> 4 concurrent live trades across all TFs. Same-level block ±$1.5 while OPEN.<br>
-        ○ <b>ENTRY:</b> BUY only on green ↑ TL + strong structure + discount · SELL only on red ↓ TL + strong structure + premium · After MSS on a TF, only that side until opposite MSS · Candle close mandatory to finalize structure break · Tiny zones with no TP room skipped · Wider logical SL · never BUY on red / never SELL on green.<br>
+        ○ <b>ENTRY:</b> BUY only on green ↑ TL + strong structure + discount · SELL only on red ↓ TL + strong structure + premium · <b>MSS is HARD per individual TF</b> — after MSS on that TF only the new side is allowed (wait first structure, then only allowedSide until opposite MSS). Each TF independent. Candle close mandatory to finalize structure break · Tiny zones with no TP room skipped · Wider logical SL · never BUY on red / never SELL on green.<br>
         ○ <b>STRUCTURE MAP:</b> each TF scans a deep available-candle window (full history capped). Real confirmed pivots only. <b>BOTH-SIDE RECOVERY / LIQ-GRAB:</b> SHORT (HH after LL or lows swept+reclaimed) blocks SELL until clean LH/LL; LONG (LL after HH or highs swept+reclaimed) blocks BUY until clean HH/HL.<br>
         ○ <b>LIVE TRENDLINES:</b> rebuilt live (~0.7s). Only strong lines: real wick on every touch, no provisional pivots, scalp requires ≥3 touches + ≥1 mid test. Max 3 lines/side. Broken rays retire on close beyond line.<br>
         ○ <b>SMC SCALP ZONES (1m→1D):</b> BUY only <b>discount</b> + green ↑ TL + BUY structure · SELL only <b>premium</b> + red ↓ TL + SELL structure. Rejection optional. After <b>MSS</b> (per TF): wait first structure on that TF then scalp that side only — each timeframe has its own MSS. Sideways = no trade. Max 1 open/TF · max 4 total.<br>
@@ -17011,22 +17011,28 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       sellDirOk = false;
     }
   }
+  // ===== HARD PER-TF MSS LOCK (every individual timeframe) =====
+  // After MSS on THIS TF: wait first structure, then only allowedSide until opposite MSS.
+  // This lock is absolute — 15m+ relaxation / sideways lean must NOT bypass it.
   if (mssSt && mssSt.mssActive) {
     const lockSide = mssSt.allowedSide || null;
     if (mssSt.waitStructure) {
-      // After real MSS: wait first structure — no new entries either side
+      // After real MSS: wait first structure — no new entries either side on THIS TF
       buyDirOk = false;
       sellDirOk = false;
     } else if (lockSide === 'BUY') {
+      // Only BUY allowed on this TF until opposite MSS
       sellDirOk = false;
-      if (!(structAlignedBuy || structDir === 'BUY') || sidewaysMarket) buyDirOk = false;
+      if (!(structAlignedBuy || structDir === 'BUY')) buyDirOk = false;
     } else if (lockSide === 'SELL') {
+      // Only SELL allowed on this TF until opposite MSS
       buyDirOk = false;
-      if (!(structAlignedSell || structDir === 'SELL' || fallingMarket) || (sidewaysMarket && !isHoldTf)) sellDirOk = false;
+      if (!(structAlignedSell || structDir === 'SELL' || fallingMarket || (tfStruct && tfStruct.trendFalling))) sellDirOk = false;
     }
     // mssActive but no lockSide and not waiting → treat as clear (allow structure dirs)
   }
   // Structure veto: no BUY into pure SELL structure; no SELL into pure BUY (unless falling sell path)
+  // Note: MSS lock above already ran — these are additional structure filters only
   if (structDir === 'SELL' || (sidewaysMarket && !structAlignedBuy && !isHoldTf)) buyDirOk = false;
   if (structDir === 'BUY' && !fallingMarket) {
     if (!structAlignedSell && !isHoldTf) sellDirOk = false;
@@ -17039,6 +17045,17 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
 
   function pushTrade(side, reason, zonePx, zoneKind) {
     // —— RULE HARD GATES (no random area trades) ——
+    // 0) HARD PER-TF MSS LOCK — first gate, cannot be bypassed
+    //    Each timeframe enforces its own MSS independently.
+    //    After MSS: wait first structure, then only allowedSide until opposite MSS.
+    try {
+      const mssNow = (typeof algoGetMssState === 'function') ? algoGetMssState(tf) : mssSt;
+      if (mssNow && mssNow.mssActive) {
+        if (mssNow.waitStructure) return; // waiting first structure after MSS — block both sides
+        if (mssNow.allowedSide === 'BUY' && side === 'SELL') return; // only BUY allowed on this TF
+        if (mssNow.allowedSide === 'SELL' && side === 'BUY') return; // only SELL allowed on this TF
+      }
+    } catch (eMssPush) {}
     // 1) Max 1 open trade per TF
     try {
       const log = (typeof algoLoadTrades === 'function') ? algoLoadTrades() : [];
@@ -17056,15 +17073,6 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       // Also block if this scan already queued a trade for this TF
       if (out.some(function (x) { return String(x.tf || '').toLowerCase() === tfKey; })) return;
     } catch (eLim) {}
-    // 2) MSS side lock — only while active wait or locked side (not old lastMss alone)
-    try {
-      const mssNow = (typeof algoGetMssState === 'function') ? algoGetMssState(tf) : mssSt;
-      if (mssNow && mssNow.mssActive) {
-        if (mssNow.waitStructure) return;
-        if (mssNow.allowedSide === 'BUY' && side === 'SELL') return;
-        if (mssNow.allowedSide === 'SELL' && side === 'BUY') return;
-      }
-    } catch (eMssPush) {}
     if (side === 'BUY' && !buyDirOk) return;
     if (side === 'SELL' && !sellDirOk) return;
     // 3) No BUY while FALLING
