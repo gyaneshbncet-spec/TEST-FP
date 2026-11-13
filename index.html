@@ -16703,19 +16703,61 @@ function algoTfStructure(data, i, tf) {
   const ll3 = !!(l1 && l0 && lPrev && l1.p < l0.p && l0.p < lPrev.p);
 
   let brokenBuy = false, brokenSell = false;
-  // REAL structure break only — significant pivot move, not a tiny bounce in a falling market.
-  // 1m GOLD: require larger break (≥ max(1.25×ATR, $1.80)) so $0.5–1 noise never = MSS.
+  // Structure break = BOS of the PROTECTING swing, not a bounce HH inside the trend.
+  // OLD BUG: (h1 > h0 && ll) = any pullback high above prior micro-high while LL still
+  // true → fake brokenSell → fake MSS SELL→BUY on every bounce (your chart case).
   const brkMin = is1m
-    ? Math.max(atr * 1.25, 1.80)
+    ? Math.max(atr * 1.35, 2.20)   // gold 1m: need real $2+ displacement
     : (atr * (isScalp ? 0.70 : 0.55));
-  if (l1 && l0 && l1.p < l0.p - brkMin && hh) brokenBuy = true;
-  if (h1 && h0 && h1.p > h0.p + brkMin && ll) brokenSell = true;
-  // 1m: also require the break pivot to be separated in time (not adjacent micro swings)
+  const cNow = data[i] ? Number(data[i].c) : NaN;
+  const cPrev = (i > 0 && data[i - 1]) ? Number(data[i - 1].c) : cNow;
+
   if (is1m) {
-    if (brokenBuy && l1 && l0 && (l1.i - l0.i) < 6) brokenBuy = false;
-    if (brokenSell && h1 && h0 && (h1.i - h0.i) < 6) brokenSell = false;
+    // —— 1m GOLD: break the last significant LH / HL level ——
+    // Sell structure protecting high = highest of last 2–3 swing highs that formed LH sequence
+    // Buy structure protecting low  = lowest of last 2–3 swing lows that formed HL sequence
+    let protectHi = -Infinity, protectLo = Infinity;
+    const useH = highs.slice(-4);
+    const useL = lows.slice(-4);
+    // Prefer the max of swing highs that are still "LH territory" (not the live spike alone)
+    for (let pi = 0; pi < useH.length; pi++) {
+      protectHi = Math.max(protectHi, Number(useH[pi].p));
+    }
+    for (let pi = 0; pi < useL.length; pi++) {
+      protectLo = Math.min(protectLo, Number(useL[pi].p));
+    }
+    // If we clearly had LH sequence, protecting high is the prior swing high (h0), not a micro h1
+    if (h0 && hPrev && h0.p < hPrev.p) protectHi = Math.max(protectHi, Number(hPrev.p), Number(h0.p));
+    else if (h0) protectHi = Math.max(protectHi, Number(h0.p));
+    if (l0 && lPrev && l0.p > lPrev.p) protectLo = Math.min(protectLo, Number(lPrev.p), Number(l0.p));
+    else if (l0) protectLo = Math.min(protectLo, Number(l0.p));
+
+    // SELL structure BROKEN only if CLOSE breaks above protecting LH by brkMin
+    // (wick-only spike through LH is not enough on 1m gold)
+    if (Number.isFinite(protectHi) && protectHi > 0 && Number.isFinite(cNow)) {
+      if (cNow > protectHi + brkMin && cPrev > protectHi) {
+        // Must not still be printing fresh LL after the break attempt
+        const stillNewLL = !!(l1 && l0 && l1.p < l0.p - atr * 0.35 && l1.i >= i - 3);
+        if (!stillNewLL) brokenSell = true;
+      }
+    }
+    // BUY structure BROKEN only if CLOSE breaks below protecting HL by brkMin
+    if (Number.isFinite(protectLo) && protectLo < Infinity && Number.isFinite(cNow)) {
+      if (cNow < protectLo - brkMin && cPrev < protectLo) {
+        const stillNewHH = !!(h1 && h0 && h1.p > h0.p + atr * 0.35 && h1.i >= i - 3);
+        if (!stillNewHH) brokenBuy = true;
+      }
+    }
     // Reject breaks inside pure micro-chop window
     if (microChop) { brokenBuy = false; brokenSell = false; }
+    // Extra: if still LH+LL clearly, sell structure is intact — never brokenSell
+    if (lh && ll && !hh) brokenSell = false;
+    // Extra: if still HH+HL clearly, buy structure is intact — never brokenBuy
+    if (hh && hl && !ll) brokenBuy = false;
+  } else {
+    // Higher TFs / 3m/5m: prior pivot-distance logic (unchanged)
+    if (l1 && l0 && l1.p < l0.p - brkMin && hh) brokenBuy = true;
+    if (h1 && h0 && h1.p > h0.p + brkMin && ll) brokenSell = true;
   }
   // Whole-chart trend: last 3 lows descending = still FALLING (blocks fake SELL→BUY)
   let trendFalling = false, trendRising = false;
@@ -16816,13 +16858,17 @@ function algoTfStructure(data, i, tf) {
   else if (lh && ll && !brokenSell && !sellRecovery) dir = 'SELL';
   else if (hh && !ll && !brokenBuy && !buyRecovery) dir = 'BUY';
   else if (ll && !hh && !brokenSell && !sellRecovery) dir = 'SELL';
-  else if (isScalp && hl && !ll && !brokenBuy && !buyRecovery) dir = 'BUY';
-  else if (isScalp && lh && !hh && !brokenSell && !sellRecovery) dir = 'SELL';
-  else if (isScalp && brokenBuy && !buyRecovery) dir = 'SELL'; // BUY structure broke → SELL
+  else if (isScalp && !is1m && hl && !ll && !brokenBuy && !buyRecovery) dir = 'BUY';
+  else if (isScalp && !is1m && lh && !hh && !brokenSell && !sellRecovery) dir = 'SELL';
+  else if (isScalp && brokenBuy && !buyRecovery) dir = 'SELL';
   else if (isScalp && brokenSell && !sellRecovery) dir = 'BUY';
-  else if (isScalp && momSell && !hh && !brokenSell && !sellRecovery) dir = 'SELL';
-  else if (isScalp && momBuy && !ll && !brokenBuy && !buyRecovery) dir = 'BUY';
+  // 1m: momentum alone never sets direction (was flipping dir on $2 bounces)
+  else if (isScalp && !is1m && momSell && !hh && !brokenSell && !sellRecovery) dir = 'SELL';
+  else if (isScalp && !is1m && momBuy && !ll && !brokenBuy && !buyRecovery) dir = 'BUY';
   else dir = 'SIDEWAYS';
+  // 1m: if LH+LL still present, force SELL structure (bounce does not erase it)
+  if (is1m && lh && ll && !brokenSell) dir = 'SELL';
+  if (is1m && hh && hl && !brokenBuy) dir = 'BUY';
 
   // Sideways / few-pip chop is NEVER a tradeable structure (2 touches OK only with real direction)
   if (compressed || microChop) {
@@ -21016,7 +21062,30 @@ function algoDrawMssOnChart(ctx, getX, getY, chartW, topPad, chartH) {
       }
       if (!isLast) return; // only label the latest MSS to avoid clutter
       // Label includes TF so it is clear this MSS is for the active timeframe
-      const label = 'MSS ' + chartTf.toUpperCase() + ' ' + (lm.from || '?') + '→' + (lm.side || '?');
+      // Live structure tag so trader can verify MSS vs actual pivots
+      let structTag = '';
+      try {
+        const stNow = (typeof algoTfStructure === 'function')
+          ? algoTfStructure(candleHistory, Math.max(0, candleHistory.length - 2), chartTf) : null;
+        if (stNow) {
+          const bits = [];
+          if (stNow.hh) bits.push('HH');
+          if (stNow.hl) bits.push('HL');
+          if (stNow.lh) bits.push('LH');
+          if (stNow.ll) bits.push('LL');
+          if (stNow.brokenSell) bits.push('BOS↑');
+          if (stNow.brokenBuy) bits.push('BOS↓');
+          structTag = bits.length ? (' · ' + bits.join('')) : '';
+          // If MSS says SELL→BUY but live structure still LH/LL without BOS↑, mark FAKE
+          if (String(lm.side).toUpperCase() === 'BUY' && stNow.lh && stNow.ll && !stNow.brokenSell) {
+            structTag += ' · FAKE?';
+          }
+          if (String(lm.side).toUpperCase() === 'SELL' && stNow.hh && stNow.hl && !stNow.brokenBuy) {
+            structTag += ' · FAKE?';
+          }
+        }
+      } catch (eSt) {}
+      const label = 'MSS ' + chartTf.toUpperCase() + ' ' + (lm.from || '?') + '→' + (lm.side || '?') + structTag;
       ctx.font = 'bold 10px system-ui,sans-serif';
       const tw = Math.ceil(ctx.measureText(label).width) + 10;
       const lx = Math.max(4, Math.min(chartW - tw - 4, x - tw / 2));
