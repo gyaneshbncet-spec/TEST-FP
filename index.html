@@ -16205,17 +16205,16 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
   const is1mTf = (tf === '1m');
   const isMicroTf = (tf === '1m' || tf === '3m' || tf === '5m');
   const choppy = !!(struct.sideways || struct.microChop || dir === 'SIDEWAYS');
+  // 1m GOLD: SELL structure is still intact if LH/LL or falling — never SELL→BUY without brokenSell
+  const sellStructIntact = !!(alignedSell || (lh && ll) || (trendFalling && !trendRising) || dir === 'SELL');
+  const buyStructIntact = !!(alignedBuy || (hh && hl) || (trendRising && !trendFalling) || dir === 'BUY');
   if (canScanMss) {
-    // ——— 1m GOLD: reject fake MSS from tiny zones ———
-    // No MSS while micro-chop / compressed. Breaks must be real structureFail flags
-    // (algoTfStructure already requires ≥$1.80 / 1.25×ATR pivot breaks on 1m).
+    // ——— 1m GOLD: reject fake MSS from tiny zones / bounces without structure break ———
     if (is1mTf && choppy && !brokenBuy && !brokenSell) {
       // skip all MSS triggers in pure noise
     } else {
-    // REAL MSS only on CLOSED candle + prior VALID structure on this TF.
-    // BUY structure FAIL → MSS toward SELL
+    // BUY structure FAIL → MSS toward SELL (needs real brokenBuy on 1m)
     if ((structureFail === 'BUY' || brokenBuy) && (validSide === 'BUY' || prevDir === 'BUY' || allowedSide === 'BUY' || (lastMss && lastMss.side === 'BUY'))) {
-      // 1m: require true brokenBuy (not soft dir-only) and not already SELL
       if (is1mTf && !brokenBuy) {
         try { console.log('[GP Algo] MSS 1m REJECTED soft BUY-fail — need real brokenBuy'); } catch (e) {}
       } else if (!lastMss || lastMss.side !== 'SELL' || allowedSide === 'BUY') {
@@ -16223,17 +16222,25 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
       }
     }
     // SELL structure FAIL → MSS toward BUY
+    // 1m RULE: brokenSell is MANDATORY. Bounce HH inside a sell channel is NOT MSS.
     else if ((structureFail === 'SELL' || brokenSell) && (validSide === 'SELL' || prevDir === 'SELL' || allowedSide === 'SELL' || (lastMss && lastMss.side === 'SELL'))) {
-      if (trendFalling && (alignedSell || (ll && lh)) && !trendRising && !hh) {
+      if (is1mTf) {
+        if (!brokenSell) {
+          try { console.log('[GP Algo] MSS 1m REJECTED SELL→BUY — sell structure NOT broken'); } catch (e) {}
+        } else if (sellStructIntact && !hh) {
+          try { console.log('[GP Algo] MSS 1m REJECTED SELL→BUY — sell structure still intact'); } catch (e) {}
+        } else if (!(hh && hl) && !alignedBuy) {
+          try { console.log('[GP Algo] MSS 1m REJECTED SELL→BUY — no HH+HL buy structure yet'); } catch (e) {}
+        } else if (!lastMss || lastMss.side !== 'BUY' || allowedSide === 'SELL') {
+          mss = makeMss('BUY', 'SELL', 'REAL · 1m SELL broken + HH/HL (closed)');
+        }
+      } else if (trendFalling && (alignedSell || (ll && lh)) && !trendRising && !hh) {
         try { console.log('[GP Algo] MSS', tf, 'REJECTED fake SELL→BUY · still FALLING'); } catch (e) {}
-      } else if (is1mTf && !brokenSell && !trendRising) {
-        try { console.log('[GP Algo] MSS 1m REJECTED soft SELL-fail — need brokenSell or RISING'); } catch (e) {}
       } else if (trendRising || (dir === 'BUY' && (alignedBuy || (hh && hl))) || (hh && hl && !ll)) {
         if (!lastMss || lastMss.side !== 'BUY' || allowedSide === 'SELL') {
           mss = makeMss('BUY', 'SELL', 'REAL · SELL failed + BUY structure (closed)');
         }
-      } else if (!is1mTf && isMicroTf && dir === 'BUY' && !trendFalling) {
-        // 3m/5m only — 1m no longer uses weak dir-flip MSS
+      } else if (isMicroTf && dir === 'BUY' && !trendFalling) {
         if (!lastMss || lastMss.side !== 'BUY' || allowedSide === 'SELL') {
           mss = makeMss('BUY', 'SELL', 'REAL · micro SELL→BUY dir flip (closed)');
         }
@@ -16241,35 +16248,46 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
         try { console.log('[GP Algo] MSS', tf, 'REJECTED SELL→BUY · no confirmed BUY structure yet'); } catch (e) {}
       }
     }
-    // Dir flip: 1m requires full LH+LL or HH+HL (no half signals)
+    // Dir flip — 1m SELL→BUY only with brokenSell + HH+HL (never bounce-only)
     if (!mss && prevDir === 'BUY' && dir === 'SELL' && !alignedBuy && !trendRising) {
       if (is1mTf) {
-        if (alignedSell && lh && ll) mss = makeMss('SELL', 'BUY', 'REAL · 1m BUY→SELL HH/HL→LH/LL');
+        if (brokenBuy && alignedSell && lh && ll) mss = makeMss('SELL', 'BUY', 'REAL · 1m BUY broken → LH/LL');
       } else if (alignedSell || (lh && ll)) {
         mss = makeMss('SELL', 'BUY', 'REAL · structure flipped BUY→SELL (closed)');
       }
     } else if (!mss && prevDir === 'SELL' && dir === 'BUY' && !alignedSell && !trendFalling) {
       if (is1mTf) {
-        if ((alignedBuy || trendRising) && hh && hl) mss = makeMss('BUY', 'SELL', 'REAL · 1m SELL→BUY LH/LL→HH/HL');
+        // HARD: must break sell structure first — HH+HL alone is a bounce, not MSS
+        if (brokenSell && hh && hl && !sellStructIntact) {
+          mss = makeMss('BUY', 'SELL', 'REAL · 1m SELL broken → HH/HL');
+        }
       } else if (alignedBuy || (hh && hl) || trendRising) {
         mss = makeMss('BUY', 'SELL', 'REAL · structure flipped SELL→BUY (closed)');
       }
     }
-    // Sticky conflict: 1m only when multi-swing confirmed (hh+hl or lh+ll), not single pivot noise
+    // Sticky conflict — 1m never flips SELL→BUY without brokenSell
     if (!mss && lastMss && String(lastMss.side).toUpperCase() === 'SELL') {
-      const liveBuy = is1mTf
-        ? ((trendRising && hh && hl) || (dir === 'BUY' && alignedBuy && hh && hl))
-        : (trendRising || (dir === 'BUY' && (alignedBuy || (hh && hl))) || (hh && hl && !ll && !trendFalling));
-      if (liveBuy && closedOk) {
-        mss = makeMss('BUY', 'SELL', 'REAL · stale SELL lock vs live BUY structure');
+      if (is1mTf) {
+        if (brokenSell && hh && hl && !sellStructIntact) {
+          mss = makeMss('BUY', 'SELL', 'REAL · 1m stale SELL cleared after structure break');
+        }
+      } else {
+        const liveBuy = trendRising || (dir === 'BUY' && (alignedBuy || (hh && hl))) || (hh && hl && !ll && !trendFalling);
+        if (liveBuy && closedOk) {
+          mss = makeMss('BUY', 'SELL', 'REAL · stale SELL lock vs live BUY structure');
+        }
       }
     }
     if (!mss && lastMss && String(lastMss.side).toUpperCase() === 'BUY') {
-      const liveSell = is1mTf
-        ? ((trendFalling && lh && ll) || (dir === 'SELL' && alignedSell && lh && ll))
-        : (trendFalling || (dir === 'SELL' && (alignedSell || (lh && ll))) || (lh && ll && !hh && !trendRising));
-      if (liveSell && closedOk) {
-        mss = makeMss('SELL', 'BUY', 'REAL · stale BUY lock vs live SELL structure');
+      if (is1mTf) {
+        if (brokenBuy && lh && ll && !buyStructIntact) {
+          mss = makeMss('SELL', 'BUY', 'REAL · 1m stale BUY cleared after structure break');
+        }
+      } else {
+        const liveSell = trendFalling || (dir === 'SELL' && (alignedSell || (lh && ll))) || (lh && ll && !hh && !trendRising);
+        if (liveSell && closedOk) {
+          mss = makeMss('SELL', 'BUY', 'REAL · stale BUY lock vs live SELL structure');
+        }
       }
     }
     } // end 1m chop skip
@@ -16351,17 +16369,26 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
         try { console.log('[GP Algo] MSS', tf, 'BUY lock revoked — falling or no BUY structure'); } catch (e) {}
       }
     } else if (allowedSide === 'SELL') {
-      // Revoke SELL when structure flipped to BUY or market is clearly RISING
-      if (brokenSell || trendRising || (dir === 'BUY' && (alignedBuy || (hh && hl)) && !trendFalling)) {
-        // On micro TF with clear rising: flip straight to BUY allowed (do not re-WAIT)
-        if ((tf === '1m' || tf === '3m') && (trendRising || (hh && hl)) && !trendFalling) {
+      // 1m: only revoke SELL after REAL sell-structure break (brokenSell). Bounce ≠ break.
+      if (tf === '1m') {
+        if (brokenSell && hh && hl && !trendFalling) {
           waitStructure = false;
           allowedSide = 'BUY';
           validSide = 'BUY';
-          lastMss = makeMss('BUY', 'SELL', 'revoke SELL · live BUY/RISING');
+          lastMss = makeMss('BUY', 'SELL', '1m revoke SELL · brokenSell + HH/HL');
           events.push(lastMss);
           if (events.length > 16) events = events.slice(-16);
-          try { console.log('[GP Algo] MSS', tf, 'SELL→BUY direct unlock (RISING)'); } catch (e) {}
+          try { console.log('[GP Algo] MSS 1m SELL→BUY after real structure break'); } catch (e) {}
+        }
+        // else keep SELL lock — do not unlock on bounce
+      } else if (brokenSell || trendRising || (dir === 'BUY' && (alignedBuy || (hh && hl)) && !trendFalling)) {
+        if (tf === '3m' && brokenSell && (trendRising || (hh && hl)) && !trendFalling) {
+          waitStructure = false;
+          allowedSide = 'BUY';
+          validSide = 'BUY';
+          lastMss = makeMss('BUY', 'SELL', 'revoke SELL · 3m break + BUY');
+          events.push(lastMss);
+          if (events.length > 16) events = events.slice(-16);
         } else {
           waitStructure = true;
           allowedSide = null;
@@ -16400,26 +16427,41 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
     st.armedForBreak = true;
     try { console.log('[GP Algo] MSS', tf, 'cleared stale SELL→BUY — market still FALLING'); } catch (e) {}
   }
-  // SYMMETRIC: stale BUY→SELL while chart is clearly RISING → clear / retarget BUY
-  // This was the main 1m bug: big green trend still locked on "1M SCALP SELL"
-  if (st.lastMss && st.lastMss.side === 'SELL' && trendRising && !trendFalling && (dir === 'BUY' || (hh && hl))) {
+  // Stale SELL → BUY only after REAL sell structure break (not bounce / not 1m RISING alone).
+  // Chart bug: "MSS 1M SELL→BUY" while still under red sell structure was caused by
+  // auto-clear on trendRising without brokenSell.
+  if (st.lastMss && st.lastMss.side === 'SELL' && brokenSell && !trendFalling && hh && hl) {
     st.mssActive = true;
     st.waitStructure = false;
     st.allowedSide = 'BUY';
     st.validSide = 'BUY';
     st.armedForBreak = true;
-    // Record corrective MSS event if not already BUY
     try {
       const fix = {
         side: 'BUY', from: 'SELL', tf: tf,
-        reason: 'MSS ' + tf.toUpperCase() + ' SELL→BUY · auto-clear stale SELL (RISING)',
+        reason: 'MSS ' + tf.toUpperCase() + ' SELL→BUY · sell structure BROKEN + HH/HL',
         at: Date.now(), barIndex: barIndex, price: price,
-        id: tf + '-mss-fixrise-' + Date.now()
+        id: tf + '-mss-fixbreak-' + Date.now()
       };
       st.lastMss = fix;
       st.events = (st.events || []).concat([fix]).slice(-16);
     } catch (eFix) {}
-    try { console.log('[GP Algo] MSS', tf, 'cleared stale BUY→SELL — market RISING → BUY'); } catch (e) {}
+    try { console.log('[GP Algo] MSS', tf, 'SELL→BUY after brokenSell + HH/HL'); } catch (e) {}
+  }
+  // If 1m shows SELL→BUY wait but sell structure still intact → cancel fake MSS
+  if (tf === '1m' && st.lastMss && st.lastMss.side === 'BUY' && !brokenSell &&
+      (alignedSell || (lh && ll) || trendFalling || dir === 'SELL')) {
+    st.waitStructure = false;
+    st.allowedSide = 'SELL';
+    st.validSide = 'SELL';
+    st.mssActive = true;
+    st.lastMss = {
+      side: 'SELL', from: 'BUY', tf: '1m',
+      reason: 'MSS 1M fake SELL→BUY cancelled · sell structure intact',
+      at: Date.now(), barIndex: barIndex, price: price,
+      id: '1m-mss-cancel-' + Date.now()
+    };
+    try { console.log('[GP Algo] MSS 1m cancelled fake SELL→BUY — sell structure intact'); } catch (e) {}
   }
   // Timeout: WAIT too long without confirmed structure → release lock so TF can trade again
   // BUG FIX (1m/3m): 45 minutes was ~45 bars of deadlock on 1m / ~15 on 3m, so the
