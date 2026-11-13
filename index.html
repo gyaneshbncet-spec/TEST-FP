@@ -15752,10 +15752,10 @@ function algoLocalLean(data, i) {
 
 /** Scalping TFs that use sideways veto (other TFs keep trading through chop). */
 function algoIsScalpTf(tf) {
-  // All decision TFs use the same scalping rules (TL + structure + discount/premium).
+  // TRUE scalps only. 15m/1H/4H/1D are HOLD/SWING — SIDEWAYS soft-wait
+  // and strict micro premium gates must NOT zero their live trades.
   tf = String(tf || '').toLowerCase();
-  return tf === '1m' || tf === '3m' || tf === '5m' || tf === '15m' ||
-    tf === '1h' || tf === '4h' || tf === '1d';
+  return tf === '1m' || tf === '3m' || tf === '5m';
 }
 
 /**
@@ -17374,7 +17374,7 @@ function algoSMCStructureConfirm(data, i, side, atr, demand, supply, tf) {
 /** 1m/3m scalp zone: BUY only discount (lower half), SELL only premium (upper half).
  * Uses recent range of last N bars ending at i. Returns {ok, pos, lo, hi, reason}.
  */
-function algoScalpPremiumDiscount(data, i, side, lookback) {
+function algoScalpPremiumDiscount(data, i, side, lookback, tf) {
   lookback = lookback || 24;
   if (!Array.isArray(data) || i < 3 || !data[i]) return { ok: false, pos: 0.5, reason: 'no range' };
   const c = data[i];
@@ -17386,13 +17386,24 @@ function algoScalpPremiumDiscount(data, i, side, lookback) {
   }
   if (!(hi > lo)) return { ok: false, pos: 0.5, reason: 'flat range' };
   const pos = (Number(c.c) - lo) / (hi - lo);
+  const tfK = String(tf || '').toLowerCase();
+  const isHold = (tfK === '15m' || tfK === '1h' || tfK === '4h' || tfK === '1d');
+  // HOLD/SWING (15m+): allow continuation — after a real drop price sits in
+  // "discount" of the old range; blocking SELL there zeroed every 15m live trade.
+  // Micro scalp 1m/3m/5m keep strict half-range gate.
   if (side === 'BUY') {
-    // Discount = lower half of recent range (≤50%)
+    if (isHold) {
+      if (pos > 0.72) return { ok: false, pos: pos, lo: lo, hi: hi, reason: 'hold BUY blocked — extreme premium (pos ' + (pos * 100).toFixed(0) + '%)' };
+      return { ok: true, pos: pos, lo: lo, hi: hi, reason: 'hold discount/mid ' + (pos * 100).toFixed(0) + '%' };
+    }
     if (pos > 0.50) return { ok: false, pos: pos, lo: lo, hi: hi, reason: 'not discount (pos ' + (pos * 100).toFixed(0) + '% · need ≤50%)' };
     return { ok: true, pos: pos, lo: lo, hi: hi, reason: 'discount ' + (pos * 100).toFixed(0) + '%' };
   }
   if (side === 'SELL') {
-    // Premium = upper half of recent range (≥50%)
+    if (isHold) {
+      if (pos < 0.28) return { ok: false, pos: pos, lo: lo, hi: hi, reason: 'hold SELL blocked — extreme discount (pos ' + (pos * 100).toFixed(0) + '%)' };
+      return { ok: true, pos: pos, lo: lo, hi: hi, reason: 'hold premium/mid ' + (pos * 100).toFixed(0) + '%' };
+    }
     if (pos < 0.50) return { ok: false, pos: pos, lo: lo, hi: hi, reason: 'not premium (pos ' + (pos * 100).toFixed(0) + '% · need ≥50%)' };
     return { ok: true, pos: pos, lo: lo, hi: hi, reason: 'premium ' + (pos * 100).toFixed(0) + '%' };
   }
@@ -17417,6 +17428,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   const _tfB = String(tf || '').toLowerCase();
   const isScalpBar = (_tfB === '1m' || _tfB === '3m' || _tfB === '5m' || _tfB === '15m' ||
     _tfB === '1h' || _tfB === '4h' || _tfB === '1d');
+  const isHoldBar = (_tfB === '15m' || _tfB === '1h' || _tfB === '4h' || _tfB === '1d');
   // 1m ATR is often <$1 — do not force $1 floor on scalp or zones become unreachable
   const atr = Math.max(isScalpBar ? 0.35 : 1.0, atrSum / ap);
 
@@ -17706,10 +17718,12 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
     } catch (eLim) {}
     if (side === 'BUY' && !buyDirOk) return;
     if (side === 'SELL' && !sellDirOk) return;
-    // 2b) HARD discount/premium — rule book: no premium buys / no discount sells
+    // 2b) discount/premium — strict on 1m/3m/5m; relaxed continuation on 15m+
     try {
       if (typeof algoScalpPremiumDiscount === 'function') {
-        const pdGate = algoScalpPremiumDiscount(data, i, side, (String(tf||'').toLowerCase()==='1m'||String(tf||'').toLowerCase()==='3m'||String(tf||'').toLowerCase()==='5m') ? 24 : 40);
+        const tfPd = String(tf || '').toLowerCase();
+        const lbPd = (tfPd === '1m' || tfPd === '3m' || tfPd === '5m') ? 24 : 40;
+        const pdGate = algoScalpPremiumDiscount(data, i, side, lbPd, tfPd);
         if (pdGate && !pdGate.ok) return;
       }
     } catch (ePdG) {}
@@ -17732,10 +17746,8 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
     const g = side === 'BUY' ? gateBuy : gateSell;
     reason = (reason || '') + ' · ' + (g && g.reason ? g.reason : (tfStruct && tfStruct.detail ? tfStruct.detail : ''));
     // Entry/SL/TP always interbank prices (never OKX mark price).
-    // LIVE punch: use the current XAUUSD tick when the signal is on the last
-    // closed or forming bar so the chart marker and MT5 order are not stuck on
-    // a 3–4 minute-old candle close. BACKTEST keeps the historical bar close.
-    // SL: beyond sweep extreme + 1.0–1.5×ATR buffer (protects stop-runs that wick the level)
+    // LIVE: use current XAUUSD tick on last closed/forming bar so entry is realtime.
+    // BACKTEST keeps historical bar close.
     let entry = Number(c.c);
     try {
       const isBtEntry = String(mode || '').toUpperCase() === 'BACKTEST';
@@ -17747,6 +17759,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         if (tickFresh && nearLiveBar) entry = livePx;
       }
     } catch (eLiveEntry) {}
+    // SL: beyond sweep extreme + ATR buffer
     // Wider logical SL: beyond structure + buffer so stop-hunts less likely to clip
     // Scalp: ≥0.90×ATR or $0.80 min beyond zone · Hold: 1.35×ATR
     const SL_BUF = 1.35;
@@ -17877,16 +17890,20 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         }
         if (!smcBuy.ok) continue;
       } catch (eSmcB) {}
-      // Discount zone required with upward support TL
+      // Discount zone — strict micro scalp; relaxed on 15m+ hold
       const rng = algoRecentRange(data, i, isScalpBar ? 24 : 40);
       if (rng && rng.hi > rng.lo) {
         const posPx = (px - rng.lo) / (rng.hi - rng.lo);
         const posC = (c.c - rng.lo) / (rng.hi - rng.lo);
-        if (isScalpBar ? (posPx > 0.50 || posC > 0.50) : (posPx > 0.55 || posC > 0.58)) continue; // not discount
+        if (isHoldBar) {
+          if (posPx > 0.72 || posC > 0.72) continue; // extreme premium only
+        } else if (isScalpBar ? (posPx > 0.50 || posC > 0.50) : (posPx > 0.55 || posC > 0.58)) {
+          continue; // not discount
+        }
       }
       try {
         if (typeof algoScalpPremiumDiscount === 'function') {
-          const pdB = algoScalpPremiumDiscount(data, i, 'BUY', isScalpBar ? 24 : 40);
+          const pdB = algoScalpPremiumDiscount(data, i, 'BUY', isScalpBar ? 24 : 40, tf);
           if (pdB && !pdB.ok) continue;
         }
       } catch (ePdB) {}
@@ -17987,18 +18004,20 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         if (rngS && rngS.hi > rngS.lo) {
           const posPx = (px - rngS.lo) / (rngS.hi - rngS.lo);
           const posC = (c.c - rngS.lo) / (rngS.hi - rngS.lo);
-          // Scalp: zone + close must both be ≥50% (premium). Hold: slightly softer floor.
-          if (isScalpBar) {
+          // Micro scalp: ≥50% premium. Hold 15m+: allow continuation (only block extreme discount).
+          if (isHoldBar) {
+            if (posPx < 0.28 || posC < 0.28) continue; // extreme discount only
+          } else if (isScalpBar) {
             if (posPx < 0.50 || posC < 0.50) continue; // not premium
           } else {
             if (posPx < 0.40 || posC < 0.38) continue;
           }
         }
       }
-      // Also hard-block via dedicated helper (same rule book text)
+      // Helper respects hold vs scalp via tf arg
       try {
         if (typeof algoScalpPremiumDiscount === 'function') {
-          const pd = algoScalpPremiumDiscount(data, i, 'SELL', isScalpBar ? 24 : 40);
+          const pd = algoScalpPremiumDiscount(data, i, 'SELL', isScalpBar ? 24 : 40, tf);
           if (pd && !pd.ok) continue;
         }
       } catch (ePd) {}
@@ -18027,18 +18046,22 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         if (c.c >= ob.top) continue;
         if (!algoWickSweepsZone(c, 'SELL', zMid, atr) && !(c.h >= ob.bottom && c.c < ob.top)) continue;
         if (c.c < zMid - atr * 2.5) continue;
-        // HARD premium: supply OB sell only in upper half of recent range
+        // Supply OB premium — relaxed on 15m+ hold so continuation sells after drop still fire
         {
           const rngOb = algoRecentRange(data, i, isScalpBar ? 24 : 40);
           if (rngOb && rngOb.hi > rngOb.lo) {
             const posZ = (zMid - rngOb.lo) / (rngOb.hi - rngOb.lo);
             const posC = (c.c - rngOb.lo) / (rngOb.hi - rngOb.lo);
-            if (isScalpBar ? (posZ < 0.50 || posC < 0.50) : (posZ < 0.40 || posC < 0.38)) continue;
+            if (isHoldBar) {
+              if (posZ < 0.28 || posC < 0.28) continue;
+            } else if (isScalpBar ? (posZ < 0.50 || posC < 0.50) : (posZ < 0.40 || posC < 0.38)) {
+              continue;
+            }
           }
         }
         try {
           if (typeof algoScalpPremiumDiscount === 'function') {
-            const pd = algoScalpPremiumDiscount(data, i, 'SELL', isScalpBar ? 24 : 40);
+            const pd = algoScalpPremiumDiscount(data, i, 'SELL', isScalpBar ? 24 : 40, tf);
             if (pd && !pd.ok) continue;
           }
         } catch (ePd2) {}
@@ -18152,12 +18175,15 @@ function algoScanSignals(candles, tf, mode, structOpt) {
     } catch (eMssPre) {}
     const tfLive = String(tf || '').toLowerCase();
     const isScalpLive = (tfLive === '1m' || tfLive === '3m' || tfLive === '5m');
-    // LIVE entries must fire on the bar that just closed (or the prior one for
-    // a 1-tick race). Wide lookbacks (10–20 bars) made signals appear on the
-    // chart 3–4+ minutes late at previous levels. Continuous 1s scanning still
-    // catches every close; structure rules are unchanged.
-    // Scalp: last 2 closed bars only · HTF: last 2 closed bars.
-    const lookBack = isScalpLive ? 2 : 2;
+    // LIVE closed-bar window: catch recent TL/OB touches without multi-hour lag.
+    // 15m was stuck at lookBack=2 (30m) and missed repeated zone touches.
+    // 15m/1H get a few closed bars only; micro scalps a bit more.
+    const lookBack = (tfLive === '1m') ? 8
+      : (tfLive === '3m') ? 6
+      : (tfLive === '5m') ? 6
+      : (tfLive === '15m') ? 6
+      : (tfLive === '1h') ? 4
+      : 3;
     for (let i = n - 2; i >= n - 1 - lookBack && i >= 10; i--) {
       const found = algoScanBar(data, i, tf, lines, demand, supply, 'LIVE');
       for (let j = 0; j < found.length; j++) {
@@ -21206,9 +21232,7 @@ function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
         // Allow up to ~1 bar of clock skew so live trades still plot on the chart.
         if (bestDelta > Math.max(stepMs * 1.05, 60000)) idx = -1;
       }
-      // Open LIVE trades: always anchor marker to the live edge so the chart
-      // tracks realtime price levels (not a 3–4 min old candle). Closed /
-      // backtest trades keep historical barSlot placement.
+      // Open LIVE trades: anchor at live edge (realtime). Closed/backtest keep slot.
       let x;
       const isLiveOpen = isOpen && !isBt;
       if (isLiveOpen && candleHistory && candleHistory.length) {
@@ -21224,7 +21248,6 @@ function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
         if (isOpen) x = Math.max(20, chartW - 80);
         else return;
       }
-      // Prefer real MT5 fill when available so marker matches broker, not stale signal close.
       let entry = Number(
         (t.mt5Confirmed && t.mt5BrokerEntry > 0) ? t.mt5BrokerEntry
         : (t.entry != null ? t.entry : t.price)
