@@ -17731,9 +17731,22 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
     const id = 'GP-' + side[0] + '-' + tf + '-' + barSlot + '-' + Math.round(zonePx * 100);
     const g = side === 'BUY' ? gateBuy : gateSell;
     reason = (reason || '') + ' · ' + (g && g.reason ? g.reason : (tfStruct && tfStruct.detail ? tfStruct.detail : ''));
-    // Entry/SL/TP always interbank candle prices (never OKX mark price)
+    // Entry/SL/TP always interbank prices (never OKX mark price).
+    // LIVE punch: use the current XAUUSD tick when the signal is on the last
+    // closed or forming bar so the chart marker and MT5 order are not stuck on
+    // a 3–4 minute-old candle close. BACKTEST keeps the historical bar close.
     // SL: beyond sweep extreme + 1.0–1.5×ATR buffer (protects stop-runs that wick the level)
-    const entry = Number(c.c);
+    let entry = Number(c.c);
+    try {
+      const isBtEntry = String(mode || '').toUpperCase() === 'BACKTEST';
+      if (!isBtEntry) {
+        const livePx = Number(state && state.gold_price);
+        const tickAt = Number(state && state._goldTickUpdatedAt) || 0;
+        const tickFresh = livePx > 500 && tickAt > 0 && (Date.now() - tickAt) <= 90000;
+        const nearLiveBar = (typeof data !== 'undefined' && Array.isArray(data) && i >= Math.max(0, data.length - 2));
+        if (tickFresh && nearLiveBar) entry = livePx;
+      }
+    } catch (eLiveEntry) {}
     // Wider logical SL: beyond structure + buffer so stop-hunts less likely to clip
     // Scalp: ≥0.90×ATR or $0.80 min beyond zone · Hold: 1.35×ATR
     const SL_BUF = 1.35;
@@ -18139,10 +18152,12 @@ function algoScanSignals(candles, tf, mode, structOpt) {
     } catch (eMssPre) {}
     const tfLive = String(tf || '').toLowerCase();
     const isScalpLive = (tfLive === '1m' || tfLive === '3m' || tfLive === '5m');
-    // BUG FIX: 5 closed bars on 1m was only 5 minutes — premium TL touches visible on
-    // chart were already outside the scan window so 1m/3m reported 0 trades.
-    // Still only CLOSED bars; all discount/premium/TL/MSS rules unchanged per bar.
-    const lookBack = (tfLive === '1m') ? 20 : ((tfLive === '3m') ? 16 : (isScalpLive ? 10 : 2));
+    // LIVE entries must fire on the bar that just closed (or the prior one for
+    // a 1-tick race). Wide lookbacks (10–20 bars) made signals appear on the
+    // chart 3–4+ minutes late at previous levels. Continuous 1s scanning still
+    // catches every close; structure rules are unchanged.
+    // Scalp: last 2 closed bars only · HTF: last 2 closed bars.
+    const lookBack = isScalpLive ? 2 : 2;
     for (let i = n - 2; i >= n - 1 - lookBack && i >= 10; i--) {
       const found = algoScanBar(data, i, tf, lines, demand, supply, 'LIVE');
       for (let j = 0; j < found.length; j++) {
@@ -19749,6 +19764,13 @@ async function mt5RefreshStatus() {
         t.mt5PositionId=p.identifier||p.ticket;
         if(t.mt5Status!=='MT5_FILLED'||!t.mt5Confirmed){t.mt5Status='MT5_FILLED';t.mt5Confirmed=true;t.mt5=true;changed=true;}
         t.mt5LastBrokerPrice=Number(p.price_current)||t.mt5LastBrokerPrice;
+        var _brokerOpen = Number(p.price_open || p.price);
+        if (_brokerOpen > 0 && (!t.mt5BrokerEntry || Math.abs(Number(t.mt5BrokerEntry) - _brokerOpen) > 0.01)) {
+          t.mt5BrokerEntry = _brokerOpen;
+          t.entry = _brokerOpen;
+          t.price = _brokerOpen;
+          changed = true;
+        }
         // Broker still has position → NEVER treat local as TP/SL closed (fixes refresh auto-close)
         if (t.outcome === 'TP' || t.outcome === 'SL' || t.status === 'TP' || t.status === 'SL') {
           t.outcome = null;
@@ -19801,7 +19823,7 @@ async function mt5SendOpen(trade) {
   trade.mt5Pending=true;trade.mt5Attempted=true;trade.mt5Status='MT5_ORDER_PENDING';
   const payload={action:'OPEN',symbol:MT5_BRIDGE.symbol,side:trade.side==='SELL'?'SELL':'BUY',lots:Number(trade.lots)||algoGetLotSize(),entry:Number(trade.entry)||Number(trade.price)||0,sl:Number(trade.sl)||0,tp:Number(trade.tp)||0,id:trade.id||('GP-'+Date.now()),tf:trade.tf||'',reason:String(trade.reason||'').slice(0,120),source:trade.source||'LIVE'};
   const r=await mt5Post(payload);trade.mt5Pending=false;trade.mt5AttemptAt=Date.now();
-  if(r.ok&&r.data&&r.data.filled&&r.data.ticket){trade.mt5=true;trade.mt5Confirmed=true;trade.mt5Ticket=r.data.ticket;trade.mt5PositionId=r.data.position_id||r.data.ticket;trade.mt5Status='MT5_FILLED';trade.mt5At=Date.now();trade.mt5BrokerEntry=Number(r.data.price)||null;}
+  if(r.ok&&r.data&&r.data.filled&&r.data.ticket){trade.mt5=true;trade.mt5Confirmed=true;trade.mt5Ticket=r.data.ticket;trade.mt5PositionId=r.data.position_id||r.data.ticket;trade.mt5Status='MT5_FILLED';trade.mt5At=Date.now();trade.mt5BrokerEntry=Number(r.data.price)||null;if(trade.mt5BrokerEntry>0){trade.entry=trade.mt5BrokerEntry;trade.price=trade.mt5BrokerEntry;}}
   else if(r.ok){trade.mt5Status='MT5_ORDER_UNCONFIRMED';trade.mt5Order=r.data&&r.data.order||null;trade.mt5Ticket=r.data&&r.data.ticket||null;trade.mt5Note='Order response received, but broker position not yet verified. Check MT5.';}
   else{trade.mt5Status='MT5_REJECTED';trade.mt5Note=r.error||'MT5 rejected or unavailable';}
   try{const log=algoLoadTrades();const ix=log.findIndex(x=>x&&x.id===trade.id);if(ix>=0){log[ix]=Object.assign(log[ix],trade);algoSaveTrades(log);algoRenderLog();}}catch(eS){}
@@ -21184,10 +21206,14 @@ function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
         // Allow up to ~1 bar of clock skew so live trades still plot on the chart.
         if (bestDelta > Math.max(stepMs * 1.05, 60000)) idx = -1;
       }
-      // Open trades: if the entry bar scrolled off / slot missed, still show
-      // levels near the live edge so SL / TP / RR remain visible.
+      // Open LIVE trades: always anchor marker to the live edge so the chart
+      // tracks realtime price levels (not a 3–4 min old candle). Closed /
+      // backtest trades keep historical barSlot placement.
       let x;
-      if (idx >= 0 && candleHistory && candleHistory.length) {
+      const isLiveOpen = isOpen && !isBt;
+      if (isLiveOpen && candleHistory && candleHistory.length) {
+        x = getX(candleHistory.length - 1);
+      } else if (idx >= 0 && candleHistory && candleHistory.length) {
         x = getX(idx);
       } else if (isOpen && candleHistory && candleHistory.length) {
         x = getX(candleHistory.length - 1);
@@ -21198,7 +21224,11 @@ function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
         if (isOpen) x = Math.max(20, chartW - 80);
         else return;
       }
-      const entry = Number(t.entry != null ? t.entry : t.price);
+      // Prefer real MT5 fill when available so marker matches broker, not stale signal close.
+      let entry = Number(
+        (t.mt5Confirmed && t.mt5BrokerEntry > 0) ? t.mt5BrokerEntry
+        : (t.entry != null ? t.entry : t.price)
+      );
       if (!(entry > 0)) return;
       // Live chart always enforces RR 1:2 for display + open-trade geometry.
       let slPx = Number(t.sl);
