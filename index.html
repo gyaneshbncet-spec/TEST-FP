@@ -16202,26 +16202,38 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
   // so the old gate (armedForBreak || (mssActive && allowedSide)) BLOCKED opposite MSS forever.
   // Real MSS must still be detectable while waiting / locked on the wrong side.
   const canScanMss = closedOk && (armedForBreak || mssActive || !!lastMss || !!validSide || !!prevDir);
+  const is1mTf = (tf === '1m');
   const isMicroTf = (tf === '1m' || tf === '3m' || tf === '5m');
+  const choppy = !!(struct.sideways || struct.microChop || dir === 'SIDEWAYS');
   if (canScanMss) {
+    // ——— 1m GOLD: reject fake MSS from tiny zones ———
+    // No MSS while micro-chop / compressed. Breaks must be real structureFail flags
+    // (algoTfStructure already requires ≥$1.80 / 1.25×ATR pivot breaks on 1m).
+    if (is1mTf && choppy && !brokenBuy && !brokenSell) {
+      // skip all MSS triggers in pure noise
+    } else {
     // REAL MSS only on CLOSED candle + prior VALID structure on this TF.
     // BUY structure FAIL → MSS toward SELL
     if ((structureFail === 'BUY' || brokenBuy) && (validSide === 'BUY' || prevDir === 'BUY' || allowedSide === 'BUY' || (lastMss && lastMss.side === 'BUY'))) {
-      if (!lastMss || lastMss.side !== 'SELL' || allowedSide === 'BUY') {
+      // 1m: require true brokenBuy (not soft dir-only) and not already SELL
+      if (is1mTf && !brokenBuy) {
+        try { console.log('[GP Algo] MSS 1m REJECTED soft BUY-fail — need real brokenBuy'); } catch (e) {}
+      } else if (!lastMss || lastMss.side !== 'SELL' || allowedSide === 'BUY') {
         mss = makeMss('SELL', 'BUY', 'REAL · BUY structure FAILED (closed)');
       }
     }
-    // SELL structure FAIL → MSS toward BUY (symmetric, not over-strict)
+    // SELL structure FAIL → MSS toward BUY
     else if ((structureFail === 'SELL' || brokenSell) && (validSide === 'SELL' || prevDir === 'SELL' || allowedSide === 'SELL' || (lastMss && lastMss.side === 'SELL'))) {
-      // Reject only while STILL clearly falling with intact sell structure
       if (trendFalling && (alignedSell || (ll && lh)) && !trendRising && !hh) {
         try { console.log('[GP Algo] MSS', tf, 'REJECTED fake SELL→BUY · still FALLING'); } catch (e) {}
+      } else if (is1mTf && !brokenSell && !trendRising) {
+        try { console.log('[GP Algo] MSS 1m REJECTED soft SELL-fail — need brokenSell or RISING'); } catch (e) {}
       } else if (trendRising || (dir === 'BUY' && (alignedBuy || (hh && hl))) || (hh && hl && !ll)) {
         if (!lastMss || lastMss.side !== 'BUY' || allowedSide === 'SELL') {
           mss = makeMss('BUY', 'SELL', 'REAL · SELL failed + BUY structure (closed)');
         }
-      } else if (isMicroTf && dir === 'BUY' && !trendFalling) {
-        // 1m/3m: allow MSS to BUY on directional flip without waiting full aligned+hh+hl
+      } else if (!is1mTf && isMicroTf && dir === 'BUY' && !trendFalling) {
+        // 3m/5m only — 1m no longer uses weak dir-flip MSS
         if (!lastMss || lastMss.side !== 'BUY' || allowedSide === 'SELL') {
           mss = makeMss('BUY', 'SELL', 'REAL · micro SELL→BUY dir flip (closed)');
         }
@@ -16229,33 +16241,50 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
         try { console.log('[GP Algo] MSS', tf, 'REJECTED SELL→BUY · no confirmed BUY structure yet'); } catch (e) {}
       }
     }
-    // Dir flip paths (symmetric)
-    if (!mss && prevDir === 'BUY' && dir === 'SELL' && (alignedSell || (lh && ll)) && !alignedBuy && !trendRising) {
-      mss = makeMss('SELL', 'BUY', 'REAL · structure flipped BUY→SELL (closed)');
-    } else if (!mss && prevDir === 'SELL' && dir === 'BUY' && (alignedBuy || (hh && hl) || trendRising) && !alignedSell && !trendFalling) {
-      mss = makeMss('BUY', 'SELL', 'REAL · structure flipped SELL→BUY (closed)');
+    // Dir flip: 1m requires full LH+LL or HH+HL (no half signals)
+    if (!mss && prevDir === 'BUY' && dir === 'SELL' && !alignedBuy && !trendRising) {
+      if (is1mTf) {
+        if (alignedSell && lh && ll) mss = makeMss('SELL', 'BUY', 'REAL · 1m BUY→SELL HH/HL→LH/LL');
+      } else if (alignedSell || (lh && ll)) {
+        mss = makeMss('SELL', 'BUY', 'REAL · structure flipped BUY→SELL (closed)');
+      }
+    } else if (!mss && prevDir === 'SELL' && dir === 'BUY' && !alignedSell && !trendFalling) {
+      if (is1mTf) {
+        if ((alignedBuy || trendRising) && hh && hl) mss = makeMss('BUY', 'SELL', 'REAL · 1m SELL→BUY LH/LL→HH/HL');
+      } else if (alignedBuy || (hh && hl) || trendRising) {
+        mss = makeMss('BUY', 'SELL', 'REAL · structure flipped SELL→BUY (closed)');
+      }
     }
-    // Sticky lastMss side vs live structure conflict (1m stuck SELL while chart rising)
+    // Sticky conflict: 1m only when multi-swing confirmed (hh+hl or lh+ll), not single pivot noise
     if (!mss && lastMss && String(lastMss.side).toUpperCase() === 'SELL') {
-      const liveBuy = trendRising || (dir === 'BUY' && (alignedBuy || (hh && hl))) || (hh && hl && !ll && !trendFalling);
+      const liveBuy = is1mTf
+        ? ((trendRising && hh && hl) || (dir === 'BUY' && alignedBuy && hh && hl))
+        : (trendRising || (dir === 'BUY' && (alignedBuy || (hh && hl))) || (hh && hl && !ll && !trendFalling));
       if (liveBuy && closedOk) {
         mss = makeMss('BUY', 'SELL', 'REAL · stale SELL lock vs live BUY structure');
       }
     }
     if (!mss && lastMss && String(lastMss.side).toUpperCase() === 'BUY') {
-      const liveSell = trendFalling || (dir === 'SELL' && (alignedSell || (lh && ll))) || (lh && ll && !hh && !trendRising);
+      const liveSell = is1mTf
+        ? ((trendFalling && lh && ll) || (dir === 'SELL' && alignedSell && lh && ll))
+        : (trendFalling || (dir === 'SELL' && (alignedSell || (lh && ll))) || (lh && ll && !hh && !trendRising));
       if (liveSell && closedOk) {
         mss = makeMss('SELL', 'BUY', 'REAL · stale BUY lock vs live SELL structure');
       }
     }
+    } // end 1m chop skip
   }
 
   if (mss) {
     // Avoid duplicate marks on same break bar for this TF
+    // 1m: also enforce cooldown so spam MSS cannot stack every few bars
+    const cooldownMs = is1mTf ? 8 * 60 * 1000 : 120000; // 1m: 8 minutes between MSS events
     const dup = events.some(function (e) {
-      return e && e.tf === tf && e.side === mss.side &&
-        Number(e.barIndex) === Number(mss.barIndex) &&
-        Math.abs((Number(e.at) || 0) - (Number(mss.at) || 0)) < 120000;
+      if (!e || e.tf !== tf) return false;
+      const sameBar = Number(e.barIndex) === Number(mss.barIndex) && e.side === mss.side;
+      const recentSame = e.side === mss.side && Math.abs((Number(e.at) || 0) - (Number(mss.at) || 0)) < cooldownMs;
+      const recentAny = is1mTf && Math.abs((Number(e.at) || 0) - (Number(mss.at) || 0)) < (4 * 60 * 1000);
+      return sameBar || recentSame || recentAny;
     });
     if (!dup) {
       mssActive = true;
@@ -16266,6 +16295,9 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
       events.push(mss);
       if (events.length > 16) events = events.slice(-16);
       try { console.log('[GP Algo] MSS', tf, mss.reason, 'bar', mss.barIndex); } catch (e) {}
+    } else {
+      try { console.log('[GP Algo] MSS', tf, 'suppressed duplicate/cooldown', mss.reason); } catch (e) {}
+      mss = null;
     }
   }
 
@@ -16537,10 +16569,11 @@ function algoTfStructure(data, i, tf) {
   };
   if (!Array.isArray(data) || i < 12) return empty;
   const tfKey = String(tf || '').toLowerCase();
+  const is1m = (tfKey === '1m');
   const isScalp = (tfKey === '1m' || tfKey === '3m' || tfKey === '5m');
-  // STRONG structure: wider pivot confirmation — reject tiny noise zones as structure.
-  // Scalp L=3 (was 2), HTF L=4–5. Min swing distance ≥ 0.55×ATR between pivots.
-  const L = isScalp ? 3 : (tfKey === '15m' ? 4 : 5);
+  // 1m GOLD only: stricter pivots — tiny $0.5–1.5 swings are noise, not structure/MSS.
+  // 3m/5m keep prior scalp settings. HTF unchanged.
+  const L = is1m ? 4 : (isScalp ? 3 : (tfKey === '15m' ? 4 : 5));
   const highs = [];
   const lows = [];
   const end = Math.max(L, i - L);
@@ -16550,7 +16583,10 @@ function algoTfStructure(data, i, tf) {
   const apPre = Math.min(14, i);
   for (let k = i - apPre + 1; k <= i; k++) atrPre += Math.max(0.01, Number(data[k].h) - Number(data[k].l));
   atrPre = Math.max(0.35, atrPre / apPre);
-  const minSwing = atrPre * (isScalp ? 0.55 : 0.45);
+  // 1m: min pivot gap ≥ max(1.15×ATR, $1.40) so micro zones never count as HH/HL structure
+  const minSwing = is1m
+    ? Math.max(atrPre * 1.15, 1.40)
+    : (atrPre * (isScalp ? 0.55 : 0.45));
   const highsRaw = [], lowsRaw = [];
   for (let k = mapFrom; k <= end; k++) {
     let isH = true, isL = true;
@@ -16591,17 +16627,21 @@ function algoTfStructure(data, i, tf) {
   const range = hi - lo;
   // Recent micro-range (few pips chop) — not valid structure even if deep history is wide
   let recentHi = -Infinity, recentLo = Infinity;
-  const recentN = isScalp ? 18 : 24;
+  const recentN = is1m ? 24 : (isScalp ? 18 : 24);
   for (let k = Math.max(0, i - recentN + 1); k <= i; k++) {
     recentHi = Math.max(recentHi, Number(data[k].h));
     recentLo = Math.min(recentLo, Number(data[k].l));
   }
   const recentRange = recentHi - recentLo;
-  // Gold: ~$1–2 is "few pips" noise on 1m. Reject as structure when recent range is tiny.
-  const fewPipCeil = isScalp ? Math.max(atr * 1.8, 1.8) : Math.max(atr * 2.2, 2.5);
+  // 1m GOLD: ranges under ~$2.8–3.0 are chop — not tradeable structure / not MSS fuel
+  const fewPipCeil = is1m
+    ? Math.max(atr * 2.6, 2.80)
+    : (isScalp ? Math.max(atr * 1.8, 1.8) : Math.max(atr * 2.2, 2.5));
   const microChop = recentRange < fewPipCeil;
   // Deep window also compressed
-  const deepCompressed = isScalp ? (range < atr * 2.0) : (range < atr * 2.6);
+  const deepCompressed = is1m
+    ? (range < atr * 3.2)
+    : (isScalp ? (range < atr * 2.0) : (range < atr * 2.6));
   const compressed = microChop || deepCompressed;
 
   // Use last 3 swing pairs when available (wider structure map), not only last 2
@@ -16622,11 +16662,19 @@ function algoTfStructure(data, i, tf) {
 
   let brokenBuy = false, brokenSell = false;
   // REAL structure break only — significant pivot move, not a tiny bounce in a falling market.
-  // BUY break: after HH path, a clear LL that exceeds minSwing (structure fail).
-  // SELL break: after LL path, a clear HH that exceeds minSwing AND breaks above prior swing high meaningfully.
-  const brkMin = atr * (isScalp ? 0.70 : 0.55);
+  // 1m GOLD: require larger break (≥ max(1.25×ATR, $1.80)) so $0.5–1 noise never = MSS.
+  const brkMin = is1m
+    ? Math.max(atr * 1.25, 1.80)
+    : (atr * (isScalp ? 0.70 : 0.55));
   if (l1 && l0 && l1.p < l0.p - brkMin && hh) brokenBuy = true;
   if (h1 && h0 && h1.p > h0.p + brkMin && ll) brokenSell = true;
+  // 1m: also require the break pivot to be separated in time (not adjacent micro swings)
+  if (is1m) {
+    if (brokenBuy && l1 && l0 && (l1.i - l0.i) < 6) brokenBuy = false;
+    if (brokenSell && h1 && h0 && (h1.i - h0.i) < 6) brokenSell = false;
+    // Reject breaks inside pure micro-chop window
+    if (microChop) { brokenBuy = false; brokenSell = false; }
+  }
   // Whole-chart trend: last 3 lows descending = still FALLING (blocks fake SELL→BUY)
   let trendFalling = false, trendRising = false;
   if (l1 && l0 && lPrev && l1.p < l0.p && l0.p < lPrev.p) trendFalling = true;
