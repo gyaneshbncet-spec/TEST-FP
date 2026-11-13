@@ -5288,7 +5288,41 @@ function applyCandleSeries(bars, interval, asset) {
   if ((state.chartAsset || 'gold') !== asset || state.tf_interval !== interval) return false;
   let normalized;
   if (interval === '3m') {
-    normalized = aggregate1mBarsToTarget(bars, 180);
+    // Detect native 3m OHLC (bar spacing ~180s) vs 1m source that must be aggregated.
+    let native3m = false;
+    try {
+      if (Array.isArray(bars) && bars.length >= 8) {
+        const ts = [];
+        for (let i = 0; i < Math.min(bars.length, 40); i++) {
+          let t = bars[i].openTime ?? bars[i].t ?? bars[i].time ?? bars[i][0];
+          if (typeof t === 'string' && /^\d+$/.test(t)) t = parseInt(t, 10);
+          if (typeof t === 'number' && t < 1e12) t = t * 1000;
+          const ms = new Date(t).getTime();
+          if (Number.isFinite(ms)) ts.push(ms);
+        }
+        ts.sort(function (a, b) { return a - b; });
+        const gaps = [];
+        for (let i = 1; i < ts.length; i++) {
+          const g = ts[i] - ts[i - 1];
+          if (g > 0) gaps.push(g);
+        }
+        if (gaps.length) {
+          gaps.sort(function (a, b) { return a - b; });
+          const med = gaps[Math.floor(gaps.length / 2)];
+          // Native 3m ~180s; 1m source ~60s
+          native3m = med >= 120000 && med <= 240000;
+        }
+      }
+    } catch (eDet) {}
+    if (native3m) {
+      // Temporarily force 3m step for slotting
+      const bakSec = state.tf_seconds;
+      state.tf_seconds = 180;
+      try { normalized = normalizeBars(bars, '3m'); }
+      finally { state.tf_seconds = bakSec; }
+    } else {
+      normalized = aggregate1mBarsToTarget(bars, 180);
+    }
   } else {
     normalized = normalizeBars(bars, interval);
   }
@@ -5312,7 +5346,8 @@ function applyCandleSeries(bars, interval, asset) {
   } else {
     candleHistory = normalized;
   }
-  // Keep at least 300 bars of history on every timeframe
+  // Mandatory depth: keep exactly the last 300 bars on every timeframe
+  // (1m / 3m structure, MSS and CHoCH require this floor).
   const CHART_HISTORY_BARS = 300;
   if (candleHistory.length > CHART_HISTORY_BARS) {
     candleHistory = candleHistory.slice(-CHART_HISTORY_BARS);
@@ -5427,11 +5462,17 @@ async function fetchJsonTimed(url, ms) {
 async function fetchRealCandles(interval, forceClear) {
   const asset = state.chartAsset || 'gold';
   const is3m = (interval === '3m');
-  // FAST first paint: ~180 bars. Deep history filled in background if needed.
+  const is1m = (interval === '1m');
+  // 1m + 3m: 300 bars are MANDATORY (structure / MSS / CHoCH need depth).
+  // Other TFs still use a fast first paint then deepen to 300.
   const FAST_BARS = 180;
   const DEEP_BARS = 300;
+  const needMandatory300 = is1m || is3m;
+  // 3m is aggregated from 1m → need ~3× source bars to yield 300×3m candles.
+  // Prefer native 3m when available; fallback aggregates 1m.
   const bqInterval = is3m ? '1m' : interval;
-  const limitCount = is3m ? 540 : FAST_BARS + 20;
+  const limitCount = is3m ? Math.max(920, DEEP_BARS * 3 + 20)
+    : (is1m ? (DEEP_BARS + 40) : (FAST_BARS + 20));
   const gen = ++_candleFetchGen;
   isFetchingCandles = true;
   const stillCurrent = function () {
@@ -5440,8 +5481,9 @@ async function fetchRealCandles(interval, forceClear) {
       (state.tf_interval || '') === interval;
   };
   try {
-    // If we already have a usable cache and not forced, soft-refresh only
-    if (!forceClear && candleHistory.length >= 40 && candlesMatchAsset(candleHistory, asset)) {
+    // Soft-refresh only when we already hold the mandatory depth (300 for 1m/3m).
+    const minCache = needMandatory300 ? DEEP_BARS : 40;
+    if (!forceClear && candleHistory.length >= minCache && candlesMatchAsset(candleHistory, asset)) {
       try {
         checkTimeframeRollover();
         rollLocalCandle();
@@ -5457,10 +5499,34 @@ async function fetchRealCandles(interval, forceClear) {
 
     const symbol = (asset === 'dxy') ? 'DXY' : 'XAUUSD';
     let bars = [];
+    // 3m: try native 3m OHLC first (300 bars), else aggregate 1m
+    if (is3m) {
+      try {
+        const data3 = await fetchJsonTimed(
+          'https://biquote.io/api/' + symbol + '/ohlc?interval=3m&limit=' + (DEEP_BARS + 40),
+          4500
+        );
+        let bars3 = (data3 && data3.bars) ? data3.bars.slice() : [];
+        if (bars3.length > 1) {
+          const t0 = new Date(bars3[0].openTime || bars3[0].t || 0).getTime();
+          const t1 = new Date(bars3[bars3.length - 1].openTime || bars3[bars3.length - 1].t || 0).getTime();
+          if (t0 > t1) bars3.reverse();
+        }
+        if (bars3.length >= 150) {
+          // Native 3m series — apply directly without 1m aggregation path
+          if (!stillCurrent()) return;
+          applyCandleSeries(bars3, '3m', asset);
+          // If still short of 300, fall through to 1m aggregate top-up
+          if (candleHistory.length >= DEEP_BARS) {
+            return;
+          }
+        }
+      } catch (e3) {}
+    }
     try {
       const data = await fetchJsonTimed(
         'https://biquote.io/api/' + symbol + '/ohlc?interval=' + encodeURIComponent(bqInterval) + '&limit=' + limitCount,
-        4000
+        5000
       );
       bars = (data && data.bars) ? data.bars.slice() : [];
     } catch (e1) {
@@ -5469,10 +5535,11 @@ async function fetchRealCandles(interval, forceClear) {
         // Never substitute 15m candles into a 5m chart: retry the requested
         // timeframe so candle boundaries and strategy inputs remain aligned.
         const fb = is3m ? '1m' : interval;
-        const fbLimit = is3m ? 540 : (interval === '5m' ? 300 : 200);
+        const fbLimit = is3m ? Math.max(920, DEEP_BARS * 3 + 20)
+          : (is1m ? (DEEP_BARS + 40) : (interval === '5m' ? 300 : 200));
         const data2 = await fetchJsonTimed(
           'https://biquote.io/api/' + symbol + '/ohlc?interval=' + fb + '&limit=' + fbLimit,
-          3500
+          4500
         );
         bars = (data2 && data2.bars) ? data2.bars.slice() : [];
       } catch (e2) {}
@@ -5487,6 +5554,16 @@ async function fetchRealCandles(interval, forceClear) {
     }
     if (bars.length >= 10) {
       applyCandleSeries(bars, interval, asset);
+      // Guarantee 300-bar depth for 1m/3m after apply
+      try {
+        if (needMandatory300 && candleHistory.length < DEEP_BARS) {
+          console.warn('[chart] ' + interval + ' history ' + candleHistory.length + '/' + DEEP_BARS + ' — retrying deep fill');
+          setTimeout(function () {
+            if (!stillCurrent()) return;
+            fetchRealCandles(interval, true);
+          }, 800);
+        }
+      } catch (eD) {}
     } else if (candleHistory.length > 0) {
       // Keep whatever cache we have + live stitch
       try { rollLocalCandle(); triggerRealtimeRender(); } catch (e) {}
@@ -6067,6 +6144,9 @@ function drawTradingViewChart() {
   try {
     if (typeof algoDrawMssOnChart === 'function') {
       try { algoDrawMssOnChart(ctx, getX, getY, chartW, topPad, chartH); } catch (eMssD) {}
+    }
+    if (typeof algoDrawChochOnChart === 'function') {
+      try { algoDrawChochOnChart(ctx, getX, getY, chartW, topPad, chartH); } catch (eChochD) {}
     }
     if (typeof algoDrawTradesOnChart === 'function') {
       algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH);
@@ -15823,6 +15903,202 @@ function algoClearScalpStructFail(tf, reason) {
   return algoClearTfStructFail(tf, reason);
 }
 
+/** CHoCH (Change of Character) — STRUCTURAL only.
+ *  Old logic used a 6-bar rolling high/low → every impulsive 1m candle looked like
+ *  CHoCH inside tiny zones and hard-blocked all 1m entries.
+ *
+ *  New rules (SMC-style):
+ *   1. Pivot swing high/low (left/right confirmation), not rolling max of 6 bars
+ *   2. Close must break that swing by a meaningful ATR distance
+ *   3. Displacement body (body/range + body vs ATR)
+ *   4. Min bars between opposite CHoCH labels (cooldown)
+ *  Visual markers still show; trade block only uses strong structural CHoCH.
+ */
+function algoEstimateAtr(data, i, len) {
+  const n = Math.max(5, len || 14);
+  const end = Math.max(1, Math.min(i, (data && data.length ? data.length : 1) - 1));
+  const start = Math.max(1, end - n + 1);
+  let sum = 0, cnt = 0;
+  for (let k = start; k <= end; k++) {
+    const a = data[k], p = data[k - 1];
+    if (!a || !p) continue;
+    const tr = Math.max(
+      Number(a.h) - Number(a.l),
+      Math.abs(Number(a.h) - Number(p.c)),
+      Math.abs(Number(a.l) - Number(p.c))
+    );
+    if (Number.isFinite(tr) && tr > 0) { sum += tr; cnt++; }
+  }
+  return cnt ? (sum / cnt) : 1;
+}
+
+function algoDetectChochEvents(data, lookback) {
+  const out = [];
+  if (!Array.isArray(data) || data.length < 20) return out;
+  const n = data.length;
+  const win = Math.max(60, lookback || 120);
+  const from = Math.max(12, n - win);
+  // Build confirmed pivot highs / lows (2 bars left + 2 bars right)
+  const pivHi = []; // {index, price}
+  const pivLo = [];
+  const L = 2, R = 2;
+  for (let i = Math.max(L, from - 8); i < n - R; i++) {
+    const h = Number(data[i].h), l = Number(data[i].l);
+    let isHi = true, isLo = true;
+    for (let k = i - L; k <= i + R; k++) {
+      if (k === i) continue;
+      if (Number(data[k].h) >= h) isHi = false;
+      if (Number(data[k].l) <= l) isLo = false;
+    }
+    if (isHi) pivHi.push({ index: i, price: h });
+    if (isLo) pivLo.push({ index: i, price: l });
+  }
+  let lastSide = '';
+  let lastIdx = -99;
+  const minGap = 6; // at least 6 bars between opposite CHoCH marks
+  for (let i = from; i < n; i++) {
+    try {
+      const c = data[i];
+      if (!c) continue;
+      // Most recent confirmed pivot fully to the left of this bar
+      let swingHi = null, swingLo = null;
+      for (let p = pivHi.length - 1; p >= 0; p--) {
+        if (pivHi[p].index <= i - R - 1) { swingHi = pivHi[p]; break; }
+      }
+      for (let p = pivLo.length - 1; p >= 0; p--) {
+        if (pivLo[p].index <= i - R - 1) { swingLo = pivLo[p]; break; }
+      }
+      if (!swingHi && !swingLo) continue;
+      const atr = algoEstimateAtr(data, i, 14);
+      const minBreak = Math.max(atr * 0.35, 0.8); // gold: ≥0.8pt or 0.35×ATR beyond swing
+      const range = Math.max(1e-9, Number(c.h) - Number(c.l));
+      const body = Math.abs(Number(c.c) - Number(c.o));
+      const bodyOk = body / range >= 0.50 && body >= atr * 0.45;
+      if (!bodyOk) continue;
+      const bullClose = Number(c.c) > Number(c.o);
+      const bearClose = Number(c.c) < Number(c.o);
+      let side = '';
+      let strength = 0;
+      // Bullish CHoCH: close breaks last pivot HIGH by minBreak (structure turn up)
+      if (bullClose && swingHi && Number(c.c) > swingHi.price + minBreak) {
+        side = 'BUY';
+        strength = (Number(c.c) - swingHi.price) / Math.max(atr, 0.01);
+      }
+      // Bearish CHoCH: close breaks last pivot LOW by minBreak
+      if (bearClose && swingLo && Number(c.c) < swingLo.price - minBreak) {
+        // if both somehow, pick larger strength
+        const s2 = (swingLo.price - Number(c.c)) / Math.max(atr, 0.01);
+        if (!side || s2 > strength) { side = 'SELL'; strength = s2; }
+      }
+      if (!side) continue;
+      if (side === lastSide && (i - lastIdx) < minGap * 2) continue;
+      if (side !== lastSide && (i - lastIdx) < minGap) continue;
+      // Strength gate: ignore tiny/noise breaks
+      if (strength < 0.45) continue;
+      lastSide = side;
+      lastIdx = i;
+      out.push({
+        index: i,
+        side: side,
+        price: Number(c.c),
+        strength: strength,
+        strong: strength >= 0.85, // only strong CHoCH hard-blocks entries
+        barSlot: c.barSlot != null ? Number(c.barSlot) : null,
+        reason: side === 'BUY'
+          ? ('CHoCH ↑ break pivot high · ' + strength.toFixed(2) + '×ATR')
+          : ('CHoCH ↓ break pivot low · ' + strength.toFixed(2) + '×ATR')
+      });
+    } catch (eOne) {}
+  }
+  return out;
+}
+
+/** True when a STRONG structural CHoCH is on/near the latest bars. */
+function algoIsChochActive(data, maxAgeBars) {
+  try {
+    if (!Array.isArray(data) || data.length < 20) return { active: false };
+    const events = algoDetectChochEvents(data, 40);
+    if (!events.length) return { active: false };
+    const last = events[events.length - 1];
+    const age = (data.length - 1) - last.index;
+    const lim = Math.max(0, maxAgeBars != null ? maxAgeBars : 0);
+    // Only strong CHoCH counts as "active" for trade blocking
+    if (age <= lim && last.strong) {
+      return { active: true, event: last, age: age };
+    }
+    return { active: false, event: last, age: age };
+  } catch (e) {
+    return { active: false };
+  }
+}
+
+/** Draw CHoCH markers on candles so character flips are easy to spot. */
+function algoDrawChochOnChart(ctx, getX, getY, chartW, topPad, chartH) {
+  try {
+    if ((state.chartAsset || 'gold') !== 'gold') return;
+    if (!candleHistory || candleHistory.length < 20) return;
+    const events = algoDetectChochEvents(candleHistory, 120);
+    if (!events.length) return;
+    ctx.save();
+    // Show at most last 6 structural CHoCH marks (avoid label spam on 1m)
+    events.slice(-6).forEach(function (ev) {
+      if (!ev || ev.index < 0 || ev.index >= candleHistory.length) return;
+      const x = getX(ev.index);
+      if (x < -30 || x > chartW + 30) return;
+      const px = Number(ev.price) || Number(candleHistory[ev.index].c);
+      const y = getY(px);
+      const isBuy = String(ev.side || '').toUpperCase() === 'BUY';
+      const col = isBuy ? '#a78bfa' : '#f472b6';
+      // Vertical accent on the CHoCH candle
+      ctx.strokeStyle = col;
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(x, topPad + 2);
+      ctx.lineTo(x, topPad + chartH - 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      // Diamond marker at close
+      const s = 6;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(x, y - s);
+      ctx.lineTo(x + s, y);
+      ctx.lineTo(x, y + s);
+      ctx.lineTo(x - s, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#0b0d12';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // Label
+      const strong = !!(ev.strong || (ev.strength != null && ev.strength >= 0.85));
+      const label = (strong ? 'CHoCH ' : 'choch ') + (isBuy ? '↑' : '↓');
+      ctx.globalAlpha = strong ? 1 : 0.55;
+      ctx.font = strong ? 'bold 9px system-ui,sans-serif' : '8px system-ui,sans-serif';
+      const tw = Math.ceil(ctx.measureText(label).width) + 8;
+      const lx = Math.max(2, Math.min(chartW - tw - 2, x - tw / 2));
+      const ly = isBuy ? Math.min(topPad + chartH - 18, y + 16) : Math.max(topPad + 12, y - 16);
+      ctx.fillStyle = 'rgba(8,12,18,0.88)';
+      ctx.strokeStyle = col;
+      ctx.lineWidth = strong ? 1.2 : 0.9;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(lx, ly - 9, tw, 15, 3);
+      else ctx.rect(lx, ly - 9, tw, 15);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, lx + 4, ly - 1);
+      ctx.globalAlpha = 1;
+    });
+    ctx.restore();
+  } catch (e) {}
+}
+
 /** MSS (Market Structure Shift) — INDEPENDENT state per timeframe (1m, 3m, 5m, 15m…).
  *  Each TF only uses its own candles / structure. Never shares MSS with another TF.
  *  lastMss is persisted so BUY→SELL sticky lock survives page reload.
@@ -15922,34 +16198,55 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
   const trendFalling = !!struct.trendFalling;
   const trendRising = !!struct.trendRising;
 
-  if (closedOk && (armedForBreak || (mssActive && allowedSide))) {
+  // BUG FIX: after MSS fires, waitStructure=true and allowedSide=null and armedForBreak=false
+  // so the old gate (armedForBreak || (mssActive && allowedSide)) BLOCKED opposite MSS forever.
+  // Real MSS must still be detectable while waiting / locked on the wrong side.
+  const canScanMss = closedOk && (armedForBreak || mssActive || !!lastMss || !!validSide || !!prevDir);
+  const isMicroTf = (tf === '1m' || tf === '3m' || tf === '5m');
+  if (canScanMss) {
     // REAL MSS only on CLOSED candle + prior VALID structure on this TF.
-    // BUY structure FAIL → MSS toward SELL (allowed even if market falling)
-    if ((structureFail === 'BUY' || brokenBuy) && (validSide === 'BUY' || prevDir === 'BUY' || allowedSide === 'BUY')) {
+    // BUY structure FAIL → MSS toward SELL
+    if ((structureFail === 'BUY' || brokenBuy) && (validSide === 'BUY' || prevDir === 'BUY' || allowedSide === 'BUY' || (lastMss && lastMss.side === 'BUY'))) {
       if (!lastMss || lastMss.side !== 'SELL' || allowedSide === 'BUY') {
         mss = makeMss('SELL', 'BUY', 'REAL · BUY structure FAILED (closed)');
       }
     }
-    // SELL structure FAIL → MSS toward BUY ONLY if market is NOT still falling on whole chart
-    // and we actually had valid SELL structure. Reject bounce-only "breaks".
-    else if ((structureFail === 'SELL' || brokenSell) && (validSide === 'SELL' || prevDir === 'SELL' || allowedSide === 'SELL')) {
-      if (trendFalling || dir === 'SELL' || alignedSell || ll) {
-        // still making lower lows / sell structure intact → FAKE MSS, ignore
-        try { console.log('[GP Algo] MSS', tf, 'REJECTED fake SELL→BUY · still FALLING/LL'); } catch (e) {}
-      } else if (dir === 'BUY' && alignedBuy && hh && hl) {
-        // only accept when new BUY structure already confirmed
+    // SELL structure FAIL → MSS toward BUY (symmetric, not over-strict)
+    else if ((structureFail === 'SELL' || brokenSell) && (validSide === 'SELL' || prevDir === 'SELL' || allowedSide === 'SELL' || (lastMss && lastMss.side === 'SELL'))) {
+      // Reject only while STILL clearly falling with intact sell structure
+      if (trendFalling && (alignedSell || (ll && lh)) && !trendRising && !hh) {
+        try { console.log('[GP Algo] MSS', tf, 'REJECTED fake SELL→BUY · still FALLING'); } catch (e) {}
+      } else if (trendRising || (dir === 'BUY' && (alignedBuy || (hh && hl))) || (hh && hl && !ll)) {
         if (!lastMss || lastMss.side !== 'BUY' || allowedSide === 'SELL') {
-          mss = makeMss('BUY', 'SELL', 'REAL · SELL failed + BUY HH/HL confirmed (closed)');
+          mss = makeMss('BUY', 'SELL', 'REAL · SELL failed + BUY structure (closed)');
+        }
+      } else if (isMicroTf && dir === 'BUY' && !trendFalling) {
+        // 1m/3m: allow MSS to BUY on directional flip without waiting full aligned+hh+hl
+        if (!lastMss || lastMss.side !== 'BUY' || allowedSide === 'SELL') {
+          mss = makeMss('BUY', 'SELL', 'REAL · micro SELL→BUY dir flip (closed)');
         }
       } else {
         try { console.log('[GP Algo] MSS', tf, 'REJECTED SELL→BUY · no confirmed BUY structure yet'); } catch (e) {}
       }
     }
-    // Dir flip: only when NEW side is fully aligned (not a sideways bounce)
-    if (!mss && prevDir === 'BUY' && dir === 'SELL' && alignedSell && !alignedBuy && !trendRising) {
+    // Dir flip paths (symmetric)
+    if (!mss && prevDir === 'BUY' && dir === 'SELL' && (alignedSell || (lh && ll)) && !alignedBuy && !trendRising) {
       mss = makeMss('SELL', 'BUY', 'REAL · structure flipped BUY→SELL (closed)');
-    } else if (!mss && prevDir === 'SELL' && dir === 'BUY' && alignedBuy && !alignedSell && !trendFalling && hh && hl) {
+    } else if (!mss && prevDir === 'SELL' && dir === 'BUY' && (alignedBuy || (hh && hl) || trendRising) && !alignedSell && !trendFalling) {
       mss = makeMss('BUY', 'SELL', 'REAL · structure flipped SELL→BUY (closed)');
+    }
+    // Sticky lastMss side vs live structure conflict (1m stuck SELL while chart rising)
+    if (!mss && lastMss && String(lastMss.side).toUpperCase() === 'SELL') {
+      const liveBuy = trendRising || (dir === 'BUY' && (alignedBuy || (hh && hl))) || (hh && hl && !ll && !trendFalling);
+      if (liveBuy && closedOk) {
+        mss = makeMss('BUY', 'SELL', 'REAL · stale SELL lock vs live BUY structure');
+      }
+    }
+    if (!mss && lastMss && String(lastMss.side).toUpperCase() === 'BUY') {
+      const liveSell = trendFalling || (dir === 'SELL' && (alignedSell || (lh && ll))) || (lh && ll && !hh && !trendRising);
+      if (liveSell && closedOk) {
+        mss = makeMss('SELL', 'BUY', 'REAL · stale BUY lock vs live SELL structure');
+      }
     }
   }
 
@@ -15981,10 +16278,13 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
     const target = String(lastMss.side || '').toUpperCase();
     if (target === 'BUY') {
       // Never unlock BUY while whole-chart trend is still FALLING
+      // 1m/3m: accept HH+HL or trendRising or aligned BUY (was too strict → stuck WAIT)
       const buyReady =
         !trendFalling &&
-        ((alignedBuy && dir === 'BUY' && !brokenBuy && !structSideways) ||
-         (hh && hl && dir === 'BUY' && !brokenBuy && !structSideways));
+        ((alignedBuy && dir === 'BUY' && !brokenBuy) ||
+         (hh && hl && !brokenBuy) ||
+         (trendRising && dir !== 'SELL' && !brokenBuy) ||
+         ((tf === '1m' || tf === '3m') && dir === 'BUY' && !structSideways && !brokenBuy));
       if (buyReady) {
         waitStructure = false;
         allowedSide = 'BUY';
@@ -16019,11 +16319,22 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
         try { console.log('[GP Algo] MSS', tf, 'BUY lock revoked — falling or no BUY structure'); } catch (e) {}
       }
     } else if (allowedSide === 'SELL') {
-      // Only revoke SELL if structure clearly flipped to BUY (not on brief sideways)
-      if (brokenSell || (dir === 'BUY' && alignedBuy && hh && hl && !trendFalling)) {
-        waitStructure = true;
-        allowedSide = null;
-        try { console.log('[GP Algo] MSS', tf, 'SELL lock revoked — BUY structure confirmed'); } catch (e) {}
+      // Revoke SELL when structure flipped to BUY or market is clearly RISING
+      if (brokenSell || trendRising || (dir === 'BUY' && (alignedBuy || (hh && hl)) && !trendFalling)) {
+        // On micro TF with clear rising: flip straight to BUY allowed (do not re-WAIT)
+        if ((tf === '1m' || tf === '3m') && (trendRising || (hh && hl)) && !trendFalling) {
+          waitStructure = false;
+          allowedSide = 'BUY';
+          validSide = 'BUY';
+          lastMss = makeMss('BUY', 'SELL', 'revoke SELL · live BUY/RISING');
+          events.push(lastMss);
+          if (events.length > 16) events = events.slice(-16);
+          try { console.log('[GP Algo] MSS', tf, 'SELL→BUY direct unlock (RISING)'); } catch (e) {}
+        } else {
+          waitStructure = true;
+          allowedSide = null;
+          try { console.log('[GP Algo] MSS', tf, 'SELL lock revoked — BUY structure confirmed'); } catch (e) {}
+        }
       }
     }
   }
@@ -16050,12 +16361,33 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
     updatedAt: Date.now()
   };
   // If a prior fake SELL→BUY is active while chart is still FALLING, clear it
-  if (st.mssActive && st.lastMss && st.lastMss.side === 'BUY' && trendFalling) {
+  if (st.mssActive && st.lastMss && st.lastMss.side === 'BUY' && trendFalling && !trendRising) {
     st.waitStructure = false;
     st.allowedSide = null;
     st.mssActive = false;
     st.armedForBreak = true;
     try { console.log('[GP Algo] MSS', tf, 'cleared stale SELL→BUY — market still FALLING'); } catch (e) {}
+  }
+  // SYMMETRIC: stale BUY→SELL while chart is clearly RISING → clear / retarget BUY
+  // This was the main 1m bug: big green trend still locked on "1M SCALP SELL"
+  if (st.lastMss && st.lastMss.side === 'SELL' && trendRising && !trendFalling && (dir === 'BUY' || (hh && hl))) {
+    st.mssActive = true;
+    st.waitStructure = false;
+    st.allowedSide = 'BUY';
+    st.validSide = 'BUY';
+    st.armedForBreak = true;
+    // Record corrective MSS event if not already BUY
+    try {
+      const fix = {
+        side: 'BUY', from: 'SELL', tf: tf,
+        reason: 'MSS ' + tf.toUpperCase() + ' SELL→BUY · auto-clear stale SELL (RISING)',
+        at: Date.now(), barIndex: barIndex, price: price,
+        id: tf + '-mss-fixrise-' + Date.now()
+      };
+      st.lastMss = fix;
+      st.events = (st.events || []).concat([fix]).slice(-16);
+    } catch (eFix) {}
+    try { console.log('[GP Algo] MSS', tf, 'cleared stale BUY→SELL — market RISING → BUY'); } catch (e) {}
   }
   // Timeout: WAIT too long without confirmed structure → release lock so TF can trade again
   // BUG FIX (1m/3m): 45 minutes was ~45 bars of deadlock on 1m / ~15 on 3m, so the
@@ -17156,6 +17488,35 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
 
   function pushTrade(side, reason, zonePx, zoneKind) {
     // —— RULE HARD GATES (no random area trades) ——
+    // 0a) CHoCH AVOID — only STRONG structural CHoCH on this bar (or prior bar)
+    //     blocks entries AGAINST the new character. Weak/micro CHoCH is visual only
+    //     and must NOT freeze 1m/3m scalps (previous 6-bar logic did that).
+    try {
+      if (typeof algoDetectChochEvents === 'function' && Array.isArray(data)) {
+        const barI = (i != null ? i : data.length - 1);
+        const slice = data.slice(0, Math.min(data.length, barI + 1));
+        const events = algoDetectChochEvents(slice, 40);
+        if (events.length) {
+          const last = events[events.length - 1];
+          const age = barI - last.index;
+          const isStrong = !!(last.strong || (last.strength != null && last.strength >= 0.85));
+          // Block only: strong CHoCH, on this/prev bar, and trade side fights the new character
+          // e.g. CHoCH→SELL means do not BUY into the flip; CHoCH→BUY means do not SELL into it.
+          if (isStrong && age >= 0 && age <= 1) {
+            const chochSide = String(last.side || '').toUpperCase();
+            const tradeSide = String(side || '').toUpperCase();
+            if (chochSide && tradeSide && chochSide !== tradeSide) {
+              try {
+                algoUpdateStatus('<span class="warn">LIVE ' + String(tf || '').toUpperCase() +
+                  ' blocked — strong CHoCH ' + chochSide + ' vs ' + tradeSide + '</span>');
+              } catch (e0c) {}
+              return;
+            }
+          }
+        }
+      }
+    } catch (eChochGate) {}
+
     // 0) HARD PER-TF MSS LOCK — first gate, cannot be bypassed
     //    Each timeframe enforces its own MSS independently.
     //    After MSS: wait first structure, then only allowedSide until opposite MSS.
@@ -20152,6 +20513,24 @@ function algoOnLiveTick() {
       }
     }
   } catch (eM) {}
+
+  // LIVE MSS scan on the open Gold chart TF (even when algo is disarmed —
+  // keeps markers / structure lock in sync with the candles on screen).
+  try {
+    if ((state.chartAsset || 'gold') === 'gold' && candleHistory && candleHistory.length >= 12) {
+      const chartTf = String(state.tf_interval || '').toLowerCase();
+      if (chartTf && typeof algoTfStructure === 'function' && typeof algoUpdateMssState === 'function') {
+        const iClosed = Math.max(0, candleHistory.length - 2);
+        const iLive = candleHistory.length - 1;
+        const stClosed = algoTfStructure(candleHistory, iClosed, chartTf);
+        algoUpdateMssState(chartTf, stClosed, iClosed, Number(candleHistory[iClosed].c), true);
+        if (iLive > iClosed) {
+          const stLive = algoTfStructure(candleHistory, iLive, chartTf);
+          algoUpdateMssState(chartTf, stLive, iLive, Number(candleHistory[iLive].c), false);
+        }
+      }
+    }
+  } catch (eMssLive) {}
 
   if (!algoState.armed) return;
   if (now - (algoState.lastScanAt || 0) < 1000) return;
