@@ -21363,91 +21363,108 @@ function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
 
     log.forEach(function (t) {
       if (!t || (t.asset && t.asset !== 'gold')) return;
-      // A trade belongs only on the timeframe that generated it.
-      // Do not project a 1m signal onto 5m/15m/1h candles (or vice versa).
+      // Only this chart's TF — never project other TF trades onto this chart.
       if (!chartTf || String(t.tf || '').toLowerCase() !== chartTf) return;
       const isOpen = algoIsOpenTrade(t);
       const src = String(t.source || 'LIVE').toUpperCase();
       const isBt = (src === 'BACKTEST');
-      // Bug fix: sliding the chart used to reveal a flood of BACKTEST markers.
-      // Live chart shows OPEN + LIVE/SCALPER only unless History filter is BACKTEST/ALL.
-      if (isBt && !isOpen && !showBacktest && !(algoState && algoState.focusId === t.id)) return;
-      if (isBt && isOpen && !showBacktest) {
-        // Open BACKTEST rows should not look like live market positions
-        // (still allow focus). Skip unless user is reviewing backtest.
+      // LIVE chart: ONLY real engine trades (LIVE / SCALPER / live PAPER).
+      // BACKTEST markers never show unless History filter is BACKTEST or ALL.
+      // Focused backtest row is the only exception.
+      if (isBt) {
+        if (!(showBacktest || (algoState && algoState.focusId === t.id))) return;
+      }
+      // Skip non-engine / synthetic rows
+      if (!isBt && src && src !== 'LIVE' && src !== 'SCALPER' && src !== 'PAPER' && src !== 'PAPER_ONLY') {
         if (!(algoState && algoState.focusId === t.id)) return;
       }
+      // Must have valid entry + SL geometry (no orphan / broken markers)
+      const entryCheck = Number(t.entry != null ? t.entry : t.price);
+      if (!(entryCheck > 0)) return;
+      if (t.side === 'BUY' && t.sl != null && !(Number(t.sl) < entryCheck)) return;
+      if (t.side === 'SELL' && t.sl != null && !(Number(t.sl) > entryCheck)) return;
       if (isOpen) openList.push(t);
       if (hideClosed && !isOpen) return;
-      // Skip invalid / inverted zone tags from older runs
+      // Skip inverted zone tags
       const zk = String(t.zoneKind || '');
       if (zk.indexOf('PIVOT') >= 0) return;
       if (t.side === 'BUY' && (zk.indexOf('RESIST') >= 0 || zk.indexOf('SUPPLY') >= 0)) return;
       if (t.side === 'SELL' && (zk.indexOf('SUPPORT') >= 0 || zk.indexOf('DEMAND') >= 0)) return;
-      if (t.side === 'BUY' && t.sl != null && t.entry != null && !(t.sl < t.entry)) return;
-      if (t.side === 'SELL' && t.sl != null && t.entry != null && !(t.sl > t.entry)) return;
 
-      // Match entry candle EXACTLY: barSlot → nearest slot → entry-time →
-      // rejection candle by entry price (high for SELL / low for BUY).
-      // Never invent a wrong bar; open trades only fall back to live edge
-      // when the entry bar has scrolled fully off the visible history.
-      let idx = (t.barSlot != null && bySlot.has(String(Number(t.barSlot))))
-        ? bySlot.get(String(Number(t.barSlot))) : -1;
+      // —— Exact candle X: barIndex (validated) → barSlot → entry time → never random ——
+      // Prefer the bar the engine scanned when the trade was taken (real-time candle).
+      let idx = -1;
       const stepMs = (ALGO_TF_SECONDS[chartTf] || 900) * 1000;
+      const entryForMatch = Number(
+        (t.mt5BrokerEntry > 0) ? t.mt5BrokerEntry
+        : (t.entry != null ? t.entry : t.price)
+      );
+      // 1) barIndex if still valid and entry sits inside that candle
+      if (t.barIndex != null && candleHistory && candleHistory.length) {
+        const bi = Number(t.barIndex);
+        if (bi >= 0 && bi < candleHistory.length) {
+          const c = candleHistory[bi];
+          const hi = Number(c && c.h), lo = Number(c && c.l);
+          if (c && hi >= lo && entryForMatch > 0 &&
+              entryForMatch <= hi + 0.8 && entryForMatch >= lo - 0.8) {
+            idx = bi;
+          }
+        }
+      }
+      // 2) exact barSlot map
+      if (idx < 0 && t.barSlot != null && bySlot.has(String(Number(t.barSlot)))) {
+        idx = bySlot.get(String(Number(t.barSlot)));
+      }
+      // 3) nearest barSlot within 1 bar tolerance
       if (idx < 0 && t.barSlot != null && chartSlots.length) {
         const targetSlot = Number(t.barSlot);
-        let bestDelta = Infinity;
+        let bestDelta = Infinity, bestIdx = -1;
         for (let si = 0; si < chartSlots.length; si++) {
           const delta = Math.abs(chartSlots[si].slot - targetSlot);
-          if (delta < bestDelta) { bestDelta = delta; idx = chartSlots[si].idx; }
+          if (delta < bestDelta) { bestDelta = delta; bestIdx = chartSlots[si].idx; }
         }
-        if (bestDelta > Math.max(stepMs * 1.25, 90000)) idx = -1;
+        if (bestIdx >= 0 && bestDelta <= Math.max(stepMs * 1.05, 60000)) idx = bestIdx;
       }
-      // Match by trade timestamp → candle that contains that time
+      // 4) entry timestamp → candle that contains that time
       if (idx < 0 && t.ts && candleHistory && candleHistory.length) {
         const ts = Number(t.ts);
         if (ts > 0) {
-          for (let ci = candleHistory.length - 1; ci >= 0; ci--) {
+          for (let ci = candleHistory.length - 1; ci >= Math.max(0, candleHistory.length - 120); ci--) {
             const c = candleHistory[ci];
-            const slot = Number(c.barSlot != null ? c.barSlot : (c.closeTime != null ? Number(c.closeTime) - stepMs : 0));
+            const slot = Number(c.barSlot != null ? c.barSlot : 0);
             if (slot > 0 && ts >= slot && ts < slot + stepMs) { idx = ci; break; }
           }
         }
       }
-      // Prefer real broker fill price for Y (exact MT5 open)
-      let entry = Number(
-        (t.mt5BrokerEntry > 0) ? t.mt5BrokerEntry
-        : (t.entry != null ? t.entry : t.price)
-      );
-      // Last resort: find rejection candle whose high/low contains entry price
-      // (SELL plots on the rejection high bar; BUY on rejection low bar)
-      if (idx < 0 && entry > 0 && candleHistory && candleHistory.length) {
+      // Y = broker fill if any, else engine entry (never invent price)
+      let entry = entryForMatch;
+      // 5) Last resort ONLY for open LIVE: recent bars where entry is inside range
+      //    (do not search 80 bars — that was snapping markers to wrong candles)
+      if (idx < 0 && isOpen && entry > 0 && candleHistory && candleHistory.length) {
         const isBuySide = t.side === 'BUY';
         let best = -1, bestScore = Infinity;
-        const from = Math.max(0, candleHistory.length - 80);
+        const from = Math.max(0, candleHistory.length - 12); // only last ~12 bars
         for (let ci = candleHistory.length - 1; ci >= from; ci--) {
           const c = candleHistory[ci];
           const hi = Number(c.h), lo = Number(c.l);
           if (!(hi >= lo)) continue;
-          // Entry must sit inside the bar range (with tiny tolerance)
-          if (entry > hi + 0.35 || entry < lo - 0.35) continue;
-          // Prefer bar where entry is near the rejection extreme
+          if (entry > hi + 0.5 || entry < lo - 0.5) continue;
           const score = isBuySide ? Math.abs(lo - entry) : Math.abs(hi - entry);
           if (score < bestScore) { bestScore = score; best = ci; }
         }
         if (best >= 0) idx = best;
       }
+      // X position: exact entry candle. Open trade with unknown bar → live edge only.
       let x;
       if (idx >= 0 && candleHistory && candleHistory.length) {
         x = getX(idx);
-      } else if (isOpen && candleHistory && candleHistory.length) {
-        // Only if entry bar unknown / scrolled away
+      } else if (isOpen && !isBt && candleHistory && candleHistory.length) {
         x = getX(candleHistory.length - 1);
       } else {
-        return;
+        return; // closed + no bar match → do not invent a fake location
       }
       if (x < -40 || x > chartW + 40) {
-        if (isOpen) x = Math.max(20, chartW - 80);
+        if (isOpen && !isBt) x = Math.max(20, chartW - 80);
         else return;
       }
       if (!(entry > 0)) return;
