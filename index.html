@@ -16219,8 +16219,26 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
     if ((structureFail === 'BUY' || brokenBuy) && (validSide === 'BUY' || prevDir === 'BUY' || allowedSide === 'BUY' || (lastMss && lastMss.side === 'BUY'))) {
       if (is1mTf && !brokenBuy) {
         try { console.log('[GP Algo] MSS 1m REJECTED soft BUY-fail — need real brokenBuy'); } catch (e) {}
-      } else if (!lastMss || lastMss.side !== 'SELL' || allowedSide === 'BUY') {
-        mss = makeMss('SELL', 'BUY', 'REAL · BUY structure FAILED (closed)');
+      } else if (trendRising && (alignedBuy || (hh && hl)) && !trendFalling && !brokenSell) {
+        // Mirror of the existing fake-SELL→BUY rejection below: still rising,
+        // this is not a real flip no matter what structureFail/brokenBuy say.
+        try { console.log('[GP Algo] MSS', tf, 'REJECTED fake BUY→SELL · still RISING'); } catch (e) {}
+      } else if (hl && lh) {
+        // COMPRESSION, not a flip — same rule as SELL→BUY: a higher low AND a
+        // lower high at once is a converging/triangle signature, not a
+        // confirmed reversal. This is exactly what the chart's own
+        // 'COMPRESSION?' tag was flagging while still letting the trade fire.
+        try { console.log('[GP Algo] MSS', tf, 'REJECTED BUY→SELL · HL+LH compression, not a clean flip'); } catch (e) {}
+      } else if (trendFalling || (dir === 'SELL' && (alignedSell || (lh && ll))) || (lh && ll && !hh)) {
+        if (!lastMss || lastMss.side !== 'SELL' || allowedSide === 'BUY') {
+          mss = makeMss('SELL', 'BUY', 'REAL · BUY failed + SELL structure (closed)');
+        }
+      } else if (isMicroTf && dir === 'SELL' && !trendRising && brokenBuy) {
+        if (!lastMss || lastMss.side !== 'SELL' || allowedSide === 'BUY') {
+          mss = makeMss('SELL', 'BUY', 'REAL · micro buy structure broken + dir flip (closed)');
+        }
+      } else {
+        try { console.log('[GP Algo] MSS', tf, 'REJECTED BUY→SELL · no confirmed SELL structure yet'); } catch (e) {}
       }
     }
     // SELL structure FAIL → MSS toward BUY
@@ -17814,6 +17832,10 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       // Keep SL beyond structure — never tighten into the zone
       if (sl > structLow - buf * 0.5) sl = structLow - buf;
       risk = Math.max(isScalpPush ? 0.60 : 0.40, entry - sl);
+      // RR FIX: cap scalp risk so a wide structure zone can't balloon the stop —
+      // without this, the 2x TP target can land far outside what 1m/3m/5m
+      // realistically moves in the trade's lifetime (inconsistent, unhittable RR).
+      if (isScalpPush) risk = Math.min(risk, Math.max(atr * 2.2, 2.50));
       sl = entry - risk;
       tp = entry + risk * RR_TARGET;
     } else {
@@ -17825,6 +17847,8 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       if (!(risk > 0)) risk = atr * 0.55;
       if (sl < structHigh + buf * 0.5) sl = structHigh + buf;
       risk = Math.max(isScalpPush ? 0.60 : 0.40, sl - entry);
+      // RR FIX: same cap as the BUY side, mirrored — see comment above.
+      if (isScalpPush) risk = Math.min(risk, Math.max(atr * 2.2, 2.50));
       sl = entry + risk;
       tp = entry - risk * RR_TARGET;
     }
@@ -18555,6 +18579,29 @@ function algoMergeNewTrades(candidates) {
   (candidates || []).forEach(function (t) {
     if (!t || !t.id || ids.has(t.id)) return;
     if (nearDup(t)) return;
+    // STALE-SIGNAL GUARD: a live/scalper candidate must be sitting on a recent
+    // candle, not one whose close has already passed by several bars. Without
+    // this, a TF that wasn't scanned for a while could surface an old signal as
+    // if it were brand new and punch it live at the current, unrelated price.
+    try {
+      const isBtAge = String(t.source || '').toUpperCase() === 'BACKTEST';
+      if (!isBtAge) {
+        const stepMs = (ALGO_TF_SECONDS[String(t.tf || '').toLowerCase()] || 900) * 1000;
+        const slot = Number(t.barSlot) || 0;
+        const closeAt = slot ? slot + stepMs : 0;
+        // Floor of 10 minutes regardless of TF: normal scan cadence / a phone
+        // backgrounding briefly must not false-trigger this on 1m. Still catches
+        // the multi-hour-old case (e.g. 5m+ would allow ~15-45min, 1h ~3h, etc.)
+        const maxAgeMs = Math.max(stepMs * 3, 10 * 60 * 1000);
+        if (closeAt && (Date.now() - closeAt) > maxAgeMs) {
+          try {
+            algoUpdateStatus('<span class="warn">LIVE ' + String(t.tf || '').toUpperCase() + ' ' + String(t.side || '') +
+              ' blocked — signal candle is stale (' + Math.round((Date.now() - closeAt) / 60000) + 'm old)</span>');
+          } catch (eStaleMsg) {}
+          return;
+        }
+      }
+    } catch (eStaleAge) {}
     // ===== FINAL HARD PER-TF MSS LOCK (cannot be bypassed) =====
     // After MSS BUY→SELL on this TF → no new BUY until opposite MSS.
     // After MSS SELL→BUY on this TF → no new SELL while wait/allowedSide still locks.
@@ -18838,6 +18885,13 @@ function algoRenderLog(filter) {
       ev.preventDefault();
       ev.stopPropagation();
       algoRenderLog(btn.getAttribute('data-f') || 'ALL');
+      // The chart only plots backtest markers when histFilter is BACKTEST/ALL;
+      // without an explicit repaint here it wouldn't appear until some other
+      // unrelated event (a tick, a pan) happened to redraw the canvas.
+      try {
+        if (typeof triggerRealtimeRender === 'function') triggerRealtimeRender();
+        else if (typeof drawTradingViewChart === 'function') drawTradingViewChart();
+      } catch (eRedraw) {}
     });
   });
   box.querySelectorAll('.algo-trade[data-algo-id]').forEach(function (row) {
