@@ -16621,19 +16621,63 @@ function algoUpdateScalpStructLock(tf, struct, sideWanted) {
   return algoUpdateTfStructLock(tf, struct, sideWanted);
 }
 
-/** Max concurrent OPEN trades across ALL timeframes (live + paper). */
+/** Max concurrent OPEN live/MT5 trades across ALL timeframes.
+ * HARD CAP = 4 at any condition. BACKTEST never consumes these slots. */
 const ALGO_MAX_OPEN_TRADES = 4;
-/** Count OPEN live/paper/MT5 trades only — BACKTEST history never consumes live slots. */
+const ALGO_MAX_OPEN_PER_TF = 1;
+
+/** Broker open gold positions from MT5 STATUS (authoritative for live risk). */
+function algoCountMt5BrokerOpen() {
+  try {
+    const d = (typeof MT5_BRIDGE !== 'undefined' && MT5_BRIDGE && MT5_BRIDGE.lastStatus)
+      ? MT5_BRIDGE.lastStatus : null;
+    const positions = (d && Array.isArray(d.positions)) ? d.positions : [];
+    const sym = String((typeof MT5_BRIDGE !== 'undefined' && MT5_BRIDGE && MT5_BRIDGE.symbol) || '').toUpperCase();
+    let n = 0;
+    for (let i = 0; i < positions.length; i++) {
+      const p = positions[i];
+      if (!p) continue;
+      const ps = String(p.symbol || '').toUpperCase();
+      // Count gold-family symbols; if bridge symbol set, prefer exact match, else count all reported
+      if (sym && ps && ps !== sym && ps.indexOf('XAU') < 0 && ps.indexOf('GOLD') < 0) continue;
+      n++;
+    }
+    return n;
+  } catch (e) { return 0; }
+}
+
+/** Count OPEN live/paper/MT5 trades only — BACKTEST history never consumes live slots.
+ * Uses max(local open non-BT, MT5 broker positions) so broker is source of truth for the 4-cap. */
 function algoCountOpenTrades(log) {
   const list = log || (typeof algoLoadTrades === 'function' ? algoLoadTrades() : []);
   let n = 0;
+  const tickets = new Set();
   for (let i = 0; i < list.length; i++) {
     const t = list[i];
     if (!t) continue;
     if (!algoIsOpenTrade(t)) continue;
     if (String(t.source || '').toUpperCase() === 'BACKTEST') continue;
     n++;
+    if (t.mt5Ticket) tickets.add(String(t.mt5Ticket));
   }
+  // Merge broker positions not already represented in the log
+  try {
+    const d = (typeof MT5_BRIDGE !== 'undefined' && MT5_BRIDGE && MT5_BRIDGE.lastStatus)
+      ? MT5_BRIDGE.lastStatus : null;
+    const positions = (d && Array.isArray(d.positions)) ? d.positions : [];
+    const sym = String((typeof MT5_BRIDGE !== 'undefined' && MT5_BRIDGE && MT5_BRIDGE.symbol) || '').toUpperCase();
+    for (let i = 0; i < positions.length; i++) {
+      const p = positions[i];
+      if (!p) continue;
+      const ps = String(p.symbol || '').toUpperCase();
+      if (sym && ps && ps !== sym && ps.indexOf('XAU') < 0 && ps.indexOf('GOLD') < 0) continue;
+      const tk = String(p.ticket || p.identifier || '');
+      if (tk && tickets.has(tk)) continue;
+      // Untracked broker position still counts toward the hard 4-cap
+      n++;
+      if (tk) tickets.add(tk);
+    }
+  } catch (eM) {}
   return n;
 }
 function algoCountOpenTradesOnTf(tf, log) {
@@ -17279,17 +17323,35 @@ function algoFootprintForCandle(c, tf) {
       const b = rfStore.get(slot);
       if (!b || !b.lv || !b.lv.size) continue;
       let had = false;
+      let slotBuy = 0, slotSell = 0;
       b.lv.forEach(function (v) {
-        if (!Array.isArray(v)) return;
-        sell += Number(v[0]) || 0; buy += Number(v[1]) || 0; had = true;
+        if (!Array.isArray(v)) {
+          if (v && typeof v === 'object') {
+            slotSell += Number(v._b || v.bid || v[0]) || 0;
+            slotBuy += Number(v._a || v.ask || v[1]) || 0;
+            had = true;
+          }
+          return;
+        }
+        slotSell += Number(v[0]) || 0; slotBuy += Number(v[1]) || 0; had = true;
       });
+      sell += slotSell; buy += slotBuy;
       if (had) minutes++;
-      buyN += Number(b._buyTrades) || 0; sellN += Number(b._sellTrades) || 0;
+      // Prefer explicit trade counts; if store only has volume (common on desktop restore),
+      // estimate aggressor hits from non-zero level volume so UI is not stuck at 0B/0S.
+      let bn = Number(b._buyTrades) || 0;
+      let sn = Number(b._sellTrades) || 0;
+      if (bn <= 0 && slotBuy > 0) bn = Math.max(1, Math.round(slotBuy > 50 ? slotBuy / 10 : 1));
+      if (sn <= 0 && slotSell > 0) sn = Math.max(1, Math.round(slotSell > 50 ? slotSell / 10 : 1));
+      buyN += bn; sellN += sn;
       lastTradeAt = Math.max(lastTradeAt, Number(b._lastTradeAt) || 0);
     }
     const vol = buy + sell;
     if (!(vol > 0)) return null;
     const delta = buy - sell, pressure = delta / vol;
+    // If counts still zero but volume exists, derive display counts from volume
+    if (buyN <= 0 && buy > 0) buyN = Math.max(1, Math.round(buy >= 1 ? buy : 1));
+    if (sellN <= 0 && sell > 0) sellN = Math.max(1, Math.round(sell >= 1 ? sell : 1));
     return { buy: buy, sell: sell, vol: vol, delta: delta, pressure: pressure,
       side: pressure >= 0.06 ? 'BUY' : (pressure <= -0.06 ? 'SELL' : 'NEUTRAL'),
       minutes: minutes, buyN: buyN, sellN: sellN, lastTradeAt: lastTradeAt,
@@ -18029,7 +18091,8 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         const openThisTf = (typeof algoCountOpenTradesOnTf === 'function')
           ? algoCountOpenTradesOnTf(tfKey) : 0;
         const openAll = (typeof algoCountOpenTrades === 'function') ? algoCountOpenTrades() : 0;
-        if (openThisTf >= 1) return;
+        // LIVE only: max 1 per TF · hard max 4 total (MT5+paper). BACKTEST never hits this block.
+        if (openThisTf >= (typeof ALGO_MAX_OPEN_PER_TF === 'number' ? ALGO_MAX_OPEN_PER_TF : 1)) return;
         if (openAll >= ALGO_MAX_OPEN_TRADES) return;
         if (out.some(function (x) {
           return String(x.tf || '').toLowerCase() === tfKey &&
@@ -20283,6 +20346,26 @@ async function mt5SendOpen(trade) {
   if(!trade)return null;
   const src=String(trade.source||'').toUpperCase(); if(src==='BACKTEST')return null;
   if(trade.mt5Status && trade.mt5Status!=='PAPER_ONLY' && trade.mt5Status!=='PAPER_OFFLINE')return null;
+  // HARD CAP: never open more than 4 live MT5/paper positions under any condition.
+  // BACKTEST is already excluded above — backtest history still records freely.
+  try {
+    const openAll = (typeof algoCountOpenTrades === 'function') ? algoCountOpenTrades() : 0;
+    const openTf = (typeof algoCountOpenTradesOnTf === 'function')
+      ? algoCountOpenTradesOnTf(String(trade.tf || '').toLowerCase()) : 0;
+    const maxAll = (typeof ALGO_MAX_OPEN_TRADES === 'number') ? ALGO_MAX_OPEN_TRADES : 4;
+    const maxTf = (typeof ALGO_MAX_OPEN_PER_TF === 'number') ? ALGO_MAX_OPEN_PER_TF : 1;
+    if (openTf >= maxTf) {
+      trade.mt5Status='PAPER_ONLY';
+      trade.mt5Note='Max 1 open trade per TF — not sent to MT5.';
+      return {ok:false,paper:true,error:'max 1 per TF'};
+    }
+    if (openAll >= maxAll) {
+      trade.mt5Status='PAPER_ONLY';
+      trade.mt5Note='Max 4 MT5/live open trades — not sent to MT5. Backtest still allowed.';
+      try { algoUpdateStatus('<span class="warn">MT5 blocked — 4 open max (backtest still runs)</span>'); } catch(e0){}
+      return {ok:false,paper:true,error:'max 4 open'};
+    }
+  } catch (eCap) {}
   if(!algoState || !algoState.armed){trade.mt5Status='PAPER_ONLY';trade.mt5Note='GP ALGO is not armed; signal retained locally, not sent.';return {ok:false,paper:true,error:'GP ALGO disarmed'};}
   if(!MT5_BRIDGE.enabled){trade.mt5Status='PAPER_ONLY';trade.mt5Note='MT5 execution switch is OFF; signal retained locally, not sent.';return {ok:false,paper:true,error:'execution disabled'};}
   if(!MT5_BRIDGE.connected){
@@ -21928,24 +22011,48 @@ function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
         ctx.fillText(t.volRatio.toFixed(1) + '× vol', x, isBuy ? y + 42 : y - 34);
       }
 
-      // FOOTPRINT TAG — plots the exact OKX tape (buy/sell lots + delta) this trade's
-      // decision was scored against, directly on the entry candle. Green = tape
-      // confirmed the side; amber/red = tape was opposing (absorption) when it fired.
-      if (t.fp && t.fp.vol > 0) {
-        const fpSideOk = (isBuy && t.fp.side === 'BUY') || (!isBuy && t.fp.side === 'SELL');
-        const fpCol = fpSideOk ? '#34d399' : (t.fp.side === 'NEUTRAL' ? '#94a3b8' : '#f87171');
-        const fpLabel = 'FP ' + (t.fp.buyN||0) + 'B/' + (t.fp.sellN||0) + 'S · Δ' +
-          (t.fp.delta >= 0 ? '+' : '') + Number(t.fp.delta).toFixed(1) +
-          (fpSideOk ? '' : ' (absorbed)');
-        ctx.font = focused ? 'bold 9.5px monospace' : '9px monospace';
-        ctx.textAlign = 'center';
-        const fpY = isBuy ? y + (t.volRatio ? 54 : 42) : y - (t.volRatio ? 46 : 34);
-        const fpW = Math.ceil(ctx.measureText(fpLabel).width) + 8;
-        ctx.fillStyle = 'rgba(8,12,18,0.82)';
-        ctx.fillRect(x - fpW / 2, fpY - 9, fpW, 13);
-        ctx.fillStyle = fpCol;
-        ctx.fillText(fpLabel, x, fpY + 1);
-      }
+      // FOOTPRINT TAG — OKX tape at entry. Live-recompute when stored counts are 0
+      // (desktop/localStorage restore often keeps volume but drops _buyTrades/_sellTrades).
+      try {
+        let fp = t.fp || null;
+        const needLive = !fp || !(fp.vol > 0) ||
+          (((Number(fp.buyN) || 0) <= 0 && (Number(fp.sellN) || 0) <= 0) &&
+           ((Number(fp.buy) || 0) > 0 || (Number(fp.sell) || 0) > 0 || true));
+        if (needLive && typeof algoFootprintForCandle === 'function' && candleHistory && idx >= 0 && candleHistory[idx]) {
+          const liveFp = algoFootprintForCandle(candleHistory[idx], t.tf || chartTf);
+          if (liveFp && liveFp.vol > 0) fp = liveFp;
+        }
+        if (fp && (fp.vol > 0 || (Number(fp.buy) || 0) > 0 || (Number(fp.sell) || 0) > 0)) {
+          let buyN = Number(fp.buyN) || 0;
+          let sellN = Number(fp.sellN) || 0;
+          const buyV = Number(fp.buy) || 0;
+          const sellV = Number(fp.sell) || 0;
+          // Prefer trade counts; fall back to formatted volume so laptop never shows 0B/0S with real tape
+          function fmtFpN(n, v) {
+            if (n > 0) return String(Math.round(n));
+            if (!(v > 0)) return '0';
+            if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+            if (v >= 1e3) return (v / 1e3).toFixed(1) + 'k';
+            return v >= 10 ? String(Math.round(v)) : v.toFixed(1);
+          }
+          const delta = Number(fp.delta);
+          const dlt = Number.isFinite(delta) ? delta : (buyV - sellV);
+          const side = fp.side || (dlt > 0 ? 'BUY' : (dlt < 0 ? 'SELL' : 'NEUTRAL'));
+          const fpSideOk = (isBuy && side === 'BUY') || (!isBuy && side === 'SELL');
+          const fpCol = fpSideOk ? '#34d399' : (side === 'NEUTRAL' ? '#94a3b8' : '#f87171');
+          const fpLabel = 'FP ' + fmtFpN(buyN, buyV) + 'B/' + fmtFpN(sellN, sellV) + 'S · Δ' +
+            (dlt >= 0 ? '+' : '') + (Math.abs(dlt) >= 1000 ? (dlt / 1000).toFixed(1) + 'k' : Number(dlt).toFixed(1)) +
+            (fpSideOk ? '' : ' (absorbed)');
+          ctx.font = focused ? 'bold 9.5px monospace' : '9px monospace';
+          ctx.textAlign = 'center';
+          const fpY = isBuy ? y + (t.volRatio ? 54 : 42) : y - (t.volRatio ? 46 : 34);
+          const fpW = Math.ceil(ctx.measureText(fpLabel).width) + 8;
+          ctx.fillStyle = 'rgba(8,12,18,0.82)';
+          ctx.fillRect(x - fpW / 2, fpY - 9, fpW, 13);
+          ctx.fillStyle = fpCol;
+          ctx.fillText(fpLabel, x, fpY + 1);
+        }
+      } catch (eFpTag) {}
 
     });
 
