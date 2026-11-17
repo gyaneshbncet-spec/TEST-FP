@@ -17590,10 +17590,17 @@ function algoScalpPremiumDiscount(data, i, side, lookback, tf) {
   const pos = (Number(c.c) - lo) / (hi - lo);
   const tfK = String(tf || '').toLowerCase();
   const isHold = (tfK === '15m' || tfK === '1h' || tfK === '4h' || tfK === '1d');
+  // 1m/3m/5m only: tighter location (HTF/hold path unchanged)
+  const isMicroScalp = (tfK === '1m' || tfK === '3m' || tfK === '5m');
   if (side === 'BUY') {
     if (isHold) {
       if (pos > 0.72) return { ok: false, pos: pos, lo: lo, hi: hi, reason: 'hold BUY blocked — extreme premium' };
       return { ok: true, pos: pos, lo: lo, hi: hi, reason: 'hold discount/mid ' + (pos * 100).toFixed(0) + '%' };
+    }
+    // Micro scalp: true discount ≤40% of recent range (was 50% → mid-chart noise entries)
+    if (isMicroScalp) {
+      if (pos > 0.40) return { ok: false, pos: pos, lo: lo, hi: hi, reason: 'not discount (pos ' + (pos * 100).toFixed(0) + '% · need ≤40%)' };
+      return { ok: true, pos: pos, lo: lo, hi: hi, reason: 'scalp discount ' + (pos * 100).toFixed(0) + '%' };
     }
     // Chart-range discount (50%). Zone RE-TEST depth (65–99% into OB) is enforced separately.
     if (pos > 0.50) return { ok: false, pos: pos, lo: lo, hi: hi, reason: 'not discount (pos ' + (pos * 100).toFixed(0) + '% · need ≤50%)' };
@@ -17603,6 +17610,11 @@ function algoScalpPremiumDiscount(data, i, side, lookback, tf) {
     if (isHold) {
       if (pos < 0.28) return { ok: false, pos: pos, lo: lo, hi: hi, reason: 'hold SELL blocked — extreme discount' };
       return { ok: true, pos: pos, lo: lo, hi: hi, reason: 'hold premium/mid ' + (pos * 100).toFixed(0) + '%' };
+    }
+    // Micro scalp: true premium ≥62% (was 50% → selling mid-range)
+    if (isMicroScalp) {
+      if (pos < 0.62) return { ok: false, pos: pos, lo: lo, hi: hi, reason: 'not premium (pos ' + (pos * 100).toFixed(0) + '% · need ≥62%)' };
+      return { ok: true, pos: pos, lo: lo, hi: hi, reason: 'scalp premium ' + (pos * 100).toFixed(0) + '%' };
     }
     if (pos < 0.50) return { ok: false, pos: pos, lo: lo, hi: hi, reason: 'not premium (pos ' + (pos * 100).toFixed(0) + '% · need ≥50%)' };
     return { ok: true, pos: pos, lo: lo, hi: hi, reason: 'premium ' + (pos * 100).toFixed(0) + '%' };
@@ -18072,39 +18084,58 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
     // Scalp: ≥0.90×ATR or $0.80 min beyond zone · Hold: 1.35×ATR
     const SL_BUF = 1.35;
     let sl, tp, risk;
-    const RR_TARGET = 2;
+    // HTF keeps RR 1:2. Micro scalp uses 1:1.5 (Gold 1–5m rarely pays full 1:2 before noise).
     const isScalpPush = (String(tf || '').toLowerCase() === '1m' || String(tf || '').toLowerCase() === '3m' || String(tf || '').toLowerCase() === '5m');
+    const RR_TARGET = isScalpPush ? 1.5 : 2;
     if (side === 'BUY') {
       const structLow = Math.min(c.l, Number(zonePx) || c.l);
       const buf = isScalpPush ? Math.max(atr * 0.90, 0.80) : atr * SL_BUF;
       sl = structLow - buf;
       if (!(sl < entry) || !(sl < structLow + 1e-9)) sl = Math.min(entry, structLow) - buf;
-      risk = Math.max(isScalpPush ? atr * 0.55 : atr * 0.45, entry - sl);
-      if (!(risk > 0)) risk = atr * 0.55;
       // Keep SL beyond structure — never tighten into the zone
       if (sl > structLow - buf * 0.5) sl = structLow - buf;
       risk = Math.max(isScalpPush ? 0.60 : 0.40, entry - sl);
-      // RR FIX: cap scalp risk so a wide structure zone can't balloon the stop —
-      // without this, the 2x TP target can land far outside what 1m/3m/5m
-      // realistically moves in the trade's lifetime (inconsistent, unhittable RR).
-      if (isScalpPush) risk = Math.min(risk, Math.max(atr * 2.2, 2.50));
-      sl = entry - risk;
-      tp = entry + risk * RR_TARGET;
+      if (!(risk > 0)) risk = atr * 0.55;
+      if (isScalpPush) {
+        // GOLD SCALP FIX: do NOT pull SL inside structure to meet a dollar cap.
+        // If structure risk is too wide for a 1–5m scalp, skip the trade instead.
+        const maxRisk = Math.max(atr * 3.2, 4.50);
+        const minRisk = Math.max(atr * 0.55, 1.20);
+        if (risk > maxRisk) return; // structure too far — not a scalp
+        if (risk < minRisk) return; // noise-level stop — skip
+        // SL stays at structure; TP from structure risk @ RR 1.5
+        tp = entry + risk * RR_TARGET;
+      } else {
+        // HTF: prior geometry (unchanged)
+        risk = Math.max(atr * 0.45, entry - sl);
+        if (!(risk > 0)) risk = atr * 0.55;
+        risk = Math.max(0.40, entry - sl);
+        sl = entry - risk;
+        tp = entry + risk * RR_TARGET;
+      }
     } else {
       const structHigh = Math.max(c.h, Number(zonePx) || c.h);
       const buf = isScalpPush ? Math.max(atr * 0.90, 0.80) : atr * SL_BUF;
       sl = structHigh + buf;
       if (!(sl > entry) || !(sl > structHigh - 1e-9)) sl = Math.max(entry, structHigh) + buf;
-      risk = Math.max(isScalpPush ? atr * 0.55 : atr * 0.45, sl - entry);
-      if (!(risk > 0)) risk = atr * 0.55;
       if (sl < structHigh + buf * 0.5) sl = structHigh + buf;
       risk = Math.max(isScalpPush ? 0.60 : 0.40, sl - entry);
-      // RR FIX: same cap as the BUY side, mirrored — see comment above.
-      if (isScalpPush) risk = Math.min(risk, Math.max(atr * 2.2, 2.50));
-      sl = entry + risk;
-      tp = entry - risk * RR_TARGET;
+      if (!(risk > 0)) risk = atr * 0.55;
+      if (isScalpPush) {
+        const maxRisk = Math.max(atr * 3.2, 4.50);
+        const minRisk = Math.max(atr * 0.55, 1.20);
+        if (risk > maxRisk) return;
+        if (risk < minRisk) return;
+        tp = entry - risk * RR_TARGET;
+      } else {
+        risk = Math.max(atr * 0.45, sl - entry);
+        if (!(risk > 0)) risk = atr * 0.55;
+        risk = Math.max(0.40, sl - entry);
+        sl = entry + risk;
+        tp = entry - risk * RR_TARGET;
+      }
     }
-    // TINY ZONE filter: no trade when there is not enough space for 1:2 target
+    // TINY ZONE filter: no trade when there is not enough space for target
     // relative to recent range / ATR (avoid micro-chop entries)
     try {
       const rngSp = (typeof algoRecentRange === 'function') ? algoRecentRange(data, i, isScalpPush ? 30 : 50) : null;
@@ -18162,7 +18193,10 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   // Falling nearest ray blocks TL path only — NOT swing-low or demand-OB paths.
   const nearestSup = algoNearestSupport(lines, c, i, atr);
   const nearestSupFalling = !!(nearestSup && Number.isFinite(nearestSup.slope) && nearestSup.slope < 0 && nearestSup.dist <= atr * 4);
-  const buyRejOk = isScalpBar ? true : algoIsRejection(c, 'BUY', '');
+  // 1m/3m/5m: require rejection wick (was always-true → mid-bar sells/buys).
+  // 15m+ path unchanged (prior isScalpBar?true left HTF without hard rejection).
+  const isMicroScalpTf = (_tfB === '1m' || _tfB === '3m' || _tfB === '5m');
+  const buyRejOk = isMicroScalpTf ? algoIsRejection(c, 'BUY', 'scalp') : (isScalpBar ? true : algoIsRejection(c, 'BUY', ''));
   if (buyDirOk && buyRejOk && confBuy.ok) {
     let tookBuy = false;
     // Scalp: 2-touch TL is enough when 1D plan is BUY + structure aligned (was 3 → missed real supports).
@@ -18187,16 +18221,26 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       const mid = (c.h + c.l) / 2;
       // Support line must sit in LOWER half of the bar (discount area)
       if (px > mid + atr * 0.25) continue;
-      // Scalp: near-line touch is enough; hold still requires wick sweep
-      const buyTouchOk = isScalpBar
-        ? (algoNearLine(c, l, i, atr * 1.35) || algoWickSweepsZone(c, 'BUY', px, atr) ||
-           (Number(c.l) <= px + atr * 0.35 && Number(c.c) >= px - atr * 0.15))
-        : algoWickSweepsZone(c, 'BUY', px, atr);
+      // 1m/3m/5m: wick into TL + close reclaim (no bare near-line). HTF path unchanged.
+      const buyTouchOk = isMicroScalpTf
+        ? (algoWickSweepsZone(c, 'BUY', px, atr) ||
+           (Number(c.l) <= px + atr * 0.25 && Number(c.c) >= px && algoIsRejection(c, 'BUY', 'scalp')))
+        : (isScalpBar
+          ? (algoNearLine(c, l, i, atr * 1.35) || algoWickSweepsZone(c, 'BUY', px, atr) ||
+             (Number(c.l) <= px + atr * 0.35 && Number(c.c) >= px - atr * 0.15))
+          : algoWickSweepsZone(c, 'BUY', px, atr));
       if (!buyTouchOk) continue;
       let smcBuy = { ok: true, reason: isScalpBar ? 'green↑ TL touch · discount' : 'TL + structure' };
       try {
         smcBuy = algoSMCStructureConfirm(data, i, 'BUY', atr, demand, supply, tf);
-        if (!smcBuy.ok && isScalpBar && structAlignedBuy) {
+        // Micro scalp: soft SMC only with rejection + aligned BUY (no free pass).
+        // HTF keeps prior isScalpBar soft path.
+        if (!smcBuy.ok && isMicroScalpTf && structAlignedBuy && algoIsRejection(c, 'BUY', 'scalp')) {
+          const rsn = String(smcBuy.reason || '');
+          if (rsn.indexOf('CHoCH') >= 0 || rsn.indexOf('sweep') >= 0 || rsn.indexOf('discount') >= 0) {
+            smcBuy = { ok: true, reason: 'scalp structure + green↑ TL + rejection (soft SMC)' };
+          }
+        } else if (!smcBuy.ok && !isMicroScalpTf && isScalpBar && structAlignedBuy) {
           const rsn = String(smcBuy.reason || '');
           if (rsn.indexOf('CHoCH') >= 0 || rsn.indexOf('sweep') >= 0 || rsn.indexOf('discount') >= 0) {
             smcBuy = { ok: true, reason: 'scalp structure + green↑ TL (soft SMC)' };
@@ -18210,7 +18254,8 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         const posPx = (px - rng.lo) / (rng.hi - rng.lo);
         const posC = (c.c - rng.lo) / (rng.hi - rng.lo);
         if ((typeof isHoldBar !== 'undefined' && isHoldBar) ? (posPx > 0.72 || posC > 0.72)
-          : (isScalpBar ? (posPx > 0.50 || posC > 0.50) : (posPx > 0.55 || posC > 0.58))) continue;
+          : (isMicroScalpTf ? (posPx > 0.40 || posC > 0.40)
+          : (isScalpBar ? (posPx > 0.50 || posC > 0.50) : (posPx > 0.55 || posC > 0.58)))) continue;
       }
       try {
         if (typeof algoScalpPremiumDiscount === 'function') {
@@ -18277,8 +18322,11 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   // RULE: SELL only on red downward resistance TL + structure + premium.
   // Rejection is OPTIONAL for scalp (not required). NEVER sell on green ↑ support TL.
   // Soft conf on micro when fallingMarket.
-  const sellConfOk = confSell.ok || (isScalpBar && fallingMarket && confSell.score >= 18);
-  const sellRejOk = isScalpBar ? true : algoIsRejection(c, 'SELL', '');
+  // Soft conf only on micro scalp when falling + higher score (was 18 → weak sells).
+  // HTF: same as before (isScalpBar soft path preserved for non-micro).
+  const sellConfOk = confSell.ok || (isMicroScalpTf && fallingMarket && confSell.score >= 28)
+    || (!isMicroScalpTf && isScalpBar && fallingMarket && confSell.score >= 18);
+  const sellRejOk = isMicroScalpTf ? algoIsRejection(c, 'SELL', 'scalp') : (isScalpBar ? true : algoIsRejection(c, 'SELL', ''));
   if (liveSellAllowed && sellRejOk && sellConfOk && !out.some(function (t) { return t.side === 'BUY'; })) {
     let tookSell = false;
     const minTLTouchesSell = 2;
@@ -18300,20 +18348,34 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       const upperHalf = px >= mid - atr * 0.45;
       const retestFromBelow = Number(c.h) >= px - atr * 0.5 && Number(c.c) < px + atr * 0.15;
       if (!upperHalf && !retestFromBelow) continue;
-      // Scalp: near-line touch is enough; hold still prefers wick sweep / retest
-      const sellTouchOk = isScalpBar
-        ? (algoNearLine(c, l, i, atr * 1.4) || algoWickSweepsZone(c, 'SELL', px, atr) || retestFromBelow)
-        : (algoWickSweepsZone(c, 'SELL', px, atr) || retestFromBelow);
+      // 1m/3m/5m: real rejection / wick sweep at resistance — not bare near-line.
+      // 15m+ keeps prior near-line path.
+      const sellTouchOk = isMicroScalpTf
+        ? (algoWickSweepsZone(c, 'SELL', px, atr) ||
+           (retestFromBelow && algoIsRejection(c, 'SELL', 'scalp')))
+        : (isScalpBar
+          ? (algoNearLine(c, l, i, atr * 1.4) || algoWickSweepsZone(c, 'SELL', px, atr) || retestFromBelow)
+          : (algoWickSweepsZone(c, 'SELL', px, atr) || retestFromBelow));
       if (!sellTouchOk) continue;
       let smcSell = { ok: true, reason: isScalpBar ? 'red↓ TL touch · premium' : 'red↓ TL rejection' };
       try {
         smcSell = algoSMCStructureConfirm(data, i, 'SELL', atr, demand, supply, tf);
-        if (!smcSell.ok && (fallingMarket || structBrokenBuy || structAlignedSell)) {
-          smcSell = { ok: true, reason: 'structure broken/falling + red↓ TL' };
-        } else if (!smcSell.ok && isScalpBar && (structAlignedSell || fallingMarket)) {
-          const rsn = String(smcSell.reason || '');
-          if (rsn.indexOf('CHoCH') >= 0 || rsn.indexOf('sweep') >= 0 || rsn.indexOf('premium') >= 0) {
-            smcSell = { ok: true, reason: 'scalp structure + red↓ TL (soft SMC)' };
+        // Micro scalp: never auto-OK from fallingMarket alone — need rejection at TL.
+        if (isMicroScalpTf) {
+          if (!smcSell.ok && (structAlignedSell || structBrokenBuy) && algoIsRejection(c, 'SELL', 'scalp')) {
+            const rsn = String(smcSell.reason || '');
+            if (rsn.indexOf('CHoCH') >= 0 || rsn.indexOf('sweep') >= 0 || rsn.indexOf('premium') >= 0 || rsn.indexOf('structure') >= 0) {
+              smcSell = { ok: true, reason: 'scalp SELL structure + red↓ TL + rejection (soft SMC)' };
+            }
+          }
+        } else {
+          if (!smcSell.ok && (fallingMarket || structBrokenBuy || structAlignedSell)) {
+            smcSell = { ok: true, reason: 'structure broken/falling + red↓ TL' };
+          } else if (!smcSell.ok && isScalpBar && (structAlignedSell || fallingMarket)) {
+            const rsn = String(smcSell.reason || '');
+            if (rsn.indexOf('CHoCH') >= 0 || rsn.indexOf('sweep') >= 0 || rsn.indexOf('premium') >= 0) {
+              smcSell = { ok: true, reason: 'scalp structure + red↓ TL (soft SMC)' };
+            }
           }
         }
         if (!smcSell.ok) continue;
@@ -18325,9 +18387,11 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         if (rngS && rngS.hi > rngS.lo) {
           const posPx = (px - rngS.lo) / (rngS.hi - rngS.lo);
           const posC = (c.c - rngS.lo) / (rngS.hi - rngS.lo);
-          // Micro scalp ≥50%; hold 15m+ continuation (only block extreme discount)
+          // 1m/3m/5m ≥62% premium; hold 15m+ continuation (only block extreme discount)
           if (typeof isHoldBar !== 'undefined' && isHoldBar) {
             if (posPx < 0.28 || posC < 0.28) continue;
+          } else if (isMicroScalpTf) {
+            if (posPx < 0.62 || posC < 0.62) continue;
           } else if (isScalpBar) {
             if (posPx < 0.50 || posC < 0.50) continue;
           } else {
@@ -18382,7 +18446,8 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
             const posZ = (zMid - rngOb.lo) / (rngOb.hi - rngOb.lo);
             const posC = (c.c - rngOb.lo) / (rngOb.hi - rngOb.lo);
             if ((typeof isHoldBar !== 'undefined' && isHoldBar) ? (posZ < 0.28 || posC < 0.28)
-              : (isScalpBar ? (posZ < 0.50 || posC < 0.50) : (posZ < 0.40 || posC < 0.38))) continue;
+              : (isMicroScalpTf ? (posZ < 0.62 || posC < 0.62)
+              : (isScalpBar ? (posZ < 0.50 || posC < 0.50) : (posZ < 0.40 || posC < 0.38)))) continue;
           }
         }
         try {
@@ -18934,12 +18999,15 @@ function algoMergeNewTrades(candidates) {
       }
     }
     const lotN = (t.lots != null) ? Number(t.lots) : algoGetLotSize();
-    // Force RR 1:2 geometry from entry/SL so chart + history always match.
+    // Geometry from entry/SL. Micro scalp keeps RR 1.5; HTF stays 1:2.
     let entryN = Number(t.entry != null ? t.entry : t.price);
     let slN = Number(t.sl);
     let tpN = Number(t.tp);
     let riskN = Number(t.risk);
     const sideN = String(t.side || '').toUpperCase();
+    const tfN = String(t.tf || '').toLowerCase();
+    const isMicroN = (tfN === '1m' || tfN === '3m' || tfN === '5m');
+    const rrN = (Number(t.rr) > 0) ? Number(t.rr) : (isMicroN ? 1.5 : 2);
     if (Number.isFinite(entryN) && entryN > 0) {
       if (Number.isFinite(slN) && ((sideN === 'BUY' && slN < entryN) || (sideN === 'SELL' && slN > entryN))) {
         riskN = Math.abs(entryN - slN);
@@ -18947,7 +19015,10 @@ function algoMergeNewTrades(candidates) {
         slN = sideN === 'SELL' ? (entryN + riskN) : (entryN - riskN);
       }
       if (Number.isFinite(riskN) && riskN > 0) {
-        tpN = sideN === 'SELL' ? (entryN - riskN * 2) : (entryN + riskN * 2);
+        // Prefer stored TP when valid; else rebuild from rrN (1.5 scalp / 2 HTF)
+        if (!Number.isFinite(tpN) || (sideN === 'BUY' ? !(tpN > entryN) : !(tpN < entryN))) {
+          tpN = sideN === 'SELL' ? (entryN - riskN * rrN) : (entryN + riskN * rrN);
+        }
       }
     }
     const row = Object.assign({}, t, {
@@ -18958,7 +19029,7 @@ function algoMergeNewTrades(candidates) {
       sl: Number.isFinite(slN) ? Number(slN.toFixed(2)) : t.sl,
       tp: Number.isFinite(tpN) ? Number(tpN.toFixed(2)) : t.tp,
       risk: Number.isFinite(riskN) ? Number(riskN.toFixed(2)) : t.risk,
-      rr: 2,
+      rr: rrN,
       ts: t.ts || Date.now(),
       source: t.source || 'BACKTEST',
       mt5Status: (String(t.source || 'BACKTEST').toUpperCase() === 'BACKTEST') ? 'BACKTEST' : 'PAPER_ONLY'
@@ -21734,19 +21805,25 @@ function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
         else return;
       }
       if (!(entry > 0)) return;
-      // Live chart always enforces RR 1:2 for display + open-trade geometry.
+      // Display uses trade RR (1.5 on 1m/3m/5m, 1:2 on HTF). Prefer stored SL/TP.
       let slPx = Number(t.sl);
       let tpPx = Number(t.tp);
       let riskPx = Number(t.risk);
       const isBuy = t.side === 'BUY';
+      const tfDisp = String(t.tf || '').toLowerCase();
+      const isMicroDisp = (tfDisp === '1m' || tfDisp === '3m' || tfDisp === '5m');
+      const rrDisp = (Number(t.rr) > 0) ? Number(t.rr) : (isMicroDisp ? 1.5 : 2);
       if (Number.isFinite(slPx) && ((isBuy && slPx < entry) || (!isBuy && slPx > entry))) {
         riskPx = Math.abs(entry - slPx);
       } else if (!(riskPx > 0)) {
         riskPx = Math.max(0.5, Math.abs(Number(state.gold_price) || entry) * 0.0004);
         slPx = isBuy ? (entry - riskPx) : (entry + riskPx);
       }
+      // Only rebuild TP if missing; do not overwrite a valid stored scalp TP with 1:2
       if (riskPx > 0) {
-        tpPx = isBuy ? (entry + riskPx * 2) : (entry - riskPx * 2);
+        if (!Number.isFinite(tpPx) || (isBuy ? !(tpPx > entry) : !(tpPx < entry))) {
+          tpPx = isBuy ? (entry + riskPx * rrDisp) : (entry - riskPx * rrDisp);
+        }
         if (!Number.isFinite(slPx) || (isBuy ? !(slPx < entry) : !(slPx > entry))) {
           slPx = isBuy ? (entry - riskPx) : (entry + riskPx);
         }
@@ -21808,11 +21885,11 @@ function algoDrawTradesOnChart(ctx, getX, getY, chartW, topPad, chartH) {
           ctx.fillText(label, x2 + 5, yy + 2);
         }
         pill('SL ' + Number(slPx).toFixed(1) + ' · R ' + Number(riskPx).toFixed(1), ySl, '#f87171');
-        pill('TP ' + Number(tpPx).toFixed(1) + ' · RR 1:2', yTp, '#34d399');
+        pill('TP ' + Number(tpPx).toFixed(1) + ' · RR 1:' + rrDisp, yTp, '#34d399');
         // Entry RR badge near marker
         ctx.font = 'bold 10px system-ui,sans-serif';
         ctx.textAlign = 'left';
-        const rrLab = 'RR 1:2';
+        const rrLab = 'RR 1:' + rrDisp;
         const rrW = Math.ceil(ctx.measureText(rrLab).width) + 8;
         ctx.fillStyle = 'rgba(8,12,18,0.85)';
         ctx.fillRect(x + 14, y - 8, rrW, 14);
