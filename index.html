@@ -16216,24 +16216,25 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
       // skip all MSS triggers in pure noise
     } else {
     // BUY structure FAIL → MSS toward SELL (needs real brokenBuy on 1m)
+    // 1m whole-chart rule: never flip to SELL while HH+HL / rising is still the map.
     if ((structureFail === 'BUY' || brokenBuy) && (validSide === 'BUY' || prevDir === 'BUY' || allowedSide === 'BUY' || (lastMss && lastMss.side === 'BUY'))) {
       if (is1mTf && !brokenBuy) {
         try { console.log('[GP Algo] MSS 1m REJECTED soft BUY-fail — need real brokenBuy'); } catch (e) {}
-      } else if (trendRising && (alignedBuy || (hh && hl)) && !trendFalling && !brokenSell) {
-        // Mirror of the existing fake-SELL→BUY rejection below: still rising,
-        // this is not a real flip no matter what structureFail/brokenBuy say.
+      } else if (is1mTf && buyStructIntact) {
+        // Tiny pullback inside a real uptrend is NOT MSS (screenshot FAKE? case)
+        try { console.log('[GP Algo] MSS 1m REJECTED BUY→SELL · buy structure still intact (HH/HL/rising)'); } catch (e) {}
+      } else if (trendRising && (alignedBuy || (hh && hl)) && !trendFalling) {
         try { console.log('[GP Algo] MSS', tf, 'REJECTED fake BUY→SELL · still RISING'); } catch (e) {}
       } else if (hl && lh) {
-        // COMPRESSION, not a flip — same rule as SELL→BUY: a higher low AND a
-        // lower high at once is a converging/triangle signature, not a
-        // confirmed reversal. This is exactly what the chart's own
-        // 'COMPRESSION?' tag was flagging while still letting the trade fire.
         try { console.log('[GP Algo] MSS', tf, 'REJECTED BUY→SELL · HL+LH compression, not a clean flip'); } catch (e) {}
       } else if (trendFalling || (dir === 'SELL' && (alignedSell || (lh && ll))) || (lh && ll && !hh)) {
-        if (!lastMss || lastMss.side !== 'SELL' || allowedSide === 'BUY') {
+        // 1m: also require LH+LL confirmed, not just a brokenBuy flag
+        if (is1mTf && !(lh && ll)) {
+          try { console.log('[GP Algo] MSS 1m REJECTED BUY→SELL · need LH+LL after brokenBuy'); } catch (e) {}
+        } else if (!lastMss || lastMss.side !== 'SELL' || allowedSide === 'BUY') {
           mss = makeMss('SELL', 'BUY', 'REAL · BUY failed + SELL structure (closed)');
         }
-      } else if (isMicroTf && dir === 'SELL' && !trendRising && brokenBuy) {
+      } else if (isMicroTf && !is1mTf && dir === 'SELL' && !trendRising && brokenBuy) {
         if (!lastMss || lastMss.side !== 'SELL' || allowedSide === 'BUY') {
           mss = makeMss('SELL', 'BUY', 'REAL · micro buy structure broken + dir flip (closed)');
         }
@@ -16445,12 +16446,9 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
     updatedAt: Date.now()
   };
   // ═══════════════════════════════════════════════════════════════════
-  // HARD CONSISTENCY RECONCILER (per-TF, real structure only)
-  // Fixes the chart bug: "MSS 1M SELL→BUY" label while sub-label is
-  // "1M SCALP SELL" (or the reverse). lastMss.side, allowedSide and
-  // waitStructure must always tell the same story.
-  // Applies to 1m, 3m, 5m, 15m… independently — each TF only uses
-  // its own candles / structure / brokenBuy / brokenSell flags.
+  // HARD CONSISTENCY RECONCILER (per-TF, whole-chart real structure only)
+  // 1m: never lock SCALP SELL while HH+HL / rising is still the real map.
+  // Tiny pullbacks must NOT paint as MSS BUY→SELL (the FAKE? chart case).
   // ═══════════════════════════════════════════════════════════════════
   function pushCorrectedEvent(side, from, why) {
     const ev = {
@@ -16467,8 +16465,20 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
   const sellStillIntact = !!(alignedSell || (lh && ll) || (trendFalling && !trendRising) || dir === 'SELL');
   const buyStillIntact  = !!(alignedBuy  || (hh && hl) || (trendRising  && !trendFalling) || dir === 'BUY');
 
-  // 1) Fake SELL→BUY while sell structure still intact → cancel to SCALP SELL
-  //    1m/3m/any TF: brokenSell is required for a real SELL→BUY. Bounce is not enough.
+  // 1) FAKE BUY→SELL while buy structure / rising still intact → cancel
+  //    This is the exact bug in the screenshot: MSS 1M BUY→SELL · HHHL · FAKE?
+  //    with sub-label 1M SCALP SELL while 1M panel still shows ✓ BUY.
+  if (st.lastMss && String(st.lastMss.side).toUpperCase() === 'SELL' && !brokenBuy && buyStillIntact) {
+    st.waitStructure = false;
+    st.allowedSide = 'BUY';
+    st.validSide = 'BUY';
+    st.mssActive = true;
+    st.armedForBreak = true;
+    pushCorrectedEvent('BUY', 'SELL', 'CANCEL fake BUY→SELL · buy structure still intact (HH/HL/rising)');
+    try { console.log('[GP Algo] MSS', tf, 'reconcile: fake BUY→SELL cancelled → SCALP BUY'); } catch (e) {}
+  }
+
+  // 2) FAKE SELL→BUY while sell structure / falling still intact → cancel
   if (st.lastMss && String(st.lastMss.side).toUpperCase() === 'BUY' && !brokenSell && sellStillIntact) {
     st.waitStructure = false;
     st.allowedSide = 'SELL';
@@ -16477,17 +16487,6 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
     st.armedForBreak = true;
     pushCorrectedEvent('SELL', 'BUY', 'CANCEL fake SELL→BUY · sell structure still intact');
     try { console.log('[GP Algo] MSS', tf, 'reconcile: fake SELL→BUY cancelled → SCALP SELL'); } catch (e) {}
-  }
-
-  // 2) Fake BUY→SELL while buy structure still intact → cancel to SCALP BUY
-  if (st.lastMss && String(st.lastMss.side).toUpperCase() === 'SELL' && !brokenBuy && buyStillIntact) {
-    st.waitStructure = false;
-    st.allowedSide = 'BUY';
-    st.validSide = 'BUY';
-    st.mssActive = true;
-    st.armedForBreak = true;
-    pushCorrectedEvent('BUY', 'SELL', 'CANCEL fake BUY→SELL · buy structure still intact');
-    try { console.log('[GP Algo] MSS', tf, 'reconcile: fake BUY→SELL cancelled → SCALP BUY'); } catch (e) {}
   }
 
   // 3) Real SELL structure broken + HH/HL on closed bar → force SELL→BUY
@@ -16499,7 +16498,7 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
     st.validSide = 'BUY';
     st.armedForBreak = true;
     pushCorrectedEvent('BUY', 'SELL', 'REAL · sell structure BROKEN + HH/HL');
-    try { console.log('[GP Algo] MSS', tf, 'reconcile: REAL SELL→BUY after brokenSell + HH/HL'); } catch (e) {}
+    try { console.log('[GP Algo] MSS', tf, 'reconcile: REAL SELL→BUY'); } catch (e) {}
   }
 
   // 4) Real BUY structure broken + LH/LL on closed bar → force BUY→SELL
@@ -16511,22 +16510,31 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
     st.validSide = 'SELL';
     st.armedForBreak = true;
     pushCorrectedEvent('SELL', 'BUY', 'REAL · buy structure BROKEN + LH/LL');
-    try { console.log('[GP Algo] MSS', tf, 'reconcile: REAL BUY→SELL after brokenBuy + LH/LL'); } catch (e) {}
+    try { console.log('[GP Algo] MSS', tf, 'reconcile: REAL BUY→SELL'); } catch (e) {}
   }
 
-  // 5) Enforce label ↔ lock agreement when not waiting
+  // 5) Label must match lock when not waiting
   if (st.mssActive && !st.waitStructure && st.allowedSide && st.lastMss) {
     const lock = String(st.allowedSide).toUpperCase();
     const painted = String(st.lastMss.side || '').toUpperCase();
     if (painted !== lock) {
       const from = (lock === 'BUY') ? 'SELL' : 'BUY';
       pushCorrectedEvent(lock, from, 'SYNC label to live lock · was ' + painted);
-      try { console.log('[GP Algo] MSS', tf, 'reconcile: forced lastMss.side=' + lock + ' to match allowedSide'); } catch (e) {}
     }
   }
 
-  // 6) Timeout: WAIT too long without confirmed structure → release lock
-  // TF-relative (~20 bars) for 1m/3m so scalper is not deadlocked
+  // 6) 1m: if MSS says SELL but live map is still HH+HL rising → hard clear to BUY
+  if (tf === '1m' && st.mssActive && st.allowedSide === 'SELL' && !brokenBuy &&
+      (hh && hl) && !trendFalling) {
+    st.waitStructure = false;
+    st.allowedSide = 'BUY';
+    st.validSide = 'BUY';
+    st.armedForBreak = true;
+    pushCorrectedEvent('BUY', 'SELL', '1m hard clear · HH/HL intact, tiny pullback is not MSS');
+    try { console.log('[GP Algo] MSS 1m hard clear FAKE SELL lock — HH/HL intact'); } catch (e) {}
+  }
+
+  // 7) Timeout WAIT
   try {
     if (st.mssActive && st.waitStructure && st.lastMss && st.lastMss.at) {
       const ageMs = Date.now() - Number(st.lastMss.at);
@@ -16546,7 +16554,6 @@ function algoUpdateMssState(tf, struct, barIndex, price, barClosed) {
   } catch (eTo) {}
 
   window.__algoMssState[tf] = st;
-  // Persist sticky lastMss so BUY→SELL (or SELL→BUY) lock survives page reload
   try {
     if (st.lastMss && (st.lastMss.side === 'BUY' || st.lastMss.side === 'SELL')) {
       localStorage.setItem('gp_mss_last_' + tf, JSON.stringify({
@@ -16688,9 +16695,9 @@ function algoTfStructure(data, i, tf) {
   const tfKey = String(tf || '').toLowerCase();
   const is1m = (tfKey === '1m');
   const isScalp = (tfKey === '1m' || tfKey === '3m' || tfKey === '5m');
-  // 1m GOLD only: stricter pivots — tiny $0.5–1.5 swings are noise, not structure/MSS.
+  // 1m GOLD: wider pivot confirmation so only whole-chart swings count as structure/MSS.
   // 3m/5m keep prior scalp settings. HTF unchanged.
-  const L = is1m ? 4 : (isScalp ? 3 : (tfKey === '15m' ? 4 : 5));
+  const L = is1m ? 5 : (isScalp ? 3 : (tfKey === '15m' ? 4 : 5));
   const highs = [];
   const lows = [];
   const end = Math.max(L, i - L);
@@ -16700,9 +16707,10 @@ function algoTfStructure(data, i, tf) {
   const apPre = Math.min(14, i);
   for (let k = i - apPre + 1; k <= i; k++) atrPre += Math.max(0.01, Number(data[k].h) - Number(data[k].l));
   atrPre = Math.max(0.35, atrPre / apPre);
-  // 1m: min pivot gap ≥ max(1.15×ATR, $1.40) so micro zones never count as HH/HL structure
+  // 1m: whole-chart pivots only — micro $1–2 wiggles are NOT structure / NOT MSS fuel.
+  // minSwing raised so only real swing highs/lows on the visible chart qualify.
   const minSwing = is1m
-    ? Math.max(atrPre * 1.15, 1.40)
+    ? Math.max(atrPre * 1.85, 2.40)   // was 1.15×ATR / $1.40 — too many tiny zones
     : (atrPre * (isScalp ? 0.55 : 0.45));
   const highsRaw = [], lowsRaw = [];
   for (let k = mapFrom; k <= end; k++) {
@@ -16750,14 +16758,14 @@ function algoTfStructure(data, i, tf) {
     recentLo = Math.min(recentLo, Number(data[k].l));
   }
   const recentRange = recentHi - recentLo;
-  // 1m GOLD: ranges under ~$2.8–3.0 are chop — not tradeable structure / not MSS fuel
+  // 1m GOLD: recent range under ~$4 is still chop — not tradeable structure / not MSS fuel
   const fewPipCeil = is1m
-    ? Math.max(atr * 2.6, 2.80)
+    ? Math.max(atr * 3.4, 4.00)   // was 2.6×ATR / $2.80 — still let tiny moves through
     : (isScalp ? Math.max(atr * 1.8, 1.8) : Math.max(atr * 2.2, 2.5));
   const microChop = recentRange < fewPipCeil;
-  // Deep window also compressed
+  // Deep window also compressed — 1m needs real chart span
   const deepCompressed = is1m
-    ? (range < atr * 3.2)
+    ? (range < atr * 4.5)
     : (isScalp ? (range < atr * 2.0) : (range < atr * 2.6));
   const compressed = microChop || deepCompressed;
 
@@ -16781,8 +16789,10 @@ function algoTfStructure(data, i, tf) {
   // Structure break = BOS of the PROTECTING swing, not a bounce HH inside the trend.
   // OLD BUG: (h1 > h0 && ll) = any pullback high above prior micro-high while LL still
   // true → fake brokenSell → fake MSS SELL→BUY on every bounce (your chart case).
+  // 1m: break must be a REAL whole-chart displacement, not a tiny pullback wick.
+  // Relative to ATR and a hard $ floor so micro zones never mark BOS.
   const brkMin = is1m
-    ? Math.max(atr * 1.35, 2.20)   // gold 1m: need real $2+ displacement
+    ? Math.max(atr * 2.10, 3.50)   // was 1.35×ATR / $2.20 — still too sensitive
     : (atr * (isScalp ? 0.70 : 0.55));
   const cNow = data[i] ? Number(data[i].c) : NaN;
   const cPrev = (i > 0 && data[i - 1]) ? Number(data[i - 1].c) : cNow;
@@ -16829,6 +16839,18 @@ function algoTfStructure(data, i, tf) {
     if (lh && ll && !hh) brokenSell = false;
     // Extra: if still HH+HL clearly, buy structure is intact — never brokenBuy
     if (hh && hl && !ll) brokenBuy = false;
+    // Break must also be meaningful vs the deep chart range (not just local ATR)
+    // Require displacement ≥ ~12% of the mapped range or it is a tiny-zone BOS
+    try {
+      if (range > 0 && brokenBuy && Number.isFinite(protectLo)) {
+        const disp = Math.abs(cNow - protectLo);
+        if (disp < range * 0.12 && disp < atr * 2.5) brokenBuy = false;
+      }
+      if (range > 0 && brokenSell && Number.isFinite(protectHi)) {
+        const disp = Math.abs(cNow - protectHi);
+        if (disp < range * 0.12 && disp < atr * 2.5) brokenSell = false;
+      }
+    } catch (eDisp) {}
   } else {
     // Higher TFs / 3m/5m: prior pivot-distance logic (unchanged)
     if (l1 && l0 && l1.p < l0.p - brkMin && hh) brokenBuy = true;
@@ -16851,6 +16873,15 @@ function algoTfStructure(data, i, tf) {
   // In a clear falling trend, a single bounce HH is NOT a SELL structure break
   if (trendFalling && brokenSell && !hh3) brokenSell = false;
   if (trendRising && brokenBuy && !ll3) brokenBuy = false;
+  // 1m WHOLE-CHART: never mark BUY broken while rising HH/HL structure is live
+  // (prevents FAKE MSS BUY→SELL on tiny pullbacks inside a real uptrend)
+  if (is1m) {
+    if ((trendRising || (hh && hl)) && !ll3) brokenBuy = false;
+    if ((trendFalling || (lh && ll)) && !hh3) brokenSell = false;
+    // Require at least 3-pivot confirmation for a 1m structure break to count
+    if (brokenBuy && !ll && !ll3) brokenBuy = false;
+    if (brokenSell && !hh && !hh3) brokenSell = false;
+  }
 
   // BOTH-SIDE RECOVERY / LIQUIDITY GRAB (symmetric):
   // SHORT-RECOVERY / LIQ-GRAB: after sell structure (LH/LL) or a low-side liquidity sweep,
@@ -21270,27 +21301,12 @@ function algoDrawMssOnChart(ctx, getX, getY, chartW, topPad, chartH) {
     } catch (eU) {}
     const mss = algoGetMssState(chartTf);
     if (!mss) return;
-    // Prefer reconciled lastMss as the authoritative latest event so the painted
-    // label can never disagree with allowedSide / waitStructure (the desync that
-    // produced "MSS 1M SELL→BUY" + "1M SCALP SELL"). Same for 3m / any TF.
-    let events = Array.isArray(mss.events) ? mss.events.slice() : [];
-    if (mss.lastMss) {
-      const lm = mss.lastMss;
-      const lastEv = events.length ? events[events.length - 1] : null;
-      const same = lastEv && String(lastEv.side) === String(lm.side) &&
-        Number(lastEv.barIndex) === Number(lm.barIndex) &&
-        Math.abs((Number(lastEv.at)||0) - (Number(lm.at)||0)) < 2000;
-      if (!same) events = events.concat([lm]);
-    }
+    const events = (Array.isArray(mss.events) && mss.events.length)
+      ? mss.events
+      : (mss.lastMss ? [mss.lastMss] : []);
+    // Even with no events array, sticky lastMss must still paint (1m/3m after reload)
     if (!events.length && !mss.lastMss) return;
-    let drawList = events.slice(-5);
-    if (mss.lastMss) {
-      drawList = drawList.filter(function (e) {
-        return !(e && mss.lastMss && e.id && mss.lastMss.id && e.id === mss.lastMss.id);
-      });
-      drawList.push(mss.lastMss);
-      if (drawList.length > 5) drawList = drawList.slice(-5);
-    }
+    const drawList = events.length ? events.slice(-5) : [mss.lastMss];
     ctx.save();
     // Resolve bar index: prefer stored index, else nearest price, else recent closed bar
     function resolveIdx(lm) {
@@ -21323,11 +21339,7 @@ function algoDrawMssOnChart(ctx, getX, getY, chartW, topPad, chartH) {
         pinned = true;
       }
       const px = Number(lm.price) || Number(candleHistory[idx].c);
-      // Latest mark: prefer reconciled lastMss.side so line colour matches label (1m + 3m)
-      const sideForLine = (isLast && mss.lastMss && mss.lastMss.side)
-        ? String(mss.lastMss.side).toUpperCase()
-        : String(lm.side || '').toUpperCase();
-      const toSell = sideForLine === 'SELL';
+      const toSell = String(lm.side || '').toUpperCase() === 'SELL';
       const col = toSell ? '#ff5252' : '#00e676';
       if (!pinned) {
         ctx.setLineDash([5, 4]);
@@ -21371,44 +21383,33 @@ function algoDrawMssOnChart(ctx, getX, getY, chartW, topPad, chartH) {
           }
         }
       } catch (eSt) {}
-      // Authoritative side: reconciled lastMss (forced to equal allowedSide when not waiting).
-      // Prevents "MSS 3M BUY→SELL" + wrong sub-label, same for 1m.
-      const paintSide = String((mss.lastMss && mss.lastMss.side) || lm.side || '?').toUpperCase();
-      const paintFrom = String((mss.lastMss && mss.lastMss.from) || lm.from || '?').toUpperCase();
-      const label = 'MSS ' + chartTf.toUpperCase() + ' ' + paintFrom + '→' + paintSide + structTag;
-      const colPaint = paintSide === 'SELL' ? '#ff5252' : '#00e676';
+      const label = 'MSS ' + chartTf.toUpperCase() + ' ' + (lm.from || '?') + '→' + (lm.side || '?') + structTag;
       ctx.font = 'bold 10px system-ui,sans-serif';
       const tw = Math.ceil(ctx.measureText(label).width) + 10;
       const lx = Math.max(4, Math.min(chartW - tw - 4, x - tw / 2));
       const ly = topPad + 14;
       ctx.fillStyle = 'rgba(8,12,18,0.9)';
-      ctx.strokeStyle = colPaint;
+      ctx.strokeStyle = col;
       ctx.lineWidth = 1.2;
       ctx.beginPath();
       if (ctx.roundRect) ctx.roundRect(lx, ly - 10, tw, 16, 4);
       else ctx.rect(lx, ly - 10, tw, 16);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = colPaint;
+      ctx.fillStyle = col;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText(label, lx + 5, ly - 2);
       let sub = '';
-      if (mss.waitStructure) {
-        sub = chartTf.toUpperCase() + ' WAIT 1st structure';
-      } else if (mss.allowedSide) {
-        sub = chartTf.toUpperCase() + ' SCALP ' + String(mss.allowedSide).toUpperCase();
-      } else if (mss.lastMss && mss.lastMss.side) {
-        sub = chartTf.toUpperCase() + ' last→' + String(mss.lastMss.side).toUpperCase();
-      }
+      if (mss.waitStructure) sub = chartTf.toUpperCase() + ' WAIT 1st structure';
+      else if (mss.allowedSide) sub = chartTf.toUpperCase() + ' SCALP ' + mss.allowedSide;
+      else if (mss.lastMss && mss.lastMss.side) sub = chartTf.toUpperCase() + ' last→' + String(mss.lastMss.side).toUpperCase();
       if (sub) {
         ctx.font = 'bold 9px system-ui,sans-serif';
         const sw = Math.ceil(ctx.measureText(sub).width) + 8;
         ctx.fillStyle = 'rgba(8,12,18,0.85)';
         ctx.fillRect(lx, ly + 8, sw, 13);
-        const subCol = mss.waitStructure ? '#fbbf24'
-          : (String(mss.allowedSide || paintSide).toUpperCase() === 'SELL' ? '#ff5252' : '#00e676');
-        ctx.fillStyle = subCol;
+        ctx.fillStyle = mss.waitStructure ? '#fbbf24' : col;
         ctx.fillText(sub, lx + 4, ly + 14);
       }
     });
