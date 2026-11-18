@@ -20544,6 +20544,9 @@ let propFirmState = {
   // Live MT5 scan (runtime — refreshed from STATUS)
   liveBalance: 0,
   liveSource: 'none',
+  liveClosedPnl: 0,
+  liveOpenPnl: 0,
+  liveClosedToday: 0,
   liveEquity: 0,
   liveDayPnl: 0,
   liveDayTrades: 0,
@@ -20867,7 +20870,7 @@ function propFirmIsPropMode() {
 
 /** Parse flexible MT5 STATUS payload → balance, equity, today PnL, today trade count, open count. */
 function propFirmScanMt5Account() {
-  // NEVER seed displayed MT5 balance from Prop Account Size (risk base only).
+  // Real MT5 only — never display Prop Account Size as "MT5 REAL BAL"
   const out = {
     balance: 0,
     equity: 0,
@@ -20883,35 +20886,29 @@ function propFirmScanMt5Account() {
     let d = (typeof MT5_BRIDGE !== 'undefined' && MT5_BRIDGE && MT5_BRIDGE.lastStatus)
       ? MT5_BRIDGE.lastStatus : null;
     if (!d || typeof d !== 'object') {
-      // Keep last known real MT5 figures only — do not invent from accountSize
-      if (Number(propFirmState.liveBalance) > 0 && propFirmState.liveSource === 'mt5') {
+      if (Number(propFirmState.liveBalance) > 1 && propFirmState.liveSource === 'mt5') {
         out.balance = Number(propFirmState.liveBalance);
         out.equity = Number(propFirmState.liveEquity) || out.balance;
         out.dayPnl = Number(propFirmState.liveDayPnl) || 0;
+        out.closedPnl = Number(propFirmState.liveClosedPnl) || 0;
+        out.openPnl = Number(propFirmState.liveOpenPnl) || 0;
         out.closedToday = Number(propFirmState.liveClosedToday) || 0;
         out.openCount = Number(propFirmState.liveOpenCount) || 0;
         out.source = 'last_mt5';
       }
-      propFirmState.liveScanAt = Date.now();
       return out;
     }
-    // Unwrap nested payloads some bridges use
-    if (d.data && typeof d.data === 'object' && !Array.isArray(d.data)) {
-      d = Object.assign({}, d, d.data);
-    }
-    if (d.result && typeof d.result === 'object' && !Array.isArray(d.result)) {
-      d = Object.assign({}, d, d.result);
-    }
-    // Merge ACCOUNT snapshot if STATUS poll stored it separately
+    // Unwrap nested bridge envelopes
+    if (d.data && typeof d.data === 'object' && !Array.isArray(d.data)) d = Object.assign({}, d, d.data);
+    if (d.result && typeof d.result === 'object' && !Array.isArray(d.result)) d = Object.assign({}, d, d.result);
     if (MT5_BRIDGE.accountInfo && typeof MT5_BRIDGE.accountInfo === 'object') {
       d = Object.assign({}, MT5_BRIDGE.accountInfo, d);
+      const a0 = MT5_BRIDGE.accountInfo.account || MT5_BRIDGE.accountInfo.account_info || MT5_BRIDGE.accountInfo.AccountInfo;
+      if (a0 && typeof a0 === 'object') d = Object.assign({}, a0, d);
     }
-
-    const acc = (d.account && typeof d.account === 'object') ? d.account
-      : ((d.account_info && typeof d.account_info === 'object') ? d.account_info
-        : ((d.AccountInfo && typeof d.AccountInfo === 'object') ? d.AccountInfo
-          : ((d.accountInfo && typeof d.accountInfo === 'object') ? d.accountInfo
-            : ((d.acc && typeof d.acc === 'object') ? d.acc : d))));
+    if (MT5_BRIDGE.historyInfo && typeof MT5_BRIDGE.historyInfo === 'object') {
+      d = Object.assign({}, d, MT5_BRIDGE.historyInfo);
+    }
 
     function coerceMoney(v) {
       if (v == null || v === '') return NaN;
@@ -20928,60 +20925,60 @@ function propFirmScanMt5Account() {
       const n = Number(v);
       return Number.isFinite(n) ? n : NaN;
     }
-    function deepPickPos(obj, keys, depth, seen) {
+    function deepPick(obj, wantEquity, depth, seen) {
       if (!obj || typeof obj !== 'object' || depth < 0) return 0;
       seen = seen || new Set();
       if (seen.has(obj)) return 0;
       seen.add(obj);
+      const keys = wantEquity
+        ? ['equity', 'Equity', 'account_equity', 'AccountEquity', 'EQUITY', 'eq', 'EquityUSD']
+        : ['balance', 'Balance', 'account_balance', 'AccountBalance', 'BALANCE', 'bal', 'BalanceUSD', 'account_balance_usd'];
       for (let i = 0; i < keys.length; i++) {
         if (obj[keys[i]] != null) {
           const v = coerceMoney(obj[keys[i]]);
-          if (Number.isFinite(v) && v > 1) return v; // real account balances are > $1
+          if (Number.isFinite(v) && v > 1) return v;
         }
       }
-      const nest = ['account', 'account_info', 'AccountInfo', 'accountInfo', 'acc', 'info', 'data', 'result', 'status', 'terminal', 'trade'];
-      for (let i = 0; i < nest.length; i++) {
-        const c = obj[nest[i]];
-        if (c && typeof c === 'object' && !Array.isArray(c)) {
-          const v = deepPickPos(c, keys, depth - 1, seen);
-          if (v > 1) return v;
-        }
-      }
-      // shallow scan any object values named like balance
       try {
         const ks = Object.keys(obj);
         for (let i = 0; i < ks.length; i++) {
           const k = ks[i];
-          if (/balance|equity/i.test(k) && typeof obj[k] !== 'object') {
-            const v = coerceMoney(obj[k]);
-            if (Number.isFinite(v) && v > 1) {
-              if (/equity/i.test(k) && keys.indexOf('equity') >= 0) return v;
-              if (/balance/i.test(k) && keys.indexOf('balance') >= 0) return v;
+          const val = obj[k];
+          if (val != null && typeof val !== 'object') {
+            if (!wantEquity && /balance/i.test(k) && !/imbalance|unbalance/i.test(k)) {
+              const v = coerceMoney(val);
+              if (Number.isFinite(v) && v > 1) return v;
+            }
+            if (wantEquity && /equity/i.test(k)) {
+              const v = coerceMoney(val);
+              if (Number.isFinite(v) && v > 1) return v;
             }
           }
         }
-      } catch (eK) {}
+      } catch (e0) {}
+      const nest = ['account', 'account_info', 'AccountInfo', 'accountInfo', 'acc', 'info', 'data', 'result', 'status', 'terminal', 'trade', 'account_data'];
+      for (let i = 0; i < nest.length; i++) {
+        const c = obj[nest[i]];
+        if (c && typeof c === 'object' && !Array.isArray(c)) {
+          const v = deepPick(c, wantEquity, depth - 1, seen);
+          if (v > 1) return v;
+        }
+      }
       return 0;
     }
 
-    let bal = deepPickPos(d, ['balance', 'Balance', 'account_balance', 'AccountBalance', 'account_balance_usd', 'BalanceUSD', 'bal', 'BALANCE'], 4);
-    if (!(bal > 1)) bal = deepPickPos(acc, ['balance', 'Balance', 'account_balance', 'AccountBalance', 'BalanceUSD', 'bal'], 2);
-    let eq = deepPickPos(d, ['equity', 'Equity', 'account_equity', 'AccountEquity', 'EquityUSD', 'eq', 'EQUITY'], 4);
-    if (!(eq > 1)) eq = deepPickPos(acc, ['equity', 'Equity', 'account_equity', 'AccountEquity', 'eq'], 2);
-
+    let bal = deepPick(d, false, 5);
+    let eq = deepPick(d, true, 5);
     if (bal > 1) {
       out.balance = bal;
       out.source = 'mt5';
     } else if (Number(propFirmState.liveBalance) > 1 && propFirmState.liveSource === 'mt5') {
       out.balance = Number(propFirmState.liveBalance);
       out.source = 'last_mt5';
-    } else {
-      out.balance = 0;
-      out.source = 'none';
     }
-    out.equity = eq > 1 ? eq : (out.balance || 0);
+    out.equity = eq > 1 ? eq : out.balance;
 
-    // --- Today window (local + UTC) ---
+    // Today windows: local midnight + UTC midnight
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const startMs = start.getTime();
@@ -20992,13 +20989,9 @@ function propFirmScanMt5Account() {
     function toMs(t) {
       if (t == null || t === '') return 0;
       if (typeof t === 'string' && !/^\d+(\.\d+)?$/.test(t.trim())) {
-        // MT5 mobile style "2026.11.18 03:24:40" or ISO
-        let s = String(t).trim().replace(/\./g, '-');
-        // Only replace first two dots-as-date; time part uses :
-        s = String(t).trim();
-        if (/^\d{4}\.\d{2}\.\d{2}/.test(s)) {
-          s = s.replace(/^(\d{4})\.(\d{2})\.(\d{2})/, '$1-$2-$3');
-        }
+        let s = String(t).trim();
+        // MT5: 2026.11.18 03:24:40
+        if (/^\d{4}\.\d{2}\.\d{2}/.test(s)) s = s.replace(/^(\d{4})\.(\d{2})\.(\d{2})/, '$1-$2-$3');
         const p = Date.parse(s);
         if (Number.isFinite(p)) return p;
       }
@@ -21021,10 +21014,6 @@ function propFirmScanMt5Account() {
       if (!(ms > 0)) return false;
       return (ms >= startMs && ms < endMs) || (ms >= utcStart && ms < utcEnd);
     }
-    function isClosedToday(p) {
-      const c = closeTimeMs(p);
-      return c > 0 ? isInToday(c) : false;
-    }
     function dealProfit(p) {
       const profit = coerceMoney(
         p.profit != null ? p.profit :
@@ -21033,23 +21022,7 @@ function propFirmScanMt5Account() {
             (p.realized != null ? p.realized :
               (p.profit_full != null ? p.profit_full : NaN))))
       );
-      let net = Number.isFinite(profit) ? profit : 0;
-      if (p.profit != null || p.Profit != null || p.pnl != null) {
-        const swap = coerceMoney(p.swap != null ? p.swap : p.Swap);
-        const comm = coerceMoney(p.commission != null ? p.commission : p.Commission);
-        // MT5 position.profit is usually already net of swap/comm on some builds;
-        // only add when fields exist AND profit looks like gross (bridge-dependent).
-        // Safer: add swap/comm only if they are present on the object as own numbers
-        // and the documented bridge sends them separately (open positions).
-        if (Number.isFinite(swap) && swap !== 0 && p.profit != null) {
-          // open positions: profit is often price PnL only
-          net += swap;
-        }
-        if (Number.isFinite(comm) && comm !== 0 && p.profit != null) {
-          net += comm;
-        }
-      }
-      return Number.isFinite(net) ? net : 0;
+      return Number.isFinite(profit) ? profit : 0;
     }
     function isGoldSym(ps) {
       ps = String(ps || '').toUpperCase().replace(/\s+/g, '');
@@ -21060,25 +21033,26 @@ function propFirmScanMt5Account() {
     }
     function isBalanceDeal(p) {
       const typ = String(p.type || p.deal_type || p.entry || p.action || '').toUpperCase();
-      if (typ.indexOf('BALANCE') >= 0 || typ.indexOf('CREDIT') >= 0 || typ.indexOf('BONUS') >= 0) return true;
+      if (typ.indexOf('BALANCE') >= 0 || typ.indexOf('CREDIT') >= 0) return true;
       const n = Number(p.type);
       return n === 2 || n === 3;
     }
     function isExitDeal(p) {
-      const entry = String(p.entry || p.Entry || p.deal_entry || p.DealEntry || '').toUpperCase();
+      const entry = String(p.entry || p.Entry || p.deal_entry || '').toUpperCase();
       if (!entry) return true;
       if (entry === '0' || entry === 'IN' || entry === 'DEAL_ENTRY_IN') return false;
       return true;
     }
 
-    // ---- Closed today from bridge ----
+    // ---- Closed today from bridge lists ----
     const closedLists = [];
     function pushList(x) { if (Array.isArray(x) && x.length) closedLists.push(x); }
     pushList(d.closed_positions); pushList(d.closedPositions);
     pushList(d.history); pushList(d.deals); pushList(d.today_deals); pushList(d.todayDeals);
-    pushList(d.closed_deals); pushList(d.closedDeals); pushList(d.history_deals); pushList(d.historyDeals);
+    pushList(d.closed_deals); pushList(d.closedDeals); pushList(d.history_deals);
+    pushList(d.historyDeals); pushList(d.orders_history);
     if (d.history && typeof d.history === 'object' && !Array.isArray(d.history)) {
-      pushList(d.history.deals); pushList(d.history.orders); pushList(d.history.positions);
+      pushList(d.history.deals); pushList(d.history.positions); pushList(d.history.orders);
     }
 
     let closedPnl = 0;
@@ -21090,9 +21064,12 @@ function propFirmScanMt5Account() {
         if (!p || isBalanceDeal(p) || !isExitDeal(p)) continue;
         const sym = p.symbol || p.Symbol || '';
         if (sym && !isGoldSym(sym)) continue;
-        if (!isClosedToday(p)) continue;
+        const ct = closeTimeMs(p);
+        // If bridge already filtered to "today" and left no usable time, still count profit
+        const timeOk = ct > 0 ? isInToday(ct) : true;
+        if (!timeOk) continue;
         const key = String(p.ticket || p.deal || p.order || p.identifier || p.position_id || '') +
-          ':' + String(closeTimeMs(p)) + ':' + String(dealProfit(p));
+          ':' + String(ct) + ':' + String(dealProfit(p));
         if (seenDeal.has(key)) continue;
         seenDeal.add(key);
         closedPnl += dealProfit(p);
@@ -21100,7 +21077,7 @@ function propFirmScanMt5Account() {
       }
     });
 
-    // ---- Open floating ----
+    // ---- Open floating (confirmed working on your desk) ----
     const positions = Array.isArray(d.positions) ? d.positions
       : (Array.isArray(d.open_positions) ? d.open_positions
         : (Array.isArray(d.Positions) ? d.Positions : []));
@@ -21114,26 +21091,32 @@ function propFirmScanMt5Account() {
       openN++;
       openPnl += dealProfit(p);
     }
-    // Fallback: equity - balance ≈ floating when positions profit missing
     if (openN > 0 && Math.abs(openPnl) < 0.01 && out.equity > 1 && out.balance > 1) {
       openPnl = out.equity - out.balance;
     }
 
-    // ---- Explicit bridge daily closed profit (MT5 History "Profit" for today) ----
+    // ---- Explicit daily closed profit from bridge (MT5 History "Profit") ----
     let explicitClosed = null;
     const explicitFields = [
       d.daily_profit, d.day_profit, d.profit_today, d.today_pnl, d.daily_pnl,
       d.DailyProfit, d.ProfitToday, d.todayProfit, d.closed_profit_today,
-      d.today_closed_profit, d.profitToday, d.dayProfit,
-      acc.daily_profit, acc.profit_today, acc.day_profit, acc.DailyProfit,
-      acc.profit_today, acc.ProfitToday
+      d.today_closed_profit, d.profitToday, d.dayProfit, d.profit,
+      d.history_profit, d.HistoryProfit, d.today_profit
     ];
+    // Only trust top-level "profit" if it is not the single open position profit
     for (let i = 0; i < explicitFields.length; i++) {
-      const v = coerceMoney(explicitFields[i]);
-      if (Number.isFinite(v)) { explicitClosed = v; break; }
+      const field = explicitFields[i];
+      // skip bare d.profit when it equals open floating (would double-count)
+      if (i === explicitFields.indexOf(d.profit) && openN > 0 && Math.abs(coerceMoney(d.profit) - openPnl) < 0.05) continue;
+      const v = coerceMoney(field);
+      if (Number.isFinite(v) && !(openN > 0 && Math.abs(v - openPnl) < 0.05 && Math.abs(v) < 500)) {
+        // Prefer values that look like session closed totals (can be large)
+        explicitClosed = v;
+        break;
+      }
     }
 
-    // ---- Local ledger only as last resort (paper / non-MT5) ----
+    // ---- Local ledger: ONLY broker-confirmed $ profits for closed-today ----
     let localClosedPnl = 0;
     let localClosedN = 0;
     try {
@@ -21147,50 +21130,46 @@ function propFirmScanMt5Account() {
         if (isOpen) continue;
         const exitTs = toMs(t.exitTs || t.closedAt || t.hitTime || t.resolveTs || t.exit_time || t.mt5BrokerCloseTime) ||
           (t.outcome ? toMs(t.ts) : 0);
-        if (!isInToday(exitTs)) continue;
-        // Prefer real broker profit when ticket exists
-        let pnl = NaN;
+        if (exitTs > 0 && !isInToday(exitTs)) continue;
+        // Only real broker $ — never synthetic HTML pnl
         if (t.mt5BrokerProfit != null && Number.isFinite(Number(t.mt5BrokerProfit))) {
-          pnl = Number(t.mt5BrokerProfit);
-        } else if (t.mt5Confirmed || t.mt5Ticket || t.mt5Closed) {
-          // Had MT5 ticket but no broker profit field — skip local HTML pnl (wrong units)
-          continue;
-        } else {
-          pnl = Number(t.pnl);
-        }
-        if (Number.isFinite(pnl)) {
-          localClosedPnl += pnl;
+          localClosedPnl += Number(t.mt5BrokerProfit);
           localClosedN++;
         }
       }
     } catch (eL) {}
 
-    // Compose: prefer MT5 closed lists → else explicit daily → else local paper
+    // Compose closed: bridge list → explicit daily → local broker profits
     let usedClosedPnl = closedPnl;
     let usedClosedN = closedToday;
-    if (closedToday === 0 && explicitClosed != null) {
-      // Bridge History daily profit (e.g. 826.50) — closed only, not floating
+    if (closedToday === 0 && explicitClosed != null && Math.abs(explicitClosed) > 0.001) {
       usedClosedPnl = explicitClosed;
-      usedClosedN = 0; // count unknown
+      usedClosedN = localClosedN || 0;
     } else if (closedToday === 0 && localClosedN > 0) {
       usedClosedPnl = localClosedPnl;
       usedClosedN = localClosedN;
-    }
-    // If MT5 list sum is tiny vs explicit daily, prefer explicit (incomplete closed_positions feed)
-    if (closedToday > 0 && explicitClosed != null && Math.abs(explicitClosed) > Math.abs(closedPnl) * 1.5 + 20) {
+    } else if (closedToday > 0 && explicitClosed != null && Math.abs(explicitClosed) > Math.abs(closedPnl) + 50) {
+      // Incomplete closed_positions feed — History total is more complete
       usedClosedPnl = explicitClosed;
+    } else if (closedToday > 0 && localClosedN > closedToday && Math.abs(localClosedPnl) > Math.abs(closedPnl) + 20) {
+      usedClosedPnl = localClosedPnl;
+      usedClosedN = localClosedN;
     }
 
-    const dayPnl = usedClosedPnl + openPnl;
+    // If still zero closed but local has broker profits without time filter hit
+    if (Math.abs(usedClosedPnl) < 0.01 && localClosedN > 0) {
+      usedClosedPnl = localClosedPnl;
+      usedClosedN = localClosedN;
+    }
 
-    out.dayPnl = dayPnl;
     out.closedPnl = usedClosedPnl;
     out.openPnl = openPnl;
-    out.closedToday = usedClosedN || closedToday || localClosedN;
-    out.dayTrades = out.closedToday + openN;
+    out.dayPnl = usedClosedPnl + openPnl;
+    out.closedToday = usedClosedN;
     out.openCount = openN;
+    out.dayTrades = usedClosedN + openN;
 
-    // If still no balance but equity known → balance ≈ equity - floating
+    // Derive balance from equity − floating when balance key missing
     if (!(out.balance > 1) && out.equity > 1) {
       out.balance = out.equity - openPnl;
       if (out.balance > 1) out.source = 'mt5';
@@ -21198,10 +21177,12 @@ function propFirmScanMt5Account() {
 
     if (out.balance > 1) {
       propFirmState.liveBalance = out.balance;
-      propFirmState.liveSource = out.source === 'last_mt5' ? 'mt5' : out.source;
+      propFirmState.liveSource = 'mt5';
     }
     if (out.equity > 1) propFirmState.liveEquity = out.equity;
     propFirmState.liveDayPnl = out.dayPnl;
+    propFirmState.liveClosedPnl = out.closedPnl;
+    propFirmState.liveOpenPnl = out.openPnl;
     propFirmState.liveDayTrades = out.dayTrades;
     propFirmState.liveOpenCount = out.openCount;
     propFirmState.liveClosedToday = out.closedToday;
@@ -21309,23 +21290,40 @@ async function mt5RefreshStatus() {
     const r=await mt5Post({action:'STATUS',symbol:MT5_BRIDGE.symbol});
     if(!r.ok){MT5_BRIDGE.connected=false;MT5_BRIDGE.lastErr=r.error||'offline';mt5PaintStatus();return;}
     let d=r.data||{};
-    // Best-effort ACCOUNT snapshot (many bridges expose balance/equity/daily_profit here)
+    // Probe ACCOUNT for balance/equity (STATUS often omits them)
     try {
-      const ra = await mt5Post({action:'ACCOUNT',symbol:MT5_BRIDGE.symbol});
-      if (ra && ra.ok && ra.data && typeof ra.data === 'object') {
-        MT5_BRIDGE.accountInfo = ra.data;
-        d = Object.assign({}, ra.data, d);
-        // Prefer nested account object fields onto top-level for scanner
-        const acc = ra.data.account || ra.data.account_info || ra.data.AccountInfo;
-        if (acc && typeof acc === 'object') d = Object.assign({}, acc, d);
+      const actions = ['ACCOUNT', 'ACCOUNT_INFO', 'BALANCE'];
+      for (let ai = 0; ai < actions.length; ai++) {
+        try {
+          const ra = await mt5Post({action:actions[ai],symbol:MT5_BRIDGE.symbol});
+          if (ra && ra.ok && ra.data && typeof ra.data === 'object') {
+            MT5_BRIDGE.accountInfo = Object.assign({}, MT5_BRIDGE.accountInfo || {}, ra.data);
+            d = Object.assign({}, ra.data, d);
+            const acc = ra.data.account || ra.data.account_info || ra.data.AccountInfo;
+            if (acc && typeof acc === 'object') d = Object.assign({}, acc, d);
+            if (d.balance != null || d.Balance != null || d.equity != null || d.Equity != null || (acc && (acc.balance != null || acc.equity != null))) break;
+          }
+        } catch (eOne) {}
       }
     } catch (eAcc) {}
-    // Some STATUS payloads already carry balance under alternate keys — normalize
+    // Probe HISTORY for today closed profit when closed_positions is thin
+    try {
+      const rh = await mt5Post({action:'HISTORY',symbol:MT5_BRIDGE.symbol, day:'today'});
+      if (rh && rh.ok && rh.data && typeof rh.data === 'object') {
+        MT5_BRIDGE.historyInfo = rh.data;
+        d = Object.assign({}, d, rh.data);
+        if (Array.isArray(rh.data.closed_positions) && !Array.isArray(d.closed_positions)) d.closed_positions = rh.data.closed_positions;
+        if (Array.isArray(rh.data.deals) && !Array.isArray(d.deals)) d.deals = rh.data.deals;
+        if (Array.isArray(rh.data.history) && !Array.isArray(d.history)) d.history = rh.data.history;
+      }
+    } catch (eHist) {}
+    // Normalize alternate key casings onto top-level
     try {
       if (d.balance == null && d.Balance != null) d.balance = d.Balance;
       if (d.equity == null && d.Equity != null) d.equity = d.Equity;
       if (d.daily_profit == null && d.DailyProfit != null) d.daily_profit = d.DailyProfit;
       if (d.daily_profit == null && d.profit_today != null) d.daily_profit = d.profit_today;
+      if (d.daily_profit == null && d.ProfitToday != null) d.daily_profit = d.ProfitToday;
     } catch (eN) {}
     MT5_BRIDGE.lastStatus=d;
     try { if (typeof propFirmScanMt5Account === 'function') propFirmScanMt5Account(); } catch (ePf) {}
@@ -21371,7 +21369,7 @@ async function mt5RefreshStatus() {
         }
       } else if(t.mt5Ticket||t.mt5PositionId){
         const c=closed.find(x=>String(x.position_id)===String(t.mt5PositionId||t.mt5Ticket));
-        if(c&&t.mt5Status!=='MT5_CLOSED'){t.mt5Status='MT5_CLOSED';t.mt5Closed=true;t.mt5BrokerExit=Number(c.price)||null;t.mt5BrokerProfit=Number(c.profit)||0;t.mt5BrokerCloseTime=Number(c.time)||0;changed=true;}
+        if(c&&t.mt5Status!=='MT5_CLOSED'){t.mt5Status='MT5_CLOSED';t.mt5Closed=true;t.mt5BrokerExit=Number(c.price||c.price_close||c.close_price)||null;t.mt5BrokerProfit=Number(c.profit!=null?c.profit:(c.Profit!=null?c.Profit:0))||0;t.mt5BrokerCloseTime=Number(c.time_msc||c.time||c.Time||c.close_time)||0;if(t.mt5BrokerCloseTime>0&&t.mt5BrokerCloseTime<1e12)t.mt5BrokerCloseTime*=1000;changed=true;}
         else if(!c && t.mt5Status==='MT5_FILLED'){t.mt5Status='MT5_POSITION_NOT_VISIBLE';changed=true;}
       }
       // Only retry strategy close when resolve is safe AND broker still shows position AND outcome is real
@@ -24795,10 +24793,8 @@ if ('serviceWorker' in navigator) {
             html += row('MT5 REAL BAL', _balTxt, _balN > 1 ? '#e2e8f0' : '#fbbf24');
             var _ct = Number(_scan.closedToday) || 0;
             var _ot = Number(_scan.openCount) || 0;
-            var _cPnl = Number(_scan.closedPnl);
-            if (!Number.isFinite(_cPnl)) _cPnl = 0;
-            var _oPnl = Number(_scan.openPnl);
-            if (!Number.isFinite(_oPnl)) _oPnl = 0;
+            var _cPnl = Number(_scan.closedPnl); if (!Number.isFinite(_cPnl)) _cPnl = 0;
+            var _oPnl = Number(_scan.openPnl); if (!Number.isFinite(_oPnl)) _oPnl = 0;
             var _tradeLbl = (_ct ? (_ct + ' closed') : 'closed') + (_ot ? (' + ' + _ot + ' open') : '');
             var _pnlDetail = ' · C ' + (_cPnl >= 0 ? '+' : '-') + '$' + Math.abs(_cPnl).toFixed(2) +
               ' / F ' + (_oPnl >= 0 ? '+' : '-') + '$' + Math.abs(_oPnl).toFixed(2);
