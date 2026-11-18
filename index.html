@@ -20371,12 +20371,15 @@ const MT5_BRIDGE = {
 let _mt5PrefsInitialized = false;
 function mt5LoadPrefs() {
   try {
-    // Safety default is OFF once per page load only. This function is also
-    // called when GP ALGO / History is reopened, so never reset a user's
-    // deliberate execution choice during ordinary panel navigation.
+    // Restore last execution preference — bridge keeps polling while site is open
+    // so STATUS / balance / positions stay live even when EXECUTION is OFF.
     if (!_mt5PrefsInitialized) {
-      MT5_BRIDGE.enabled = false;
-      try { localStorage.setItem('gp_mt5_enabled', '0'); } catch (e0) {}
+      try {
+        const saved = localStorage.getItem('gp_mt5_enabled');
+        MT5_BRIDGE.enabled = (saved === '1' || saved === 'true');
+      } catch (e0) {
+        MT5_BRIDGE.enabled = false;
+      }
       _mt5PrefsInitialized = true;
     }
     const el = document.getElementById('algoMt5Enabled');
@@ -20394,13 +20397,35 @@ function mt5LoadPrefs() {
   } catch (e) {}
   mt5PaintStatus();
   mt5StartPolling();
+  // Immediate tick so History / Gold monitor can talk to MT5 as soon as page is up
+  try {
+    if (MT5_BRIDGE.token) setTimeout(function () { mt5RefreshStatus(); }, 200);
+  } catch (e2) {}
 }
 
 function mt5SetEnabled(on) {
   MT5_BRIDGE.enabled = !!on;
   try { localStorage.setItem('gp_mt5_enabled', on ? '1' : '0'); } catch (e) {}
+  try {
+    const el = document.getElementById('algoMt5Enabled');
+    if (el) el.checked = !!MT5_BRIDGE.enabled;
+  } catch (e1) {}
   mt5PaintStatus();
-  if (on) mt5TestBridge();
+  try { if (typeof goldExecDomRefresh === 'function') goldExecDomRefresh(); } catch (e2) {}
+  try {
+    if (typeof algoUpdateStatus === 'function') {
+      algoUpdateStatus(MT5_BRIDGE.enabled
+        ? '<span class="ok">EXECUTION ON · MT5 can receive punches</span>'
+        : '<span class="warn">EXECUTION OFF · signals stay local, no MT5 punch</span>');
+    }
+  } catch (e3) {}
+  if (on) {
+    try { mt5TestBridge(); } catch (e4) {}
+    try { mt5RefreshStatus(); } catch (e5) {}
+  }
+}
+function mt5ToggleExecution() {
+  mt5SetEnabled(!MT5_BRIDGE.enabled);
 }
 function mt5SetSymbol(sym) {
   sym = String(sym || 'GOLD.i#').trim(); if (!sym) sym = 'GOLD.i#';
@@ -21219,9 +21244,21 @@ async function mt5RefreshStatus() {
   finally{MT5_BRIDGE.pollBusy=false;}
 }
 function mt5StartPolling(){
-  if(MT5_BRIDGE.pollTimer)return;
-  MT5_BRIDGE.pollTimer=setInterval(function(){if(MT5_BRIDGE.token)mt5RefreshStatus();},5000);
-  if(MT5_BRIDGE.token)setTimeout(mt5RefreshStatus,800);
+  // Always keep a live STATUS heartbeat while the website is open so History
+  // and Gold Execution Monitor stay in sync with MT5 (positions, balance, tick).
+  // EXECUTION ON/OFF only gates order punches — polling never stops.
+  if(MT5_BRIDGE.pollTimer){
+    try { clearInterval(MT5_BRIDGE.pollTimer); } catch(eC) {}
+    MT5_BRIDGE.pollTimer = null;
+  }
+  MT5_BRIDGE.pollTimer = setInterval(function () {
+    if (!MT5_BRIDGE.token) return;
+    try { mt5RefreshStatus(); } catch (e) {}
+  }, 2500);
+  if (MT5_BRIDGE.token) {
+    setTimeout(function () { try { mt5RefreshStatus(); } catch (e) {} }, 300);
+    setTimeout(function () { try { mt5RefreshStatus(); } catch (e) {} }, 1200);
+  }
 }
 
 /** Every LIVE signal is retained. Only a fresh signal while execution is enabled
@@ -24254,6 +24291,8 @@ setInterval(() => {
 function initApp() {
 
   try { updateMarketClosedBanner(); } catch (e) {}
+  // Boot MT5 bridge heartbeat immediately so History / monitor stay live
+  try { if (typeof mt5LoadPrefs === 'function') mt5LoadPrefs(); } catch (eMt5) {}
   load24hHistory();
   backfillReal24HHistory();
   initLiveSocket();
@@ -24456,6 +24495,29 @@ if ('serviceWorker' in navigator) {
 #goldExecDomPanel .ged-mode-track.mode-normal .ged-mode-opt[data-m="NORMAL"]{color:#fff}
 #goldExecDomPanel .ged-mode-track.mode-prop .ged-mode-opt[data-m="PROPFIRM"]{color:#fff}
 #goldExecDomPanel .ged-mode-badge{font-size:8.5px;font-weight:800;margin-top:5px;text-align:center}
+#goldExecDomPanel .ged-exec-wrap{margin:4px 0 6px;padding:6px 8px;border-radius:8px;background:#0b1220;border:1px solid #2a3a55}
+#goldExecDomPanel .ged-exec-title{font-size:8px;font-weight:800;color:#94a3b8;letter-spacing:.4px;margin-bottom:5px;text-transform:uppercase}
+#goldExecDomPanel .ged-exec-track{
+  position:relative;display:grid;grid-template-columns:1fr 1fr;align-items:center;
+  height:28px;border-radius:999px;background:#151822;border:1px solid #2a3142;cursor:pointer;overflow:hidden;
+  user-select:none;-webkit-tap-highlight-color:transparent;
+}
+#goldExecDomPanel .ged-exec-thumb{
+  position:absolute;top:2px;left:2px;width:calc(50% - 2px);height:calc(100% - 4px);
+  border-radius:999px;background:linear-gradient(135deg,#64748b,#475569);
+  box-shadow:0 2px 10px rgba(0,0,0,.35);transition:transform .2s ease,background .2s;z-index:1;pointer-events:none;
+}
+#goldExecDomPanel .ged-exec-track.exec-on .ged-exec-thumb{
+  transform:translateX(100%);background:linear-gradient(135deg,#059669,#10b981);box-shadow:0 2px 10px rgba(16,185,129,.45)
+}
+#goldExecDomPanel .ged-exec-track.exec-off .ged-exec-thumb{transform:translateX(0)}
+#goldExecDomPanel .ged-exec-opt{
+  position:relative;z-index:2;text-align:center;font-size:9px;font-weight:800;letter-spacing:.3px;
+  color:#94a3b8;padding:0 4px;
+}
+#goldExecDomPanel .ged-exec-track.exec-off .ged-exec-opt[data-e="OFF"]{color:#fff}
+#goldExecDomPanel .ged-exec-track.exec-on .ged-exec-opt[data-e="ON"]{color:#fff}
+#goldExecDomPanel .ged-exec-badge{font-size:8.5px;font-weight:800;margin-top:5px;text-align:center}
 </style>
 <script>
 (function goldExecDomMonitor(){
@@ -24537,7 +24599,22 @@ if ('serviceWorker' in navigator) {
       html += row('MT5 LINK', linkTxt, linkCol);
       html += row('SYMBOL', br.symbol || '—', '#e2e8f0');
       html += row('MT5 BID / ASK', (bid>0&&ask>0)?(bid.toFixed(2)+' / '+ask.toFixed(2)):'NO TICK', bid>0?'#e2e8f0':'#fbbf24');
-      html += row('EXECUTION', br.enabled?'ON':'OFF', br.enabled?'#34d399':'#94a3b8');
+      // EXECUTION ON/OFF slider — gates MT5 punches (polling stays live either way)
+      try {
+        var _exOn = !!br.enabled;
+        html += '<div class="ged-exec-wrap">' +
+          '<div class="ged-exec-title">Execution (MT5 punch)</div>' +
+          '<div class="ged-exec-track ' + (_exOn ? 'exec-on' : 'exec-off') + '" id="goldExecOnOffTrack" onclick="mt5ToggleExecution()">' +
+            '<div class="ged-exec-thumb" id="goldExecOnOffThumb"></div>' +
+            '<div class="ged-exec-opt" data-e="OFF">OFF</div>' +
+            '<div class="ged-exec-opt" data-e="ON">ON</div>' +
+          '</div>' +
+          '<div class="ged-exec-badge" id="goldExecOnOffBadge" style="color:' + (_exOn ? '#34d399' : '#f87171') + '">' +
+            (_exOn ? 'ON · system can punch MT5' : 'OFF · no MT5 punch') +
+          '</div></div>';
+      } catch (_eEx) {
+        html += row('EXECUTION', br.enabled?'ON':'OFF', br.enabled?'#34d399':'#94a3b8');
+      }
       // Trade mode slider: Normal Trades vs PROPFIRM (persisted)
       try {
         var _tm = (typeof propFirmState !== 'undefined' && propFirmState && propFirmState.tradeMode === 'NORMAL') ? 'NORMAL' : 'PROPFIRM';
