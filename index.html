@@ -908,7 +908,7 @@ h1 { font-size: 17.5px; font-weight: 700; color: #ffffff; }
   box-shadow: 0 0 0 1px rgba(251,191,36,0.45);
 }
 .algo-trade .at-rr { color: #a78bfa; font-weight: 700; font-size: 11px; margin-top: 4px; }
-#algoHistBtn.active, #algoRuleBtn.active {
+#algoHistBtn.active, #algoRuleBtn.active, #algoSettingsBtn.active {
   border-color: #3b82f6; color: #93c5fd; background: rgba(59,130,246,0.12);
 }
 
@@ -4067,6 +4067,7 @@ canvas#tvCanvas {
         <button type="button" class="primary" onclick="algoScanNow('BACKTEST')">BACKTEST ONLY</button>
         <button type="button" class="primary" onclick="algoAutoBacktestAllTfs(true)">RUN BACKTEST ALL TF</button>
         <button type="button" id="algoHistBtn" onclick="algoToggleHistory()">HISTORY</button>
+        <button type="button" id="algoSettingsBtn" onclick="algoToggleSettings()">SETTINGS</button>
         <button type="button" onclick="algoToggleRuleBook()">RULE BOOK</button>
         <button type="button" class="danger" onclick="algoClearHistory()">CLEAR LOG</button>
       </div>
@@ -4080,8 +4081,8 @@ canvas#tvCanvas {
       <div class="algo-rules" id="algoRuleBook" style="display:none">
         <b style="color:#e2e8f0">GP ALGO RULE BOOK — SCALP + HOLD (HTF interconnected)</b><br>
         ○ <b>TWO MODES (same engine):</b><br>
-        &nbsp;&nbsp;· <b>SCALP</b> = 1m / 3m / 5m (enable Scalper Mode in History). Faster momentum structure allowed. SL tight to zone. Best with RR 1:1.5–1:2.<br>
-        &nbsp;&nbsp;· <b>HOLD / SWING</b> = 15m / 1H / 4H (always on). Strict HH/HL or LH/LL only. Wider structure SL. Best with RR 1:2–1:4 (set in History RR TARGET).<br>
+        &nbsp;&nbsp;· <b>SCALP</b> = 1m / 3m / 5m (enable Scalper Mode in Settings). Faster momentum structure allowed. SL tight to zone. Best with RR 1:1.5–1:2.<br>
+        &nbsp;&nbsp;· <b>HOLD / SWING</b> = 15m / 1H / 4H (always on). Strict HH/HL or LH/LL only. Wider structure SL. Best with RR 1:2–1:4 (set in Settings / RR TARGET).<br>
         ○ <b>HTF INTERCONNECTION (how to take the trade):</b><br>
         &nbsp;&nbsp;1. <b>1D bias is MASTER</b> — only trade in the 1D direction (BUY or SELL). Neutral 1D = no new entries.<br>
         &nbsp;&nbsp;2. Check <b>4H → 1H → 15m</b> structure alignment in the same direction (MTF DECISION / Gold Execution Monitor shows each TF).<br>
@@ -4097,31 +4098,89 @@ canvas#tvCanvas {
         ○ <b>LIVE TRENDLINES:</b> rebuilt live (~0.7s). Only strong lines: real wick on every touch, no provisional pivots, scalp requires ≥3 touches + ≥1 mid test. Max 3 lines/side. Broken rays retire on close beyond line.<br>
         ○ <b>SMC SCALP ZONES (1m→1D):</b> BUY only <b>discount</b> + green ↑ TL + BUY structure · SELL only <b>premium</b> + red ↓ TL + SELL structure. Rejection optional. After <b>MSS</b> (per TF): wait first structure on that TF then scalp that side only — each timeframe has its own MSS. Sideways = no trade. Max 1 open/TF · max 4 total.<br>
         ○ <b>15m+ RELAXATION (strong rejection zones):</b> On 15m / 1H / 4H / 1D a clear red ↓ (or green ↑) trendline is treated as a <b>strong rejection zone</b>. Structure requirement is relaxed — partial LH/LL or trendFalling is enough when price is at / retesting the TL. This allows the system to punch again after TP on the same strong higher-TF trendline. 1m/3m/5m stay strict.<br>
-        ○ <b>Execution:</b> SL beyond structure zone · TP from <b>RR TARGET</b> in History (default 1:2, changeable 1.5–5).<br>
+        ○ <b>Execution:</b> SL beyond structure zone · TP from <b>RR TARGET</b> in Settings (default 1:2, changeable 1.5–5).<br>
         ○ <b>MT5 SAFETY:</b> Refresh / re-open HTML will <b>NOT</b> auto-close live broker positions. Broker is source of truth. Close only on real SL/TP after candles + status are ready.<br>
         ○ <b>Price source:</b> interbank gold candles only · OKX = footprint pressure only.<br>
-        ○ <b>History:</b> Ledger persists · RR TARGET + Scalper Mode + Candle Closing controls live here · tap trade → chart.
+        ○ <b>History:</b> Ledger persists · RR TARGET + Scalper Mode + Candle Closing live under SETTINGS · tap trade → chart.
       </div>
 
+      <div id="algoSettingsPanel" style="display:none;margin-bottom:10px">
+        <div class="algo-log-title" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px">
+          <span>GP ALGO SETTINGS</span>
+          <span style="font-weight:500;color:#64748b;font-size:10px">Scalper · candle close · prop firm risk · same engine as live</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:10px;padding:10px 12px;border:1px solid #2a3a55;border-radius:12px;background:linear-gradient(180deg,#0f172a,#0b1220)">
+          <label for="algoScalperMode" style="font-size:10px;font-weight:800;color:#93c5fd;display:flex;flex-direction:column;gap:4px">SCALPER MODE
+            <select id="algoScalperMode" onchange="algoSetScalperMode(this.value)" style="font-size:12px;font-weight:700;padding:7px 10px;border-radius:8px;border:1px solid #31506f;background:#101a29;color:#dbeafe;cursor:pointer;min-width:110px">
+              <option value="BOTH" selected>BOTH</option><option value="1m">1 MIN</option><option value="3m">3 MIN</option><option value="OFF">OFF</option>
+            </select>
+          </label>
+          <span id="algoScalperStatus" style="font-size:10px;color:#64748b">scalper: 1m + 3m</span>
+          <label for="algoWaitCloseMode" style="font-size:10px;font-weight:800;color:#86efac;display:flex;flex-direction:column;gap:4px">CANDLE CLOSING
+            <select id="algoWaitCloseMode" onchange="algoSetWaitCandleClose(this.value==='ON')" title="ON = wait for candle close before trade · OFF = punch when all rules pass on forming bar" style="font-size:12px;font-weight:700;padding:7px 10px;border-radius:8px;border:1px solid #31506f;background:#101a29;color:#dbeafe;cursor:pointer;min-width:140px">
+              <option value="ON">ON · wait close</option>
+              <option value="OFF">OFF · punch now</option>
+            </select>
+          </label>
+          <span id="algoWaitCloseStatus" style="font-size:10px;color:#86efac">entry: wait candle CLOSE</span>
+        </div>
+        <div style="font-size:11px;font-weight:800;color:#a78bfa;letter-spacing:0.4px;margin:4px 0 8px;text-transform:uppercase">Prop Firm Risk</div>
+<div id="algoPropFirmPanel" style="display:block;margin-bottom:10px;padding:12px;border:1px solid #2a3a55;border-radius:12px;background:linear-gradient(180deg,#0f172a,#0b1220)">
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:10px">
+            <label style="font-size:10px;font-weight:800;color:#93c5fd;display:flex;flex-direction:column;gap:4px">ACCOUNT SIZE
+              <select id="propAccountSize" onchange="propFirmOnChange()" style="font-size:12px;font-weight:700;padding:7px 10px;border-radius:8px;border:1px solid #31506f;background:#101a29;color:#dbeafe;min-width:110px">
+                <option value="10000">10K</option>
+                <option value="25000">25K</option>
+                <option value="30000" selected>30K</option>
+                <option value="50000">50K</option>
+                <option value="100000">100K</option>
+              </select>
+            </label>
+            <label style="font-size:10px;font-weight:800;color:#fbbf24;display:flex;flex-direction:column;gap:4px">MAX LOSS %
+              <select id="propMaxLossPct" onchange="propFirmOnChange()" style="font-size:12px;font-weight:700;padding:7px 10px;border-radius:8px;border:1px solid #5b4a1f;background:#1a1608;color:#fde68a;min-width:90px">
+                <option value="5">5%</option>
+                <option value="8">8%</option>
+                <option value="10" selected>10%</option>
+                <option value="12">12%</option>
+              </select>
+            </label>
+            <label style="font-size:10px;font-weight:800;color:#f87171;display:flex;flex-direction:column;gap:4px">1-DAY LOSS %
+              <select id="propDayLossPct" onchange="propFirmOnChange()" style="font-size:12px;font-weight:700;padding:7px 10px;border-radius:8px;border:1px solid #5b2a2a;background:#1a0c0c;color:#fecaca;min-width:90px">
+                <option value="3">3%</option>
+                <option value="4" selected>4%</option>
+                <option value="5">5%</option>
+              </select>
+            </label>
+            <label style="font-size:10px;font-weight:800;color:#a78bfa;display:flex;flex-direction:column;gap:4px">PROP FIRM
+              <select id="propFirmSelect" onchange="propFirmSelectFirm(this.value)" style="font-size:12px;font-weight:700;padding:7px 10px;border-radius:8px;border:1px solid #4c1d95;background:#140f24;color:#e9d5ff;min-width:170px">
+                <option value="FivePctProp" selected>5% Prop Firm</option>
+                <option value="FTMO">FTMO</option>
+                <option value="FundingPips">FundingPips</option>
+                <option value="TheFundedTrader">The Funded Trader</option>
+                <option value="FundedNext">FundedNext</option>
+                <option value="Apex">Apex Trader Funding</option>
+              </select>
+            </label>
+          </div>
+          <div id="propFirmRulesBox" style="font-size:11px;line-height:1.45;color:#cbd5e1;background:#0a101b;border:1px dashed #334155;border-radius:10px;padding:10px 12px;margin-bottom:10px"></div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px">
+            <button type="button" id="propOptimizeBtn" onclick="propFirmOptimizeSystem()" style="font-size:12px;font-weight:800;padding:9px 14px;border-radius:10px;border:none;cursor:pointer;background:linear-gradient(135deg,#059669,#2563eb);color:#fff;box-shadow:0 6px 18px rgba(37,99,235,.35)">OPTIMIZE SYSTEM FOR PROP FIRM</button>
+            <label style="font-size:11px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="propOptimizeEnabled" onchange="propFirmOnChange()" checked style="accent-color:#34d399"> Enforce prop rules on live lots
+            </label>
+          </div>
+          <div id="propOptimizeStatus" style="font-size:11px;color:#86efac;min-height:18px">Select firm + account → Optimize to lock risk rules into the engine.</div>
+          <div id="propRiskPreview" style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px"></div>
+        </div>
+      </div>
       <div id="algoHistoryPanel" style="display:none">
         <div class="algo-log-title" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
           <span>LIVE TRADE LEDGER <span id="algoLogCount" style="font-weight:600;color:#64748b"></span></span>
           <span style="font-weight:500;color:#64748b;font-size:10px">LIVE is primary · BACKTEST is separate simulation · tap trade → plot on chart</span>
-          <label for="algoScalperMode" style="font-size:10px;font-weight:700;color:#93c5fd">SCALPER MODE</label>
-          <select id="algoScalperMode" onchange="algoSetScalperMode(this.value)" style="font-size:11px;font-weight:700;padding:6px 8px;border-radius:8px;border:1px solid #31506f;background:#101a29;color:#dbeafe;cursor:pointer">
-            <option value="BOTH" selected>BOTH</option><option value="1m">1 MIN</option><option value="3m">3 MIN</option><option value="OFF">OFF</option>
-          </select>
-          <span id="algoScalperStatus" style="font-size:10px;color:#64748b">scalper: 1m + 3m</span>
-          <label for="algoWaitCloseMode" style="font-size:10px;font-weight:700;color:#86efac">CANDLE CLOSING</label>
-          <select id="algoWaitCloseMode" onchange="algoSetWaitCandleClose(this.value==='ON')" title="ON = wait for candle close before trade · OFF = punch when all rules pass on forming bar" style="font-size:11px;font-weight:700;padding:6px 8px;border-radius:8px;border:1px solid #31506f;background:#101a29;color:#dbeafe;cursor:pointer">
-            <option value="ON">ON · wait close</option>
-            <option value="OFF">OFF · punch now</option>
-          </select>
-          <span id="algoWaitCloseStatus" style="font-size:10px;color:#86efac">entry: wait candle CLOSE</span>
           <button type="button" id="mt5TestBtn" onclick="mt5TestBridge()" style="margin-left:auto;font-size:11px;font-weight:700;padding:6px 10px;border-radius:8px;border:1px solid #2a3142;background:#151822;color:#93c5fd;cursor:pointer">TEST MT5 BRIDGE</button>
           <span id="mt5BridgeStatus" style="font-size:10px;color:#64748b">bridge: off</span>
         </div>
-        <div style="margin:6px 0 8px;padding:7px 10px;border:1px solid rgba(34,197,94,.28);border-radius:8px;background:rgba(34,197,94,.07);color:#86efac;font-size:11px"><b>LIVE-FIRST MODE:</b> Live signals and broker status are the primary workflow. Backtests are stored separately by source and run only when you press a BACKTEST button.</div>
+        <div style="margin:6px 0 8px;padding:7px 10px;border:1px solid rgba(34,197,94,.28);border-radius:8px;background:rgba(34,197,94,.07);color:#86efac;font-size:11px"><b>LIVE-FIRST MODE:</b> Live signals and broker status are the primary workflow. Backtests are stored separately by source and run only when you press a BACKTEST button. GP Algo settings + Prop Firm rules live under <b>SETTINGS</b>.</div>
         <div id="algoTradeLog"><div class="algo-empty">No trades yet — history persists in this browser.</div></div>
       </div>
     </div>
@@ -16707,23 +16766,29 @@ function algoTfStructure(data, i, tf) {
   if (!Array.isArray(data) || i < 12) return empty;
   const tfKey = String(tf || '').toLowerCase();
   const is1m = (tfKey === '1m');
+  const is3m = (tfKey === '3m');
+  // 1m+3m only: broad swing map (~60 candles). 5m+ UNCHANGED.
+  const isUltraMicro = (is1m || is3m);
   const isScalp = (tfKey === '1m' || tfKey === '3m' || tfKey === '5m');
-  // 1m GOLD: FULL SWING pivots — ignore few-candle micro zones for structure/MSS.
-  // 3m/5m keep prior scalp settings. HTF unchanged.
-  const L = is1m ? 6 : (isScalp ? 3 : (tfKey === '15m' ? 4 : 5));
+  // 1m/3m: strong pivots over ~60-bar view so structure is real swing, not noise.
+  // 5m keeps L=3 / prior settings. HTF unchanged.
+  const L = is1m ? 8 : (is3m ? 6 : (isScalp ? 3 : (tfKey === '15m' ? 4 : 5)));
   const highs = [];
   const lows = [];
   const end = Math.max(L, i - L);
-  const deepCap = is1m ? 320 : (isScalp ? 280 : (tfKey === '15m' ? 280 : 360));
+  // Ultra micro maps at least ~60 bars of pivots (user: broad structure view)
+  const deepCap = is1m ? 360 : (is3m ? 200 : (isScalp ? 280 : (tfKey === '15m' ? 280 : 360)));
   const mapFrom = Math.max(L, i - Math.min(deepCap, i - L));
   let atrPre = 0;
-  const apPre = Math.min(14, i);
+  const apPre = Math.min(isUltraMicro ? 20 : 14, i);
   for (let k = i - apPre + 1; k <= i; k++) atrPre += Math.max(0.01, Number(data[k].h) - Number(data[k].l));
   atrPre = Math.max(0.35, atrPre / apPre);
-  // 1m FULL SWING: only large pivots count — few-candle wiggles never form HH/HL/MSS
+  // 1m/3m: only full swings count — micro wiggles never form HH/HL/MSS
   const minSwing = is1m
-    ? Math.max(atrPre * 2.20, 3.00)
-    : (atrPre * (isScalp ? 0.55 : 0.45));
+    ? Math.max(atrPre * 2.60, 3.50)
+    : (is3m
+      ? Math.max(atrPre * 1.80, 2.80)
+      : (atrPre * (isScalp ? 0.55 : 0.45)));
   const highsRaw = [], lowsRaw = [];
   for (let k = mapFrom; k <= end; k++) {
     let isH = true, isL = true;
@@ -16738,8 +16803,8 @@ function algoTfStructure(data, i, tf) {
   function filterStrongPivots(arr) {
     if (!arr || !arr.length) return [];
     const outP = [arr[0]];
-    // 1m: require wider bar gap between pivots so full swings form, not 3–5 bar noise
-    const minGapBars = is1m ? Math.max(L * 2, 10) : L;
+    // 1m/3m: pivots must be spaced across the ~60-bar swing map (not 3–5 bar noise)
+    const minGapBars = is1m ? Math.max(L * 2, 12) : (is3m ? Math.max(L * 2, 8) : L);
     for (let pi = 1; pi < arr.length; pi++) {
       const prev = outP[outP.length - 1];
       const cur = arr[pi];
@@ -16756,7 +16821,8 @@ function algoTfStructure(data, i, tf) {
   for (let k = i - ap + 1; k <= i; k++) atrSum += Math.max(0.01, Number(data[k].h) - Number(data[k].l));
   const atr = Math.max(0.3, atrSum / ap);
   // Range context also uses deep window (full series capped) so compression is not micro-noise
-  const winCap = (is1m || isScalp) ? 100 : (tfKey === '15m' ? 200 : 260);
+  // 1m/3m: structure window ≥60 bars (user: broad swing view). 5m+ unchanged.
+  const winCap = is1m ? 120 : (is3m ? 80 : ((isScalp) ? 100 : (tfKey === '15m' ? 200 : 260)));
   const win = Math.min(winCap, i + 1);
   let hi = -Infinity, lo = Infinity;
   for (let k = i - win + 1; k <= i; k++) {
@@ -16766,21 +16832,25 @@ function algoTfStructure(data, i, tf) {
   const range = hi - lo;
   // Recent micro-range (few pips chop) — not valid structure even if deep history is wide
   let recentHi = -Infinity, recentLo = Infinity;
-  // 1m/3m: ~100 candles so MSS sees full swing + small zones, not micro noise
-  const recentN = is1m ? 100 : (isScalp ? 100 : 24);
+  // 1m/3m: 60–100 candles so structure is real swing, not 5-bar noise
+  const recentN = is1m ? 100 : (is3m ? 60 : (isScalp ? 100 : 24));
   for (let k = Math.max(0, i - recentN + 1); k <= i; k++) {
     recentHi = Math.max(recentHi, Number(data[k].h));
     recentLo = Math.min(recentLo, Number(data[k].l));
   }
   const recentRange = recentHi - recentLo;
-  // 1m FULL SWING: micro ranges are never structure / never MSS
+  // 1m/3m FULL SWING: micro ranges are never structure / never MSS
   const fewPipCeil = is1m
-    ? Math.max(atr * 4.0, 5.00)
-    : (isScalp ? Math.max(atr * 1.8, 1.8) : Math.max(atr * 2.2, 2.5));
+    ? Math.max(atr * 4.5, 5.50)
+    : (is3m
+      ? Math.max(atr * 3.2, 4.00)
+      : (isScalp ? Math.max(atr * 1.8, 1.8) : Math.max(atr * 2.2, 2.5)));
   const microChop = recentRange < fewPipCeil;
   const deepCompressed = is1m
-    ? (range < atr * 5.5)
-    : (isScalp ? (range < atr * 2.0) : (range < atr * 2.6));
+    ? (range < atr * 6.0)
+    : (is3m
+      ? (range < atr * 4.0)
+      : (isScalp ? (range < atr * 2.0) : (range < atr * 2.6)));
   const compressed = microChop || deepCompressed;
 
   // Use last 3 swing pairs when available (wider structure map), not only last 2
@@ -17640,6 +17710,11 @@ function algoZoneRetestDepth(c, side, ob, minDepth, maxDepth) {
 
 function algoScalpPremiumDiscount(data, i, side, lookback, tf) {
   lookback = lookback || 24;
+  // 1m/3m: always score location on ~60-bar swing range (broad structure view)
+  try {
+    const _tfPd = String(tf || '').toLowerCase();
+    if (_tfPd === '1m' || _tfPd === '3m') lookback = Math.max(Number(lookback) || 0, 60);
+  } catch (eLb) {}
   if (!Array.isArray(data) || i < 3 || !data[i]) return { ok: false, pos: 0.5, reason: 'no range' };
   const c = data[i];
   let lo = Infinity, hi = -Infinity;
@@ -17652,15 +17727,22 @@ function algoScalpPremiumDiscount(data, i, side, lookback, tf) {
   const pos = (Number(c.c) - lo) / (hi - lo);
   const tfK = String(tf || '').toLowerCase();
   const isHold = (tfK === '15m' || tfK === '1h' || tfK === '4h' || tfK === '1d');
-  // 1m/3m/5m only: tighter location (HTF/hold path unchanged)
-  const isMicroScalp = (tfK === '1m' || tfK === '3m' || tfK === '5m');
+  // 1m/3m ONLY: extreme discount/premium on 60-bar range (stops buy-top / sell-bottom).
+  // 5m keeps prior 40%/62%. HTF/hold unchanged.
+  const isUltraMicro = (tfK === '1m' || tfK === '3m');
+  const isMicroScalp5 = (tfK === '5m');
   if (side === 'BUY') {
     if (isHold) {
       if (pos > 0.72) return { ok: false, pos: pos, lo: lo, hi: hi, reason: 'hold BUY blocked — extreme premium' };
       return { ok: true, pos: pos, lo: lo, hi: hi, reason: 'hold discount/mid ' + (pos * 100).toFixed(0) + '%' };
     }
-    // Micro scalp: true discount ≤40% of recent range (was 50% → mid-chart noise entries)
-    if (isMicroScalp) {
+    // 1m/3m: only lower ~28% of 60-bar range (real demand area — not mid/top)
+    if (isUltraMicro) {
+      if (pos > 0.28) return { ok: false, pos: pos, lo: lo, hi: hi, reason: '1m/3m not deep discount (pos ' + (pos * 100).toFixed(0) + '% · need ≤28%)' };
+      return { ok: true, pos: pos, lo: lo, hi: hi, reason: '1m/3m deep discount ' + (pos * 100).toFixed(0) + '%' };
+    }
+    // 5m: prior scalp discount ≤40%
+    if (isMicroScalp5) {
       if (pos > 0.40) return { ok: false, pos: pos, lo: lo, hi: hi, reason: 'not discount (pos ' + (pos * 100).toFixed(0) + '% · need ≤40%)' };
       return { ok: true, pos: pos, lo: lo, hi: hi, reason: 'scalp discount ' + (pos * 100).toFixed(0) + '%' };
     }
@@ -17673,8 +17755,13 @@ function algoScalpPremiumDiscount(data, i, side, lookback, tf) {
       if (pos < 0.28) return { ok: false, pos: pos, lo: lo, hi: hi, reason: 'hold SELL blocked — extreme discount' };
       return { ok: true, pos: pos, lo: lo, hi: hi, reason: 'hold premium/mid ' + (pos * 100).toFixed(0) + '%' };
     }
-    // Micro scalp: true premium ≥62% (was 50% → selling mid-range)
-    if (isMicroScalp) {
+    // 1m/3m: only upper ~72% of 60-bar range (real supply — not mid/bottom)
+    if (isUltraMicro) {
+      if (pos < 0.72) return { ok: false, pos: pos, lo: lo, hi: hi, reason: '1m/3m not high premium (pos ' + (pos * 100).toFixed(0) + '% · need ≥72%)' };
+      return { ok: true, pos: pos, lo: lo, hi: hi, reason: '1m/3m high premium ' + (pos * 100).toFixed(0) + '%' };
+    }
+    // 5m: prior scalp premium ≥62%
+    if (isMicroScalp5) {
       if (pos < 0.62) return { ok: false, pos: pos, lo: lo, hi: hi, reason: 'not premium (pos ' + (pos * 100).toFixed(0) + '% · need ≥62%)' };
       return { ok: true, pos: pos, lo: lo, hi: hi, reason: 'scalp premium ' + (pos * 100).toFixed(0) + '%' };
     }
@@ -18084,14 +18171,27 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       }
     } catch (eMssPush) {}
     // 1) LIVE/MT5 only: max 1 open per TF · max 4 total (BACKTEST ignored)
+    //    PROPFIRM mode: max 1 total open (MT5 or local), day-room gate, 15m+ preference
     try {
       const isBtPush = String(mode || '').toUpperCase() === 'BACKTEST';
       if (!isBtPush) {
         const tfKey = String(tf || '').toLowerCase();
+        if (typeof propFirmIsPropMode === 'function' && propFirmIsPropMode()) {
+          const pf = (typeof propFirmBlocksNewTrade === 'function')
+            ? propFirmBlocksNewTrade(tfKey) : { block: false };
+          if (pf && pf.block) {
+            try {
+              algoUpdateStatus('<span class="warn">PROPFIRM block ' + String(tf || '').toUpperCase() +
+                ' — ' + (pf.reason || 'risk gate') + '</span>');
+            } catch (e0) {}
+            return;
+          }
+        }
         const openThisTf = (typeof algoCountOpenTradesOnTf === 'function')
           ? algoCountOpenTradesOnTf(tfKey) : 0;
         const openAll = (typeof algoCountOpenTrades === 'function') ? algoCountOpenTrades() : 0;
         // LIVE only: max 1 per TF · hard max 4 total (MT5+paper). BACKTEST never hits this block.
+        // PROPFIRM already enforced max 1 above.
         if (openThisTf >= (typeof ALGO_MAX_OPEN_PER_TF === 'number' ? ALGO_MAX_OPEN_PER_TF : 1)) return;
         if (openAll >= ALGO_MAX_OPEN_TRADES) return;
         if (out.some(function (x) {
@@ -18102,6 +18202,25 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
     } catch (eLim) {}
     if (side === 'BUY' && !buyDirOk) return;
     if (side === 'SELL' && !sellDirOk) return;
+    // 1m/3m ONLY: hard require local structure alignment (no random mid-range).
+    // 5m+ not affected.
+    try {
+      const _tfU = String(tf || '').toLowerCase();
+      if (_tfU === '1m' || _tfU === '3m') {
+        const st = tfStruct || {};
+        const dir = String(st.dir || '').toUpperCase();
+        if (side === 'BUY') {
+          if (!(st.alignedBuy || (st.hh && st.hl) || dir === 'BUY')) return;
+          if (st.sideways || st.microChop || st.compressed) return;
+          if (st.trendFalling || dir === 'SELL') return;
+        }
+        if (side === 'SELL') {
+          if (!(st.alignedSell || (st.lh && st.ll) || dir === 'SELL')) return;
+          if (st.sideways || st.microChop || st.compressed) return;
+          if (st.trendRising || dir === 'BUY') return;
+        }
+      }
+    } catch (eUStruct) {}
     // 2b) discount/premium — strict 1m/3m/5m; relaxed continuation on 15m+
     try {
       if (typeof algoScalpPremiumDiscount === 'function') {
@@ -18210,6 +18329,21 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       if (side === 'BUY' && rngSp && tp > rngSp.hi + atr * 12) { /* allow expand */ }
       if (side === 'SELL' && rngSp && tp < rngSp.lo - atr * 12) { /* allow expand */ }
     } catch (eRoom) {}
+    // PROPFIRM: skip if sized lots collapse to 0 (no day room)
+    try {
+      if (typeof propFirmIsPropMode === 'function' && propFirmIsPropMode() &&
+          typeof propFirmOptimizedLots === 'function') {
+        const _lotsChk = propFirmOptimizedLots(entry, sl, tf,
+          (typeof algoGetLotSize === 'function' ? algoGetLotSize() : 1));
+        if (!(_lotsChk > 0)) {
+          try {
+            algoUpdateStatus('<span class="warn">PROPFIRM ' + String(tf || '').toUpperCase() +
+              ' skipped — day room / lot size = 0</span>');
+          } catch (e0) {}
+          return;
+        }
+      }
+    } catch (eLot0) {}
     out.push({
       id: id,
       side: side,
@@ -18236,7 +18370,7 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       dataSource: 'REAL_OHLC_PROVIDER',
       candleTime: c.time || '',
       asset: 'gold',
-      lots: (typeof algoGetLotSize === 'function' ? algoGetLotSize() : 1),
+      lots: (typeof propFirmOptimizedLots === 'function' ? propFirmOptimizedLots(entry, sl, tf, (typeof algoGetLotSize === 'function' ? algoGetLotSize() : 1)) : (typeof algoGetLotSize === 'function' ? algoGetLotSize() : 1)),
       outcome: null,
       exit: null,
       pnl: null,
@@ -18256,15 +18390,18 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   // Falling nearest ray blocks TL path only — NOT swing-low or demand-OB paths.
   const nearestSup = algoNearestSupport(lines, c, i, atr);
   const nearestSupFalling = !!(nearestSup && Number.isFinite(nearestSup.slope) && nearestSup.slope < 0 && nearestSup.dist <= atr * 4);
-  // 1m/3m/5m: require rejection wick (was always-true → mid-bar sells/buys).
-  // 15m+ path unchanged (prior isScalpBar?true left HTF without hard rejection).
+  // 5m keeps prior micro path. 1m/3m ONLY: stricter rejection + real swing zones.
+  // 15m+ path unchanged.
+  const isUltraMicroTf = (_tfB === '1m' || _tfB === '3m');
   const isMicroScalpTf = (_tfB === '1m' || _tfB === '3m' || _tfB === '5m');
-  const buyRejOk = isMicroScalpTf ? algoIsRejection(c, 'BUY', 'scalp') : (isScalpBar ? true : algoIsRejection(c, 'BUY', ''));
+  // 1m/3m: strong rejection required (not weak scalp wick)
+  const buyRejOk = isUltraMicroTf
+    ? algoIsRejection(c, 'BUY', 'high')
+    : (isMicroScalpTf ? algoIsRejection(c, 'BUY', 'scalp') : (isScalpBar ? true : algoIsRejection(c, 'BUY', '')));
   if (buyDirOk && buyRejOk && confBuy.ok) {
     let tookBuy = false;
-    // Scalp: 2-touch TL is enough when 1D plan is BUY + structure aligned (was 3 → missed real supports).
-    // Hold (15m+): still min 2-touch.
-    const minTLTouchesBuy = 2;
+    // 1m/3m: need ≥3 TL touches (validated swing support). 5m+/hold: min 2.
+    const minTLTouchesBuy = isUltraMicroTf ? 3 : 2;
     for (let li = 0; li < lines.length; li++) {
       const l = lines[li];
       if (!l || l.type !== 'sup') continue; // teal support ONLY
@@ -18284,21 +18421,25 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       const mid = (c.h + c.l) / 2;
       // Support line must sit in LOWER half of the bar (discount area)
       if (px > mid + atr * 0.25) continue;
-      // 1m/3m/5m: wick into TL + close reclaim (no bare near-line). HTF path unchanged.
-      const buyTouchOk = isMicroScalpTf
-        ? (algoWickSweepsZone(c, 'BUY', px, atr) ||
-           (Number(c.l) <= px + atr * 0.25 && Number(c.c) >= px && algoIsRejection(c, 'BUY', 'scalp')))
-        : (isScalpBar
-          ? (algoNearLine(c, l, i, atr * 1.35) || algoWickSweepsZone(c, 'BUY', px, atr) ||
-             (Number(c.l) <= px + atr * 0.35 && Number(c.c) >= px - atr * 0.15))
-          : algoWickSweepsZone(c, 'BUY', px, atr));
+      // 1m/3m: must wick-sweep support + close back above (no near-line). 5m keeps prior.
+      const buyTouchOk = isUltraMicroTf
+        ? (algoWickSweepsZone(c, 'BUY', px, atr) && Number(c.c) >= px && algoIsRejection(c, 'BUY', 'high'))
+        : (isMicroScalpTf
+          ? (algoWickSweepsZone(c, 'BUY', px, atr) ||
+             (Number(c.l) <= px + atr * 0.25 && Number(c.c) >= px && algoIsRejection(c, 'BUY', 'scalp')))
+          : (isScalpBar
+            ? (algoNearLine(c, l, i, atr * 1.35) || algoWickSweepsZone(c, 'BUY', px, atr) ||
+               (Number(c.l) <= px + atr * 0.35 && Number(c.c) >= px - atr * 0.15))
+            : algoWickSweepsZone(c, 'BUY', px, atr)));
       if (!buyTouchOk) continue;
       let smcBuy = { ok: true, reason: isScalpBar ? 'green↑ TL touch · discount' : 'TL + structure' };
       try {
         smcBuy = algoSMCStructureConfirm(data, i, 'BUY', atr, demand, supply, tf);
-        // Micro scalp: soft SMC only with rejection + aligned BUY (no free pass).
-        // HTF keeps prior isScalpBar soft path.
-        if (!smcBuy.ok && isMicroScalpTf && structAlignedBuy && algoIsRejection(c, 'BUY', 'scalp')) {
+        // 1m/3m: NO soft SMC — structure must confirm (stops random-area buys).
+        // 5m: prior soft path with rejection. HTF unchanged.
+        if (isUltraMicroTf) {
+          // keep smcBuy as returned — no override
+        } else if (!smcBuy.ok && isMicroScalpTf && structAlignedBuy && algoIsRejection(c, 'BUY', 'scalp')) {
           const rsn = String(smcBuy.reason || '');
           if (rsn.indexOf('CHoCH') >= 0 || rsn.indexOf('sweep') >= 0 || rsn.indexOf('discount') >= 0) {
             smcBuy = { ok: true, reason: 'scalp structure + green↑ TL + rejection (soft SMC)' };
@@ -18317,8 +18458,9 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         const posPx = (px - rng.lo) / (rng.hi - rng.lo);
         const posC = (c.c - rng.lo) / (rng.hi - rng.lo);
         if ((typeof isHoldBar !== 'undefined' && isHoldBar) ? (posPx > 0.72 || posC > 0.72)
+          : (isUltraMicroTf ? (posPx > 0.28 || posC > 0.28)
           : (isMicroScalpTf ? (posPx > 0.40 || posC > 0.40)
-          : (isScalpBar ? (posPx > 0.50 || posC > 0.50) : (posPx > 0.55 || posC > 0.58)))) continue;
+          : (isScalpBar ? (posPx > 0.50 || posC > 0.50) : (posPx > 0.55 || posC > 0.58))))) continue;
       }
       try {
         if (typeof algoScalpPremiumDiscount === 'function') {
@@ -18385,14 +18527,17 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
   // RULE: SELL only on red downward resistance TL + structure + premium.
   // Rejection is OPTIONAL for scalp (not required). NEVER sell on green ↑ support TL.
   // Soft conf on micro when fallingMarket.
-  // Soft conf only on micro scalp when falling + higher score (was 18 → weak sells).
-  // HTF: same as before (isScalpBar soft path preserved for non-micro).
-  const sellConfOk = confSell.ok || (isMicroScalpTf && fallingMarket && confSell.score >= 28)
+  // 1m/3m: no soft conf (must pass full conf). 5m keeps ≥28 soft. HTF unchanged.
+  const sellConfOk = confSell.ok
+    || (!isUltraMicroTf && isMicroScalpTf && fallingMarket && confSell.score >= 28)
     || (!isMicroScalpTf && isScalpBar && fallingMarket && confSell.score >= 18);
-  const sellRejOk = isMicroScalpTf ? algoIsRejection(c, 'SELL', 'scalp') : (isScalpBar ? true : algoIsRejection(c, 'SELL', ''));
+  const sellRejOk = isUltraMicroTf
+    ? algoIsRejection(c, 'SELL', 'high')
+    : (isMicroScalpTf ? algoIsRejection(c, 'SELL', 'scalp') : (isScalpBar ? true : algoIsRejection(c, 'SELL', '')));
   if (liveSellAllowed && sellRejOk && sellConfOk && !out.some(function (t) { return t.side === 'BUY'; })) {
     let tookSell = false;
-    const minTLTouchesSell = 2;
+    // 1m/3m: ≥3 touches on red↓ TL (real resistance swing). 5m+: 2.
+    const minTLTouchesSell = isUltraMicroTf ? 3 : 2;
     for (let li = 0; li < lines.length; li++) {
       const l = lines[li];
       if (!l || l.type !== 'res') continue; // RED only
@@ -18411,20 +18556,25 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
       const upperHalf = px >= mid - atr * 0.45;
       const retestFromBelow = Number(c.h) >= px - atr * 0.5 && Number(c.c) < px + atr * 0.15;
       if (!upperHalf && !retestFromBelow) continue;
-      // 1m/3m/5m: real rejection / wick sweep at resistance — not bare near-line.
-      // 15m+ keeps prior near-line path.
-      const sellTouchOk = isMicroScalpTf
-        ? (algoWickSweepsZone(c, 'SELL', px, atr) ||
-           (retestFromBelow && algoIsRejection(c, 'SELL', 'scalp')))
-        : (isScalpBar
-          ? (algoNearLine(c, l, i, atr * 1.4) || algoWickSweepsZone(c, 'SELL', px, atr) || retestFromBelow)
-          : (algoWickSweepsZone(c, 'SELL', px, atr) || retestFromBelow));
+      // 1m/3m: wick-sweep resistance + rejection close (no near-line / no bottom sells).
+      // 5m keeps prior soft touch. 15m+ unchanged.
+      const sellTouchOk = isUltraMicroTf
+        ? (algoWickSweepsZone(c, 'SELL', px, atr) && Number(c.c) <= px && algoIsRejection(c, 'SELL', 'high'))
+        : (isMicroScalpTf
+          ? (algoWickSweepsZone(c, 'SELL', px, atr) ||
+             (retestFromBelow && algoIsRejection(c, 'SELL', 'scalp')))
+          : (isScalpBar
+            ? (algoNearLine(c, l, i, atr * 1.4) || algoWickSweepsZone(c, 'SELL', px, atr) || retestFromBelow)
+            : (algoWickSweepsZone(c, 'SELL', px, atr) || retestFromBelow)));
       if (!sellTouchOk) continue;
       let smcSell = { ok: true, reason: isScalpBar ? 'red↓ TL touch · premium' : 'red↓ TL rejection' };
       try {
         smcSell = algoSMCStructureConfirm(data, i, 'SELL', atr, demand, supply, tf);
-        // Micro scalp: never auto-OK from fallingMarket alone — need rejection at TL.
-        if (isMicroScalpTf) {
+        // 1m/3m: NO soft SMC — full structure required (stops random bottom sells).
+        // 5m: soft only with rejection. HTF unchanged.
+        if (isUltraMicroTf) {
+          // keep smcSell as returned — no override
+        } else if (isMicroScalpTf) {
           if (!smcSell.ok && (structAlignedSell || structBrokenBuy) && algoIsRejection(c, 'SELL', 'scalp')) {
             const rsn = String(smcSell.reason || '');
             if (rsn.indexOf('CHoCH') >= 0 || rsn.indexOf('sweep') >= 0 || rsn.indexOf('premium') >= 0 || rsn.indexOf('structure') >= 0) {
@@ -18450,9 +18600,11 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
         if (rngS && rngS.hi > rngS.lo) {
           const posPx = (px - rngS.lo) / (rngS.hi - rngS.lo);
           const posC = (c.c - rngS.lo) / (rngS.hi - rngS.lo);
-          // 1m/3m/5m ≥62% premium; hold 15m+ continuation (only block extreme discount)
+          // 1m/3m ≥72% premium (real top). 5m ≥62%. Hold: only block extreme discount.
           if (typeof isHoldBar !== 'undefined' && isHoldBar) {
             if (posPx < 0.28 || posC < 0.28) continue;
+          } else if (isUltraMicroTf) {
+            if (posPx < 0.72 || posC < 0.72) continue;
           } else if (isMicroScalpTf) {
             if (posPx < 0.62 || posC < 0.62) continue;
           } else if (isScalpBar) {
@@ -18509,8 +18661,9 @@ function algoScanBar(data, i, tf, lines, demand, supply, mode) {
             const posZ = (zMid - rngOb.lo) / (rngOb.hi - rngOb.lo);
             const posC = (c.c - rngOb.lo) / (rngOb.hi - rngOb.lo);
             if ((typeof isHoldBar !== 'undefined' && isHoldBar) ? (posZ < 0.28 || posC < 0.28)
+              : (isUltraMicroTf ? (posZ < 0.72 || posC < 0.72)
               : (isMicroScalpTf ? (posZ < 0.62 || posC < 0.62)
-              : (isScalpBar ? (posZ < 0.50 || posC < 0.50) : (posZ < 0.40 || posC < 0.38)))) continue;
+              : (isScalpBar ? (posZ < 0.50 || posC < 0.50) : (posZ < 0.40 || posC < 0.38))))) continue;
           }
         }
         try {
@@ -19033,8 +19186,22 @@ function algoMergeNewTrades(candidates) {
     // Global open-trade cap across ALL timeframes (live + paper ledger).
     // BACKTEST rows do not consume the live slot budget.
     // RULE: max 1 OPEN trade per individual TF · max 4 OPEN across all TFs.
+    // PROPFIRM: max 1 open total · MT5 open blocks · day room · 15m+ preference.
     const isBt = String(t.source || '').toUpperCase() === 'BACKTEST';
     if (!isBt) {
+      try {
+        if (typeof propFirmIsPropMode === 'function' && propFirmIsPropMode() &&
+            typeof propFirmBlocksNewTrade === 'function') {
+          const pf = propFirmBlocksNewTrade(t.tf);
+          if (pf && pf.block) {
+            try {
+              algoUpdateStatus('<span class="warn">PROPFIRM blocked ' + String(t.tf || '') +
+                ' ' + String(t.side || '') + ' — ' + (pf.reason || 'risk gate') + '</span>');
+            } catch (ePf) {}
+            return;
+          }
+        }
+      } catch (ePf2) {}
       try {
         const ttf = String(t.tf || '').toLowerCase();
         const tside = String(t.side || '').toUpperCase();
@@ -19052,16 +19219,28 @@ function algoMergeNewTrades(candidates) {
         }
       } catch (eOpp2) {}
       const openN = algoCountOpenTrades(log);
-      if (openN >= ALGO_MAX_OPEN_TRADES) {
+      const maxOpen = (typeof propFirmIsPropMode === 'function' && propFirmIsPropMode())
+        ? 1 : ALGO_MAX_OPEN_TRADES;
+      if (openN >= maxOpen) {
         try {
-          algoUpdateStatus('<span class="warn">MAX OPEN ' + ALGO_MAX_OPEN_TRADES +
+          algoUpdateStatus('<span class="warn">MAX OPEN ' + maxOpen +
             ' reached — no new live entry until a trade closes (blocked ' +
             String(t.side) + ' ' + String(t.tf || '') + ')</span>');
         } catch (eCap) {}
         return;
       }
     }
-    const lotN = (t.lots != null) ? Number(t.lots) : algoGetLotSize();
+    let lotN = (t.lots != null) ? Number(t.lots) : (typeof propFirmOptimizedLots === 'function'
+      ? propFirmOptimizedLots(t.entry, t.sl, t.tf, algoGetLotSize())
+      : algoGetLotSize());
+    if (!(lotN > 0)) {
+      try {
+        algoUpdateStatus('<span class="warn">PROPFIRM ' + String(t.tf || '') +
+          ' blocked — lot size 0 (day room / risk)</span>');
+      } catch (eZ) {}
+      return;
+    }
+    t.lots = lotN;
     // Geometry from entry/SL. Micro scalp keeps RR 1.5; HTF stays 1:2.
     let entryN = Number(t.entry != null ? t.entry : t.price);
     let slN = Number(t.sl);
@@ -19322,6 +19501,12 @@ function algoToggleHistory() {
       pan.style.overflowY = 'auto';
       try { pan.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e0) {}
     }
+    try {
+      const sp = document.getElementById('algoSettingsPanel');
+      if (sp) sp.style.display = 'none';
+      const sb = document.getElementById('algoSettingsBtn');
+      if (sb) sb.classList.remove('active');
+    } catch (eS) {}
     const btn = document.getElementById('algoHistBtn');
     if (btn) btn.classList.add('active');
     document.querySelectorAll('[data-algo-hist-btn]').forEach(function (b) {
@@ -19329,6 +19514,7 @@ function algoToggleHistory() {
     });
     // Paint ledger immediately — resolve in background so tap feels instant
     try { algoRenderLog(algoState.histFilter || 'ALL'); } catch (eR0) {}
+    try { propFirmLoad(); propFirmSyncUI(); } catch (eProp) {}
     setTimeout(function () {
       try { algoResolveAllTrades(typeof candleHistory !== 'undefined' ? candleHistory : []); } catch (eR) {}
       try { algoRenderLog(algoState.histFilter || 'ALL'); } catch (eR2) {}
@@ -20229,6 +20415,595 @@ function mt5SetToken(token) {
   mt5PaintStatus();
   if (MT5_BRIDGE.token) mt5RefreshStatus();
 }
+
+/* ===== PROP FIRM RISK ENGINE ===== */
+const PROP_FIRM_KEY = 'gp_prop_firm_settings_v1';
+const PROP_FIRMS = {
+  FivePctProp: {
+    name: '5% Prop Firm',
+    maxLossPct: 5,
+    dayLossPct: 5,
+    hidden: [
+      'Hard overall max loss 5% from initial balance — account fails if breached.',
+      'Hard daily loss limit 5% (equity from day start / broker midnight).',
+      'No single trade may risk more than 1% on 5m/15m; micro scalp ≤ 0.75%.',
+      '1H and higher: max stop-loss cash risk capped so wide SL cannot blow the daily 5%.',
+      'No martingale, no grid, no revenge size-up after a loss.',
+      'News / high-impact events: reduce size or stand aside — 5% room is tight.',
+      'Consistency: do not use most of the 5% day budget on one trade.',
+      'Open risk across positions must stay inside remaining daily 5% budget.'
+    ],
+    notes: 'Strict 5%/5% profile. Optimize locks max loss 5%, day loss 5%, LTF 1% risk, HTF $ SL cap.'
+  },
+  FTMO: {
+    name: 'FTMO',
+    maxLossPct: 10,
+    dayLossPct: 5,
+    hidden: [
+      'Overall max loss 10% from initial balance (hard breach).',
+      'Daily loss limit 5% (hard rule — equity snapshot from day start).',
+      'No martingale / grid spam — consistent risk expected.',
+      'News trading restricted on some account types around red-folder events.',
+      'Weekend holding may be restricted on certain challenge stages.',
+      'Profit split / consistency rules apply on funded phase.'
+    ],
+    notes: 'Classic 10% max / 5% daily. Use 5% day-loss option for FTMO-style rules.'
+  },
+  FundingPips: {
+    name: 'FundingPips',
+    maxLossPct: 10,
+    dayLossPct: 5,
+    hidden: [
+      'Max drawdown typically 10% (static or trailing by program).',
+      'Daily loss often 5% — breach resets challenge progress.',
+      'Consistency / best-day profit caps on some accounts.',
+      'Lot size must stay proportional — oversized risk can flag review.',
+      'EA / HFT style may be restricted on certain plans.'
+    ],
+    notes: 'Treat as 10% max / 5% daily. Prefer 1% risk on 5m/15m.'
+  },
+  TheFundedTrader: {
+    name: 'The Funded Trader',
+    maxLossPct: 10,
+    dayLossPct: 5,
+    hidden: [
+      'Challenge max loss commonly 8–10% depending on program.',
+      'Daily drawdown often 5% equity-based.',
+      'Some plans use trailing max drawdown after profit milestones.',
+      'News trading rules vary by account type — avoid high-impact spikes.',
+      'Copy trading / multi-account hedging can violate terms.'
+    ],
+    notes: 'Default to 10%/5%; desk supports explicit 5% day-loss selection.'
+  },
+  FundedNext: {
+    name: 'FundedNext',
+    maxLossPct: 10,
+    dayLossPct: 5,
+    hidden: [
+      'Overall loss limit usually 10% (Express / Evaluation differ).',
+      'Daily loss limit commonly 5% of starting day equity.',
+      'Consistency rules on payout phases — avoid one huge day then flat.',
+      'News trading allowed on some plans, restricted on others.',
+      'Risk per trade should stay small vs account to avoid soft breaches.'
+    ],
+    notes: 'Map with selected account size + 5% day loss (or 4% safety buffer).'
+  },
+  Apex: {
+    name: 'Apex Trader Funding',
+    maxLossPct: 10,
+    dayLossPct: 5,
+    hidden: [
+      'Trailing threshold / trailing drawdown is the key hidden rule.',
+      'Trailing max drawdown can tighten after equity highs — size down.',
+      'Daily loss discipline critical — many traders self-cap at 5% day.',
+      'Contract limits and scaling plans apply by account tier.',
+      'Avoid overnight gaps that jump past trailing threshold.'
+    ],
+    notes: 'Trailing DD is the trap — keep HTF $ risk capped and LTF at 1%.'
+  }
+};
+
+let propFirmState = {
+  firm: 'FivePctProp',
+  accountSize: 30000,
+  maxLossPct: 5,
+  dayLossPct: 5,
+  optimizeEnabled: true,
+  optimized: false,
+  ltfRiskPct: 1.0,
+  htfMaxSlUsd: 200,
+  scalpRiskPct: 0.75,
+  maxOpenRiskPctDay: 5,
+  pointValue: 100,
+  tradeMode: 'PROPFIRM', // NORMAL | PROPFIRM — last selection persists
+  // Live MT5 scan (runtime — refreshed from STATUS)
+  liveBalance: 0,
+  liveEquity: 0,
+  liveDayPnl: 0,
+  liveDayTrades: 0,
+  liveOpenCount: 0,
+  liveScanAt: 0,
+  htfPrefer: true // PROPFIRM: prefer / require 15m+ entries
+};
+
+function propFirmLoad() {
+  try {
+    const raw = localStorage.getItem(PROP_FIRM_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (s && typeof s === 'object') {
+      if (s.firm && PROP_FIRMS[s.firm]) propFirmState.firm = s.firm;
+      if (s.accountSize > 0) propFirmState.accountSize = Number(s.accountSize);
+      if (s.maxLossPct > 0) propFirmState.maxLossPct = Number(s.maxLossPct);
+      if (s.dayLossPct > 0) propFirmState.dayLossPct = Number(s.dayLossPct);
+      if (typeof s.optimizeEnabled === 'boolean') propFirmState.optimizeEnabled = s.optimizeEnabled;
+      if (typeof s.optimized === 'boolean') propFirmState.optimized = s.optimized;
+      if (s.ltfRiskPct > 0) propFirmState.ltfRiskPct = Number(s.ltfRiskPct);
+      if (s.htfMaxSlUsd > 0) propFirmState.htfMaxSlUsd = Number(s.htfMaxSlUsd);
+      if (s.scalpRiskPct > 0) propFirmState.scalpRiskPct = Number(s.scalpRiskPct);
+      if (s.maxOpenRiskPctDay > 0) propFirmState.maxOpenRiskPctDay = Number(s.maxOpenRiskPctDay);
+      if (s.tradeMode === 'NORMAL' || s.tradeMode === 'PROPFIRM') propFirmState.tradeMode = s.tradeMode;
+    }
+  } catch (e) {}
+  try { propFirmApplyTradeModeUI(); } catch (e2) {}
+}
+
+function propFirmSave() {
+  try { localStorage.setItem(PROP_FIRM_KEY, JSON.stringify(propFirmState)); } catch (e) {}
+}
+
+function propFirmSyncUI() {
+  try {
+    const a = document.getElementById('propAccountSize');
+    const m = document.getElementById('propMaxLossPct');
+    const d = document.getElementById('propDayLossPct');
+    const f = document.getElementById('propFirmSelect');
+    const en = document.getElementById('propOptimizeEnabled');
+    if (a) a.value = String(propFirmState.accountSize);
+    if (m) m.value = String(propFirmState.maxLossPct);
+    if (d) d.value = String(propFirmState.dayLossPct);
+    if (f) f.value = propFirmState.firm;
+    if (en) en.checked = !!propFirmState.optimizeEnabled;
+    propFirmPaintRules();
+    propFirmPaintPreview();
+  } catch (e) {}
+}
+
+function propFirmOnChange() {
+  try {
+    const a = document.getElementById('propAccountSize');
+    const m = document.getElementById('propMaxLossPct');
+    const d = document.getElementById('propDayLossPct');
+    const en = document.getElementById('propOptimizeEnabled');
+    if (a) propFirmState.accountSize = Number(a.value) || 30000;
+    if (m) propFirmState.maxLossPct = Number(m.value) || 5;
+    if (d) propFirmState.dayLossPct = Number(d.value) || 5;
+    if (en) propFirmState.optimizeEnabled = !!en.checked;
+    propFirmState.maxOpenRiskPctDay = propFirmState.dayLossPct;
+    propFirmSave();
+    propFirmPaintPreview();
+    const st = document.getElementById('propOptimizeStatus');
+    if (st) st.textContent = propFirmState.optimized
+      ? ('Rules updated · account $' + propFirmState.accountSize.toLocaleString() + ' · max ' + propFirmState.maxLossPct + '% · day ' + propFirmState.dayLossPct + '% · enforce ' + (propFirmState.optimizeEnabled ? 'ON' : 'OFF'))
+      : 'Settings changed — press OPTIMIZE SYSTEM FOR PROP FIRM to lock engine policy.';
+  } catch (e) {}
+}
+
+function propFirmSelectFirm(key) {
+  if (!PROP_FIRMS[key]) return;
+  propFirmState.firm = key;
+  const firm = PROP_FIRMS[key];
+  if (firm.maxLossPct) propFirmState.maxLossPct = Number(firm.maxLossPct);
+  if (firm.dayLossPct) propFirmState.dayLossPct = Number(firm.dayLossPct);
+  propFirmSave();
+  propFirmSyncUI();
+  try {
+    const st = document.getElementById('propOptimizeStatus');
+    if (st) st.textContent = firm.name + ' selected · max ' + propFirmState.maxLossPct + '% · day ' + propFirmState.dayLossPct + '% — press OPTIMIZE to lock into trade engine.';
+  } catch (e) {}
+}
+
+function propFirmPaintRules() {
+  const box = document.getElementById('propFirmRulesBox');
+  if (!box) return;
+  const firm = PROP_FIRMS[propFirmState.firm] || PROP_FIRMS.FivePctProp;
+  let html = '<div style="font-weight:800;color:#e9d5ff;margin-bottom:6px">' + firm.name + ' · RULES & HIDDEN CONSTRAINTS</div>';
+  html += '<div style="color:#94a3b8;margin-bottom:6px">' + (firm.notes || '') + '</div>';
+  html += '<div style="margin-bottom:6px"><span style="display:inline-block;padding:2px 8px;border-radius:999px;background:rgba(248,113,113,0.15);border:1px solid rgba(248,113,113,0.45);color:#fecaca;font-weight:800;font-size:10px">5% DAILY / MAX OPTIONS</span> <span style="display:inline-block;padding:2px 8px;border-radius:999px;background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.4);color:#86efac;font-weight:800;font-size:10px">HISTORY OPTIMIZE LOCKS ENGINE</span></div>';
+  html += '<ul style="margin:0;padding-left:16px;color:#cbd5e1">';
+  (firm.hidden || []).forEach(function (r) { html += '<li style="margin-bottom:3px">' + r + '</li>'; });
+  html += '</ul>';
+  html += '<div style="margin-top:8px;color:#fbbf24;font-weight:700">Desk policy when optimized: 5m/15m ≤ 1% risk · 1H+ max SL $' + propFirmState.htfMaxSlUsd + ' · max loss ≤ ' + propFirmState.maxLossPct + '% · day loss ≤ ' + propFirmState.dayLossPct + '%</div>';
+  box.innerHTML = html;
+}
+
+function propFirmPaintPreview() {
+  const el = document.getElementById('propRiskPreview');
+  if (!el) return;
+  const acc = propFirmState.accountSize || 30000;
+  const maxLoss$ = acc * (propFirmState.maxLossPct / 100);
+  const dayLoss$ = acc * (propFirmState.dayLossPct / 100);
+  const ltf1 = acc * 0.01;
+  const scalp = acc * ((propFirmState.scalpRiskPct || 0.75) / 100);
+  const htfCap = Math.min(propFirmState.htfMaxSlUsd || 200, dayLoss$ * 0.35);
+  el.innerHTML =
+    '<div style="padding:7px 9px;border-radius:8px;background:#111827;border:1px solid #243044"><b style="color:#93c5fd">Account</b><br>$' + acc.toLocaleString() + '</div>' +
+    '<div style="padding:7px 9px;border-radius:8px;background:#111827;border:1px solid #243044"><b style="color:#fbbf24">Max loss</b><br>$' + maxLoss$.toFixed(0) + ' (' + propFirmState.maxLossPct + '%)</div>' +
+    '<div style="padding:7px 9px;border-radius:8px;background:#111827;border:1px solid #243044"><b style="color:#f87171">1-day loss</b><br>$' + dayLoss$.toFixed(0) + ' (' + propFirmState.dayLossPct + '%)</div>' +
+    '<div style="padding:7px 9px;border-radius:8px;background:#111827;border:1px solid #243044"><b style="color:#34d399">5m/15m risk</b><br>$' + ltf1.toFixed(0) + ' (1%)</div>' +
+    '<div style="padding:7px 9px;border-radius:8px;background:#111827;border:1px solid #243044"><b style="color:#67e8f9">1H+ max SL $</b><br>$' + htfCap.toFixed(0) + '</div>' +
+    '<div style="padding:7px 9px;border-radius:8px;background:#111827;border:1px solid #243044"><b style="color:#c4b5fd">1m/3m risk</b><br>$' + scalp.toFixed(0) + ' (' + (propFirmState.scalpRiskPct||0.75) + '%)</div>';
+}
+
+function propFirmOptimizeSystem() {
+  propFirmOnChange();
+  const firm = PROP_FIRMS[propFirmState.firm] || PROP_FIRMS.FivePctProp;
+  if (firm.maxLossPct) propFirmState.maxLossPct = Number(firm.maxLossPct);
+  if (firm.dayLossPct) propFirmState.dayLossPct = Number(firm.dayLossPct);
+  try {
+    const m = document.getElementById('propMaxLossPct');
+    const d = document.getElementById('propDayLossPct');
+    if (m) m.value = String(propFirmState.maxLossPct);
+    if (d) d.value = String(propFirmState.dayLossPct);
+  } catch (eSync) {}
+  propFirmState.ltfRiskPct = 1.0;
+  propFirmState.scalpRiskPct = 0.75;
+  const acc = Number(propFirmState.accountSize) || 30000;
+  const dayBudget = acc * (propFirmState.dayLossPct / 100);
+  propFirmState.htfMaxSlUsd = Math.min(200, Math.max(50, Math.floor(dayBudget * 0.35)));
+  propFirmState.maxOpenRiskPctDay = propFirmState.dayLossPct || 5;
+  propFirmState.optimizeEnabled = true;
+  propFirmState.optimized = true;
+  const en = document.getElementById('propOptimizeEnabled');
+  if (en) en.checked = true;
+  propFirmSave();
+  propFirmPaintRules();
+  propFirmPaintPreview();
+  const st = document.getElementById('propOptimizeStatus');
+  const msg = 'OPTIMIZED for ' + firm.name + ' · $' + Number(propFirmState.accountSize).toLocaleString() +
+    ' · max ' + propFirmState.maxLossPct + '% · day ' + propFirmState.dayLossPct +
+    '% · 5m/15m risk 1% · 1H+ SL $ cap ' + propFirmState.htfMaxSlUsd +
+    ' · engine auto-reduces lots so prop rules are not violated.';
+  if (st) { st.textContent = msg; st.style.color = '#34d399'; }
+  try { algoUpdateStatus('<span class="ok">Prop firm optimize ON · ' + firm.name + ' · lots auto-capped</span>'); } catch (e) {}
+  try { if (typeof algoRenderLog === 'function') algoRenderLog(algoState.histFilter || 'LIVE'); } catch (e) {}
+}
+
+function algoHistSetTab(tab) {
+  // Prop Firm moved to SETTINGS — keep helper for any legacy calls
+  if (tab === 'prop') {
+    try { algoToggleSettings(true); } catch (e) {}
+    return;
+  }
+  try {
+    const trades = document.getElementById('algoTradeLog');
+    if (trades) trades.style.display = 'block';
+  } catch (e) {}
+}
+
+function algoToggleSettings(forceOpen) {
+  try {
+    openAlgoTrader({});
+    const overlay = document.getElementById('algoTraderOverlay');
+    if (overlay) {
+      overlay.classList.add('show');
+      overlay.style.display = 'flex';
+      overlay.style.zIndex = '100080';
+      overlay.style.pointerEvents = 'auto';
+    }
+    const pan = document.getElementById('algoSettingsPanel');
+    const hist = document.getElementById('algoHistoryPanel');
+    const btn = document.getElementById('algoSettingsBtn');
+    const histBtn = document.getElementById('algoHistBtn');
+    const open = forceOpen === true || (pan && pan.style.display === 'none');
+    if (pan) {
+      pan.style.display = open ? 'block' : 'none';
+      if (open) {
+        pan.style.maxHeight = '58vh';
+        pan.style.overflowY = 'auto';
+        try { pan.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e0) {}
+      }
+    }
+    if (open && hist) hist.style.display = 'none';
+    if (btn) {
+      if (open) btn.classList.add('active'); else btn.classList.remove('active');
+    }
+    if (open && histBtn) histBtn.classList.remove('active');
+    if (open) {
+      try { propFirmLoad(); propFirmSyncUI(); propFirmApplyTradeModeUI(); } catch (eProp) {}
+      try {
+        if (typeof algoSyncSettingsUI === 'function') algoSyncSettingsUI();
+      } catch (eS) {}
+    }
+  } catch (e) { console.warn('[GP Algo] settings', e); }
+}
+
+function propFirmSetTradeMode(mode) {
+  mode = (String(mode || '').toUpperCase() === 'NORMAL') ? 'NORMAL' : 'PROPFIRM';
+  propFirmState.tradeMode = mode;
+  if (mode === 'PROPFIRM') {
+    if (!propFirmState.optimizeEnabled) propFirmState.optimizeEnabled = true;
+  }
+  propFirmSave();
+  propFirmApplyTradeModeUI();
+  try {
+    if (typeof algoUpdateStatus === 'function') {
+      algoUpdateStatus(mode === 'PROPFIRM'
+        ? '<span class="ok">Trade mode: PROPFIRM · risk rules active</span>'
+        : '<span class="warn">Trade mode: NORMAL · preferred lots (no prop caps)</span>');
+    }
+  } catch (e) {}
+  try { if (typeof goldExecDomRefresh === 'function') goldExecDomRefresh(); } catch (e2) {}
+  try { if (typeof propFirmPaintPreview === 'function') propFirmPaintPreview(); } catch (e3) {}
+}
+
+function propFirmApplyTradeModeUI() {
+  const mode = (String(propFirmState.tradeMode || 'PROPFIRM') === 'NORMAL') ? 'NORMAL' : 'PROPFIRM';
+  propFirmState.tradeMode = mode;
+  const track = document.getElementById('goldExecModeTrack');
+  const lab = document.getElementById('goldExecModeLabel');
+  const thumb = document.getElementById('goldExecModeThumb');
+  if (track) {
+    track.setAttribute('data-mode', mode);
+    track.classList.toggle('mode-prop', mode === 'PROPFIRM');
+    track.classList.toggle('mode-normal', mode === 'NORMAL');
+  }
+  if (lab) lab.textContent = mode === 'PROPFIRM' ? 'PROPFIRM' : 'NORMAL TRADES';
+  if (thumb) {
+    thumb.style.transform = mode === 'PROPFIRM' ? 'translateX(100%)' : 'translateX(0)';
+  }
+  const propBox = document.getElementById('algoPropFirmPanel');
+  if (propBox) {
+    propBox.style.opacity = mode === 'PROPFIRM' ? '1' : '0.72';
+  }
+  const badge = document.getElementById('goldExecModeBadge');
+  if (badge) {
+    badge.textContent = mode === 'PROPFIRM' ? 'PROPFIRM RULES ON' : 'NORMAL · NO PROP CAPS';
+    badge.style.color = mode === 'PROPFIRM' ? '#34d399' : '#fbbf24';
+  }
+}
+
+function propFirmToggleTradeMode() {
+  const next = (String(propFirmState.tradeMode || 'PROPFIRM') === 'PROPFIRM') ? 'NORMAL' : 'PROPFIRM';
+  propFirmSetTradeMode(next);
+}
+
+
+function propFirmDollarRisk(entry, sl, lots) {
+  const riskPts = Math.abs(Number(entry) - Number(sl));
+  const lot = Math.max(0.01, Number(lots) || 0.01);
+  const pv = Number(propFirmState.pointValue) || 100;
+  if (!(riskPts > 0)) return 0;
+  return riskPts * lot * pv;
+}
+
+function propFirmMaxRiskUsd(tf) {
+  try { propFirmScanMt5Account(); } catch (eS) {}
+  const acc = (Number(propFirmState.liveBalance) > 0)
+    ? Number(propFirmState.liveBalance)
+    : (Number(propFirmState.accountSize) || 30000);
+  const dayCap = propFirmDayLossCapUsd();
+  const maxCap = acc * ((Number(propFirmState.maxLossPct) || 5) / 100);
+  const hardCeil = Math.min(dayCap, maxCap);
+  // Remaining room after today's realized+floating loss
+  const room = propFirmIsPropMode() ? propFirmDayRoomUsd() : hardCeil;
+  const ceil = Math.min(hardCeil, room);
+  const t = String(tf || '').toLowerCase();
+  let risk;
+  if (t === '1m' || t === '3m') {
+    risk = Math.min(acc * ((propFirmState.scalpRiskPct || 0.75) / 100), ceil * 0.35);
+  } else if (t === '5m' || t === '15m') {
+    risk = Math.min(acc * ((propFirmState.ltfRiskPct || 1) / 100), ceil * 0.45);
+  } else {
+    const htfCap = Number(propFirmState.htfMaxSlUsd) || 200;
+    risk = Math.min(htfCap, ceil * 0.40);
+  }
+  // Never risk more than remaining day room
+  return Math.max(0, Math.min(risk, ceil));
+}
+
+function propFirmOptimizedLots(entry, sl, tf, preferredLots) {
+  const pref = Math.max(0.01, Number(preferredLots) || algoGetLotSizeRaw());
+  // NORMAL mode = full preferred lots (no prop-firm risk caps)
+  if (String(propFirmState.tradeMode || 'PROPFIRM') === 'NORMAL') return pref;
+  if (!propFirmState.optimizeEnabled && !propFirmState.optimized) return pref;
+  try { propFirmScanMt5Account(); } catch (eS) {}
+  const room = propFirmDayRoomUsd();
+  if (!(room > 1)) return 0; // day budget gone — no size
+  const riskPts = Math.abs(Number(entry) - Number(sl));
+  if (!(riskPts > 0.05)) return pref;
+  const pv = Number(propFirmState.pointValue) || 100;
+  const maxUsd = Math.min(propFirmMaxRiskUsd(tf), room);
+  if (!(maxUsd > 1)) return 0;
+  let lots = maxUsd / (riskPts * pv);
+  lots = Math.floor(lots * 100) / 100;
+  if (lots < 0.01) return 0; // cannot fit even 0.01 inside remaining room
+  if (lots > pref) lots = pref;
+  const usd = riskPts * lots * pv;
+  if (usd > maxUsd + 0.5) {
+    lots = Math.floor((maxUsd / (riskPts * pv)) * 100) / 100;
+    if (lots < 0.01) return 0;
+  }
+  return Number(lots.toFixed(2));
+}
+
+function algoGetLotSizeRaw() {
+  try { if (algoState && algoState.lots > 0) return Number(algoState.lots); } catch (e) {}
+  try { const sel=document.getElementById('algoLotSelect'); if(sel) return Math.max(0.01,parseFloat(sel.value)||1); } catch(e){}
+  try { const v = localStorage.getItem('gp_algo_lot'); if (v) return Math.max(0.01, parseFloat(v)||1); } catch(e){}
+  return 1;
+}
+
+try { propFirmLoad(); } catch (e) {}
+
+function propFirmIsPropMode() {
+  return String((propFirmState && propFirmState.tradeMode) || 'PROPFIRM') === 'PROPFIRM';
+}
+
+/** Parse flexible MT5 STATUS payload → balance, equity, today PnL, today trade count, open count. */
+function propFirmScanMt5Account() {
+  const out = {
+    balance: Number(propFirmState.accountSize) || 30000,
+    equity: 0,
+    dayPnl: 0,
+    dayTrades: 0,
+    openCount: 0,
+    source: 'settings'
+  };
+  try {
+    const d = (typeof MT5_BRIDGE !== 'undefined' && MT5_BRIDGE && MT5_BRIDGE.lastStatus)
+      ? MT5_BRIDGE.lastStatus : null;
+    if (!d || typeof d !== 'object') {
+      propFirmState.liveBalance = out.balance;
+      propFirmState.liveEquity = out.balance;
+      propFirmState.liveDayPnl = 0;
+      propFirmState.liveDayTrades = 0;
+      propFirmState.liveOpenCount = (typeof algoCountMt5BrokerOpen === 'function') ? algoCountMt5BrokerOpen() : 0;
+      propFirmState.liveScanAt = Date.now();
+      return out;
+    }
+    const acc = (d.account && typeof d.account === 'object') ? d.account
+      : ((d.account_info && typeof d.account_info === 'object') ? d.account_info : d);
+    const bal = Number(acc.balance != null ? acc.balance
+      : (d.balance != null ? d.balance
+        : (d.account_balance != null ? d.account_balance : propFirmState.accountSize)));
+    const eq = Number(acc.equity != null ? acc.equity
+      : (d.equity != null ? d.equity
+        : (d.account_equity != null ? d.account_equity : bal)));
+    if (bal > 0) { out.balance = bal; out.source = 'mt5'; }
+    out.equity = (eq > 0) ? eq : out.balance;
+
+    // Today PnL: prefer explicit daily field, else sum closed + open floating for calendar day
+    let dayPnl = NaN;
+    const explicit = [d.daily_profit, d.day_profit, d.profit_today, d.today_pnl, d.daily_pnl,
+      acc.daily_profit, acc.profit_today, acc.day_profit];
+    for (let i = 0; i < explicit.length; i++) {
+      const v = Number(explicit[i]);
+      if (Number.isFinite(v)) { dayPnl = v; break; }
+    }
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const startMs = start.getTime();
+    function posTimeMs(p) {
+      let t = Number(p && (p.time_msc || p.close_time_msc || p.time || p.close_time || p.timecurrent || 0));
+      if (!t) return 0;
+      if (t < 1e12) t = t * 1000;
+      return t;
+    }
+    const closed = Array.isArray(d.closed_positions) ? d.closed_positions
+      : (Array.isArray(d.history) ? d.history : []);
+    let closedToday = 0;
+    let closedPnl = 0;
+    for (let i = 0; i < closed.length; i++) {
+      const p = closed[i];
+      if (!p) continue;
+      const ts = posTimeMs(p);
+      if (ts && ts < startMs) continue;
+      // if no timestamp, still count when explicit day pnl missing (best effort)
+      if (!ts && Number.isFinite(dayPnl)) continue;
+      closedToday++;
+      closedPnl += Number(p.profit != null ? p.profit : (p.pnl != null ? p.pnl : 0)) || 0;
+    }
+    const positions = Array.isArray(d.positions) ? d.positions : [];
+    let openPnl = 0;
+    let openN = 0;
+    const sym = String((MT5_BRIDGE && MT5_BRIDGE.symbol) || '').toUpperCase();
+    for (let i = 0; i < positions.length; i++) {
+      const p = positions[i];
+      if (!p) continue;
+      const ps = String(p.symbol || '').toUpperCase();
+      if (sym && ps && ps !== sym && ps.indexOf('XAU') < 0 && ps.indexOf('GOLD') < 0) continue;
+      openN++;
+      openPnl += Number(p.profit != null ? p.profit : 0) || 0;
+    }
+    if (!Number.isFinite(dayPnl)) {
+      dayPnl = closedPnl + openPnl;
+    }
+    out.dayPnl = dayPnl;
+    out.dayTrades = closedToday + openN;
+    out.openCount = openN;
+
+    // Also count local LIVE opens today for trade count visibility
+    try {
+      const log = (typeof algoLoadTrades === 'function') ? algoLoadTrades() : [];
+      let localToday = 0;
+      for (let i = 0; i < log.length; i++) {
+        const t = log[i];
+        if (!t || String(t.source || '').toUpperCase() === 'BACKTEST') continue;
+        const ts = Number(t.ts) || 0;
+        if (ts >= startMs) localToday++;
+      }
+      if (localToday > out.dayTrades) out.dayTrades = localToday;
+    } catch (eL) {}
+
+    propFirmState.liveBalance = out.balance;
+    propFirmState.liveEquity = out.equity;
+    propFirmState.liveDayPnl = out.dayPnl;
+    propFirmState.liveDayTrades = out.dayTrades;
+    propFirmState.liveOpenCount = out.openCount;
+    propFirmState.liveScanAt = Date.now();
+
+    // Auto-adopt MT5 balance into risk base when prop mode (does not overwrite UI select until save)
+    if (propFirmIsPropMode() && out.balance > 0 && out.source === 'mt5') {
+      // keep accountSize in sync for risk math when bridge reports real balance
+      if (Math.abs(Number(propFirmState.accountSize) - out.balance) / out.balance > 0.02) {
+        propFirmState.accountSize = Math.round(out.balance);
+      }
+    }
+  } catch (e) {
+    try { console.warn('[PropFirm] MT5 scan', e); } catch (e2) {}
+  }
+  return out;
+}
+
+/** Max $ the prop account may lose today (from balance × dayLossPct). */
+function propFirmDayLossCapUsd() {
+  const bal = Number(propFirmState.liveBalance) > 0
+    ? Number(propFirmState.liveBalance)
+    : (Number(propFirmState.accountSize) || 30000);
+  return bal * ((Number(propFirmState.dayLossPct) || 5) / 100);
+}
+
+/**
+ * Remaining day loss room in USD.
+ * Example: day cap $400, today PnL −$100 → room $300.
+ * Wins do not inflate room above the day cap.
+ */
+function propFirmDayRoomUsd() {
+  const cap = propFirmDayLossCapUsd();
+  const dayPnl = Number(propFirmState.liveDayPnl) || 0;
+  // room = dayCap + min(0, dayPnl)  → loss reduces room; profit leaves full cap
+  return Math.max(0, cap + Math.min(0, dayPnl));
+}
+
+/** True when PROPFIRM blocks a new entry (MT5 open, local open, or day room exhausted). */
+function propFirmBlocksNewTrade(tf) {
+  if (!propFirmIsPropMode()) return { block: false };
+  try { propFirmScanMt5Account(); } catch (e) {}
+  const brokerOpen = (typeof algoCountMt5BrokerOpen === 'function')
+    ? algoCountMt5BrokerOpen()
+    : (Number(propFirmState.liveOpenCount) || 0);
+  if (brokerOpen >= 1) {
+    return { block: true, reason: 'MT5 trade already open — PROPFIRM max 1' };
+  }
+  const localOpen = (typeof algoCountOpenTrades === 'function') ? algoCountOpenTrades() : 0;
+  if (localOpen >= 1) {
+    return { block: true, reason: 'Open trade active — PROPFIRM max 1 until flat' };
+  }
+  const room = propFirmDayRoomUsd();
+  if (!(room > 1)) {
+    return { block: true, reason: 'Day loss room exhausted ($' + room.toFixed(0) + ' left)' };
+  }
+  // Prefer 15m and above when htfPrefer is on (default)
+  if (propFirmState.htfPrefer !== false) {
+    const t = String(tf || '').toLowerCase();
+    if (t === '1m' || t === '3m' || t === '5m') {
+      return { block: true, reason: 'PROPFIRM prefers 15m+ (scalp TFs deferred)' };
+    }
+  }
+  return { block: false, room: room };
+}
+
 function algoSetLotSize(v) {
   const n = Math.max(0.01, Math.min(100, parseFloat(v) || 1));
   try { localStorage.setItem('gp_algo_lot', String(n)); } catch (e) {}
@@ -20236,9 +21011,7 @@ function algoSetLotSize(v) {
   try { algoUpdateStatus('<span class="ok">Lot size = ' + n + '</span>'); } catch (e) {}
 }
 function algoGetLotSize() {
-  try { if (algoState && algoState.lots > 0) return Number(algoState.lots); } catch (e) {}
-  try { const sel=document.getElementById('algoLotSelect'); if(sel) return Math.max(0.01,parseFloat(sel.value)||1); } catch(e){}
-  return 1;
+  return algoGetLotSizeRaw();
 }
 function mt5PaintStatus() {
   const el = document.getElementById('mt5BridgeStatus');
@@ -20277,6 +21050,7 @@ async function mt5RefreshStatus() {
     const r=await mt5Post({action:'STATUS',symbol:MT5_BRIDGE.symbol});
     if(!r.ok){MT5_BRIDGE.connected=false;MT5_BRIDGE.lastErr=r.error||'offline';mt5PaintStatus();return;}
     const d=r.data||{}; MT5_BRIDGE.lastStatus=d;
+    try { if (typeof propFirmScanMt5Account === 'function') propFirmScanMt5Account(); } catch (ePf) {}
     const terminalReady=!!(d.terminal_connected&&d.account_connected&&d.tick_available);
     MT5_BRIDGE.connected=terminalReady&&!!(d.trade_allowed&&d.account_trade_allowed);
     MT5_BRIDGE.lastErr=MT5_BRIDGE.connected?'':(terminalReady?'trading permission disabled':(d.error||'terminal/tick unavailable'));
@@ -23536,6 +24310,27 @@ if ('serviceWorker' in navigator) {
 #goldExecDomPanel .ged-trade{font-size:8.5px;padding:1.5px 0;color:#cbd5e1;border-bottom:1px solid rgba(30,41,59,.75);}
 #goldExecDomPanel .ged-trade:last-child{border-bottom:none;}
 #goldExecDomPanel .ged-empty{font-size:8.5px;color:#64748b;padding:2px 0;}
+#goldExecDomPanel .ged-mode-wrap{margin:4px 0 6px;padding:6px 8px;border-radius:8px;background:#0b1220;border:1px solid #2a3a55}
+#goldExecDomPanel .ged-mode-title{font-size:8px;font-weight:800;color:#94a3b8;letter-spacing:.4px;margin-bottom:5px;text-transform:uppercase}
+#goldExecDomPanel .ged-mode-track{
+  position:relative;display:grid;grid-template-columns:1fr 1fr;align-items:center;
+  height:28px;border-radius:999px;background:#151822;border:1px solid #2a3142;cursor:pointer;overflow:hidden;
+  user-select:none;-webkit-tap-highlight-color:transparent;
+}
+#goldExecDomPanel .ged-mode-thumb{
+  position:absolute;top:2px;left:2px;width:calc(50% - 2px);height:calc(100% - 4px);
+  border-radius:999px;background:linear-gradient(135deg,#2563eb,#7c3aed);
+  box-shadow:0 2px 10px rgba(37,99,235,.45);transition:transform .2s ease;z-index:1;pointer-events:none;
+}
+#goldExecDomPanel .ged-mode-track.mode-prop .ged-mode-thumb{transform:translateX(100%);background:linear-gradient(135deg,#059669,#0d9488);box-shadow:0 2px 10px rgba(16,185,129,.4)}
+#goldExecDomPanel .ged-mode-track.mode-normal .ged-mode-thumb{transform:translateX(0)}
+#goldExecDomPanel .ged-mode-opt{
+  position:relative;z-index:2;text-align:center;font-size:9px;font-weight:800;letter-spacing:.3px;
+  color:#94a3b8;padding:0 4px;transition:color .15s;
+}
+#goldExecDomPanel .ged-mode-track.mode-normal .ged-mode-opt[data-m="NORMAL"]{color:#fff}
+#goldExecDomPanel .ged-mode-track.mode-prop .ged-mode-opt[data-m="PROPFIRM"]{color:#fff}
+#goldExecDomPanel .ged-mode-badge{font-size:8.5px;font-weight:800;margin-top:5px;text-align:center}
 </style>
 <script>
 (function goldExecDomMonitor(){
@@ -23618,6 +24413,37 @@ if ('serviceWorker' in navigator) {
       html += row('SYMBOL', br.symbol || '—', '#e2e8f0');
       html += row('MT5 BID / ASK', (bid>0&&ask>0)?(bid.toFixed(2)+' / '+ask.toFixed(2)):'NO TICK', bid>0?'#e2e8f0':'#fbbf24');
       html += row('EXECUTION', br.enabled?'ON':'OFF', br.enabled?'#34d399':'#94a3b8');
+      // Trade mode slider: Normal Trades vs PROPFIRM (persisted)
+      try {
+        var _tm = (typeof propFirmState !== 'undefined' && propFirmState && propFirmState.tradeMode === 'NORMAL') ? 'NORMAL' : 'PROPFIRM';
+        html += '<div class="ged-mode-wrap">' +
+          '<div class="ged-mode-title">Trade mode</div>' +
+          '<div class="ged-mode-track mode-' + (_tm === 'PROPFIRM' ? 'prop' : 'normal') + '" id="goldExecModeTrack" data-mode="' + _tm + '" onclick="propFirmToggleTradeMode()">' +
+            '<div class="ged-mode-thumb" id="goldExecModeThumb"></div>' +
+            '<div class="ged-mode-opt" data-m="NORMAL">NORMAL</div>' +
+            '<div class="ged-mode-opt" data-m="PROPFIRM">PROPFIRM</div>' +
+          '</div>' +
+          '<div class="ged-mode-badge" id="goldExecModeBadge" style="color:' + (_tm === 'PROPFIRM' ? '#34d399' : '#fbbf24') + '">' +
+            (_tm === 'PROPFIRM' ? 'PROPFIRM RULES ON' : 'NORMAL · NO PROP CAPS') +
+          '</div></div>';
+        if (_tm === 'PROPFIRM' && typeof propFirmScanMt5Account === 'function') {
+          try {
+            var _scan = propFirmScanMt5Account();
+            var _cap = (typeof propFirmDayLossCapUsd === 'function') ? propFirmDayLossCapUsd() : 0;
+            var _room = (typeof propFirmDayRoomUsd === 'function') ? propFirmDayRoomUsd() : 0;
+            var _pnl = Number(_scan.dayPnl) || 0;
+            var _pnlCol = _pnl >= 0 ? '#34d399' : '#fb7185';
+            var _roomCol = _room > (_cap * 0.25) ? '#34d399' : (_room > 1 ? '#fbbf24' : '#fb7185');
+            html += row('MT5 BALANCE', _scan.balance > 0 ? ('$' + Math.round(_scan.balance).toLocaleString()) : '—', '#e2e8f0');
+            html += row('TODAY PnL', (_pnl >= 0 ? '+$' : '-$') + Math.abs(_pnl).toFixed(2) + ' · ' + (_scan.dayTrades || 0) + ' trades', _pnlCol);
+            html += row('DAY LOSS CAP', '$' + Math.round(_cap).toLocaleString(), '#fbbf24');
+            html += row('DAY ROOM LEFT', '$' + Math.round(_room).toLocaleString(), _roomCol);
+            html += row('OPEN (MT5)', String(_scan.openCount || 0) + ' · max 1', (_scan.openCount >= 1) ? '#fb7185' : '#34d399');
+            html += row('TF PREFER', '15m+', '#93c5fd');
+          } catch (_eScan) {}
+        }
+      } catch (_eMode) {}
+
       var positions = Array.isArray(d.positions) ? d.positions : [];
       var symbol = String(br.symbol||'').toUpperCase();
       positions = positions.filter(function(p){
