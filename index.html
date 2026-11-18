@@ -20995,13 +20995,12 @@ function propFirmScanMt5Account() {
     }
     out.equity = eq > 1 ? eq : out.balance;
 
-    // Today windows: local midnight + UTC midnight
+    // Today's window is the user's local calendar day. MT5 epoch timestamps
+    // are converted by Date into local time before this comparison.
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const startMs = start.getTime();
-    const endMs = startMs + 86400000;
-    const utcStart = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
-    const utcEnd = utcStart + 86400000;
+    const endMs = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1).getTime();
 
     function toMs(t) {
       if (t == null || t === '') return 0;
@@ -21029,7 +21028,7 @@ function propFirmScanMt5Account() {
     }
     function isInToday(ms) {
       if (!(ms > 0)) return false;
-      return (ms >= startMs && ms < endMs) || (ms >= utcStart && ms < utcEnd);
+      return ms >= startMs && ms < endMs;
     }
     function dealProfit(p) {
       if (!p || typeof p !== 'object') return 0;
@@ -21079,14 +21078,16 @@ function propFirmScanMt5Account() {
         entry === 'DEAL_ENTRY_OUT' || entry === 'DEAL_ENTRY_OUT_BY' || entry === 'DEAL_ENTRY_INOUT';
     }
 
-    // ---- Authoritative MT5 raw deal history for TODAY ----
-    // New bridge supplies each real broker deal exactly once (including manual/other-EA
-    // trades on this Gold symbol). Never mix this with simulated HTML ledger values.
+    // ---- Authoritative MT5 closed-position history for TODAY ----
+    // A position belongs to TODAY when its final exit deal happened today,
+    // even if its entry was yesterday or earlier. Aggregate every deal in that
+    // position lifecycle so entry commission, overnight swap and exit costs are
+    // included exactly once. Never count entry-only/open/partial positions.
     let closedPnl = 0;
     let closedToday = 0;
     let hasAuthoritativeDeals = Array.isArray(d.history_deals);
     if (hasAuthoritativeDeals) {
-      const seenPositions = new Set();
+      const byPosition = new Map();
       const seenTickets = new Set();
       const rawDeals = d.history_deals;
       for (let i = 0; i < rawDeals.length; i++) {
@@ -21094,22 +21095,49 @@ function propFirmScanMt5Account() {
         if (!p || isBalanceDeal(p)) continue;
         const sym = p.symbol || p.Symbol || '';
         if (sym && !isGoldSym(sym)) continue;
-        const ct = closeTimeMs(p);
-        if (!(ct > 0) || !isInToday(ct)) continue;
         const ticket = String(p.ticket || p.deal || '');
         if (ticket && seenTickets.has(ticket)) continue;
         if (ticket) seenTickets.add(ticket);
-        // MT5 deal profit is per deal: add profit + commission + swap + fee once.
-        closedPnl += dealProfit(p);
-        if (isExitDeal(p)) {
-          const pid = String(p.position_id || p.position || p.identifier || ticket || ('row-' + i));
-          seenPositions.add(pid);
-        }
+        const pid = String(p.position_id || p.position || p.identifier || '');
+        if (!pid || pid === '0') continue;
+        if (!byPosition.has(pid)) byPosition.set(pid, []);
+        byPosition.get(pid).push(p);
       }
-      closedToday = seenPositions.size;
+
+      // Bridge supplies IDs for ALL currently-open broker positions, not just
+      // this EA's positions. This prevents partial exits being reported as
+      // completed trades.
+      const openIds = new Set();
+      const activeIds = Array.isArray(d.open_position_ids) ? d.open_position_ids : [];
+      activeIds.forEach(function(x) { if (x != null && String(x) !== '0') openIds.add(String(x)); });
+      const positionsForActiveCheck = Array.isArray(d.positions) ? d.positions :
+        (Array.isArray(d.open_positions) ? d.open_positions : []);
+      positionsForActiveCheck.forEach(function(x) {
+        if (!x) return;
+        const id = x.identifier || x.position_id || x.position || x.ticket;
+        if (id != null && String(id) !== '0') openIds.add(String(id));
+      });
+
+      byPosition.forEach(function(items, pid) {
+        if (openIds.has(pid)) return; // still open; not a closed trade
+        const exits = items.filter(isExitDeal);
+        if (!exits.length) return;
+        const finalExit = exits.reduce(function(a, b) {
+          return closeTimeMs(b) > closeTimeMs(a) ? b : a;
+        });
+        const finalExitMs = closeTimeMs(finalExit);
+        // Local calendar day only. Do not union UTC midnight with local
+        // midnight: that incorrectly pulls trades from the adjacent day.
+        if (!(finalExitMs > 0) || !isInToday(finalExitMs)) return;
+
+        let positionNet = 0;
+        items.forEach(function(deal) { positionNet += dealProfit(deal); });
+        closedPnl += positionNet;
+        closedToday++;
+      });
     } else {
-      // Compatibility fallback for an older bridge only. Do not consult HTML/backtest
-      // trade records or generic d.profit because either can create fabricated totals.
+      // Legacy bridge fallback: count only unique closed-position rows whose
+      // actual close timestamp is today. Never use HTML/backtest records.
       const fallback = Array.isArray(d.closed_positions) ? d.closed_positions :
         (Array.isArray(d.closedPositions) ? d.closedPositions : []);
       const seen = new Set();
