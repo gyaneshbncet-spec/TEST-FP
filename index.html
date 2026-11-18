@@ -24310,6 +24310,21 @@ if ('serviceWorker' in navigator) {
 #goldExecDomPanel .ged-trade{font-size:8.5px;padding:1.5px 0;color:#cbd5e1;border-bottom:1px solid rgba(30,41,59,.75);}
 #goldExecDomPanel .ged-trade:last-child{border-bottom:none;}
 #goldExecDomPanel .ged-empty{font-size:8.5px;color:#64748b;padding:2px 0;}
+#goldExecDomPanel .ged-acc{margin-top:5px;border-top:1px solid rgba(100,116,139,.4);padding-top:3px}
+#goldExecDomPanel .ged-acc-head{
+  display:flex;align-items:center;justify-content:space-between;gap:6px;
+  cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;
+  padding:4px 2px;border-radius:6px;
+}
+#goldExecDomPanel .ged-acc-head:active{background:rgba(59,130,246,.12)}
+#goldExecDomPanel .ged-acc-title{font-size:8px;font-weight:800;color:#c4b5fd;letter-spacing:.3px}
+#goldExecDomPanel .ged-acc-sum{font-size:8px;font-weight:700;color:#94a3b8;flex:1;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55%}
+#goldExecDomPanel .ged-acc-chev{font-size:10px;font-weight:900;color:#67e8f9;width:14px;text-align:center;flex-shrink:0}
+#goldExecDomPanel .ged-acc-body{display:none;padding:2px 0 4px}
+#goldExecDomPanel .ged-acc.open .ged-acc-body{display:block}
+#goldExecDomPanel .ged-acc.open .ged-acc-sum{display:none}
+#goldExecDomPanel .ged-acc.open .ged-acc-chev{transform:none}
+
 #goldExecDomPanel .ged-mode-wrap{margin:4px 0 6px;padding:6px 8px;border-radius:8px;background:#0b1220;border:1px solid #2a3a55}
 #goldExecDomPanel .ged-mode-title{font-size:8px;font-weight:800;color:#94a3b8;letter-spacing:.4px;margin-bottom:5px;text-transform:uppercase}
 #goldExecDomPanel .ged-mode-track{
@@ -24463,29 +24478,62 @@ if ('serviceWorker' in navigator) {
           html += '<div class="ged-trade"><b style="color:'+(side==='BUY'?'#34d399':'#fb7185')+'">'+side+'</b> · '+(p.volume||p.lots||'')+' · <span style="color:'+pcol+'">'+pt+'</span></div>';
         });
       }
-      // MTF structure
+      // Expandable sections state (survive 800ms refresh)
+      if (!window.__goldExecAcc) window.__goldExecAcc = { mtf: false, pressure: false };
       try {
-        html += '<div class="ged-sec">MTF DECISIONS · LIVE STRUCTURE</div>';
+        var _accLs = localStorage.getItem('gp_gold_exec_acc');
+        if (_accLs) {
+          var _accP = JSON.parse(_accLs);
+          if (_accP && typeof _accP === 'object') {
+            if (typeof _accP.mtf === 'boolean') window.__goldExecAcc.mtf = _accP.mtf;
+            if (typeof _accP.pressure === 'boolean') window.__goldExecAcc.pressure = _accP.pressure;
+          }
+        }
+      } catch(_eAcc) {}
+
+      // MTF structure — expandable
+      try {
         var tfs = ['1m','3m','5m','15m','1h','4h','1d'];
         var audit = window.__algoDecisionAuditState || {};
+        var mtfRows = '';
+        var mtfBuy = 0, mtfSell = 0, mtfSide = 0, mtfSig = 0;
+        var mtfPeek = '';
         tfs.forEach(function(tf){
           var st = (window.__algoTfStructure && window.__algoTfStructure[tf]) || null;
           var item = (audit.byTf && audit.byTf[tf]) || null;
           var structDir = st && st.dir ? String(st.dir) : '';
           var label = tf.toUpperCase()+': … SCANNING';
           var col = '#94a3b8';
-          if (item && String(item.status||'').indexOf('SIGNAL')===0) { label = tf.toUpperCase()+': ✓ '+String(item.status); col='#34d399'; }
-          else if (structDir==='BUY') { label = tf.toUpperCase()+': ✓ BUY'; col='#34d399'; }
-          else if (structDir==='SELL') { label = tf.toUpperCase()+': ✓ SELL'; col='#fb7185'; }
-          else if (structDir==='SIDEWAYS' || (st && st.sideways)) { label = tf.toUpperCase()+': … SIDEWAYS'; col='#fbbf24'; }
+          if (item && String(item.status||'').indexOf('SIGNAL')===0) { label = tf.toUpperCase()+': ✓ '+String(item.status); col='#34d399'; mtfSig++; }
+          else if (structDir==='BUY') { label = tf.toUpperCase()+': ✓ BUY'; col='#34d399'; mtfBuy++; }
+          else if (structDir==='SELL') { label = tf.toUpperCase()+': ✓ SELL'; col='#fb7185'; mtfSell++; }
+          else if (structDir==='SIDEWAYS' || (st && st.sideways)) { label = tf.toUpperCase()+': … SIDEWAYS'; col='#fbbf24'; mtfSide++; }
           else if (item && item.status) { label = tf.toUpperCase()+': … '+String(item.status).slice(0,22); col='#fbbf24'; }
-          html += '<div class="ged-trade" style="color:'+col+'">'+label+'</div>';
+          mtfRows += '<div class="ged-trade" style="color:'+col+'">'+label+'</div>';
         });
+        if (mtfSig) mtfPeek = mtfSig + ' signal';
+        else if (mtfBuy || mtfSell) mtfPeek = (mtfBuy ? mtfBuy + 'B' : '') + (mtfBuy && mtfSell ? ' · ' : '') + (mtfSell ? mtfSell + 'S' : '');
+        else if (mtfSide) mtfPeek = mtfSide + ' sideways';
+        else mtfPeek = 'scanning…';
+        var mtfOpen = !!(window.__goldExecAcc && window.__goldExecAcc.mtf);
+        html += '<div class="ged-acc'+(mtfOpen?' open':'')+'" data-acc="mtf">' +
+          '<div class="ged-acc-head" data-acc-toggle="mtf">' +
+            '<span class="ged-acc-title">MTF DECISIONS · LIVE STRUCTURE</span>' +
+            '<span class="ged-acc-sum">'+mtfPeek+'</span>' +
+            '<span class="ged-acc-chev">'+(mtfOpen?'▾':'▸')+'</span>' +
+          '</div>' +
+          '<div class="ged-acc-body">'+mtfRows+'</div></div>';
       } catch(_){}
-      // Footprint aggressor pressure
+
+      // Footprint aggressor pressure — expandable
       try {
-        html += '<div class="ged-sec">LIVE AGGRESSOR PRESSURE · OKX TAPE</div>';
-        [['1m',1],['3m',3],['5m',5],['15m',15],['1H',60],['4H',240],['1D',1440]].forEach(function(x){
+        var pressRows = '';
+        var pressPeek = 'no data';
+        var pressCol = '#94a3b8';
+        var pressList = [['1m',1],['3m',3],['5m',5],['15m',15],['1H',60],['4H',240],['1D',1440]];
+        // Prefer 15m peek for collapsed summary
+        var peekSrc = null;
+        pressList.forEach(function(x){
           var p = null;
           try { if (typeof rfGetCurrentCandlePressure==='function') p = rfGetCurrentCandlePressure(x[1]); } catch(_){}
           var v = 'NO TRADE DATA', col = '#94a3b8';
@@ -24495,13 +24543,49 @@ if ('serviceWorker' in navigator) {
             if (p.delta > 0) { v = 'BUYERS +'+mag+' Δ+'+dlt; col='#34d399'; }
             else if (p.delta < 0) { v = 'SELLERS +'+mag+' Δ-'+dlt; col='#fb7185'; }
             else { v = 'BALANCED '+mag; col='#fbbf24'; }
+            if (x[0] === '15m' || x[0] === '5m' || !peekSrc) {
+              peekSrc = { label: x[0], v: v, col: col };
+            }
           }
-          html += row(x[0], v, col);
+          pressRows += row(x[0], v, col);
         });
-        html += '<div class="ged-empty" style="color:#fbbf24">PRESSURE SOURCE: OKX TAPE · not MT5</div>';
+        if (peekSrc) { pressPeek = peekSrc.label + ' · ' + peekSrc.v; pressCol = peekSrc.col; }
+        pressRows += '<div class="ged-empty" style="color:#fbbf24">PRESSURE SOURCE: OKX TAPE · not MT5</div>';
+        var prOpen = !!(window.__goldExecAcc && window.__goldExecAcc.pressure);
+        html += '<div class="ged-acc'+(prOpen?' open':'')+'" data-acc="pressure">' +
+          '<div class="ged-acc-head" data-acc-toggle="pressure">' +
+            '<span class="ged-acc-title">LIVE AGGRESSOR PRESSURE · OKX</span>' +
+            '<span class="ged-acc-sum" style="color:'+pressCol+'">'+pressPeek+'</span>' +
+            '<span class="ged-acc-chev">'+(prOpen?'▾':'▸')+'</span>' +
+          '</div>' +
+          '<div class="ged-acc-body">'+pressRows+'</div></div>';
       } catch(_){}
+
       var body = document.getElementById('goldExecDomBody');
       if (body) body.innerHTML = html;
+      // Bind expand/collapse (rebind after each refresh)
+      try {
+        body.querySelectorAll('[data-acc-toggle]').forEach(function(head){
+          head.addEventListener('click', function(e){
+            e.preventDefault();
+            e.stopPropagation();
+            var key = head.getAttribute('data-acc-toggle');
+            if (!key) return;
+            window.__goldExecAcc = window.__goldExecAcc || { mtf: false, pressure: false };
+            window.__goldExecAcc[key] = !window.__goldExecAcc[key];
+            try { localStorage.setItem('gp_gold_exec_acc', JSON.stringify(window.__goldExecAcc)); } catch(_ls){}
+            var acc = head.closest('.ged-acc');
+            if (acc) {
+              var open = !!window.__goldExecAcc[key];
+              acc.classList.toggle('open', open);
+              var chev = head.querySelector('.ged-acc-chev');
+              if (chev) chev.textContent = open ? '▾' : '▸';
+              var sum = head.querySelector('.ged-acc-sum');
+              if (sum) sum.style.display = open ? 'none' : '';
+            }
+          });
+        });
+      } catch(_bind){}
       if (window.__goldExecMonitorCollapsed) {
         el.classList.add('collapsed');
         var c1 = document.getElementById('goldExecDomChev'); if (c1) c1.textContent = '+';
