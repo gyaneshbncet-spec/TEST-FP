@@ -20902,12 +20902,29 @@ function propFirmScanMt5Account() {
     if (d.data && typeof d.data === 'object' && !Array.isArray(d.data)) d = Object.assign({}, d, d.data);
     if (d.result && typeof d.result === 'object' && !Array.isArray(d.result)) d = Object.assign({}, d, d.result);
     if (MT5_BRIDGE.accountInfo && typeof MT5_BRIDGE.accountInfo === 'object') {
-      d = Object.assign({}, MT5_BRIDGE.accountInfo, d);
-      const a0 = MT5_BRIDGE.accountInfo.account || MT5_BRIDGE.accountInfo.account_info || MT5_BRIDGE.accountInfo.AccountInfo;
-      if (a0 && typeof a0 === 'object') d = Object.assign({}, a0, d);
+      // Account endpoint is the authority for balance/equity. STATUS/HISTORY
+      // snapshots are merged first so they cannot overwrite real account values.
+      const aInfo = MT5_BRIDGE.accountInfo;
+      d = Object.assign({}, d, aInfo);
+      const a0 = aInfo.account || aInfo.account_info || aInfo.AccountInfo || aInfo.accountInfo;
+      if (a0 && typeof a0 === 'object') d = Object.assign({}, d, a0);
     }
     if (MT5_BRIDGE.historyInfo && typeof MT5_BRIDGE.historyInfo === 'object') {
-      d = Object.assign({}, d, MT5_BRIDGE.historyInfo);
+      // HISTORY contributes deal arrays/PnL only; account snapshot remains authoritative.
+      const hInfo = MT5_BRIDGE.historyInfo;
+      d = Object.assign({}, d, hInfo);
+      if (MT5_BRIDGE.accountInfo && typeof MT5_BRIDGE.accountInfo === 'object') {
+        const aInfo = MT5_BRIDGE.accountInfo;
+        ['balance','Balance','account_balance','AccountBalance','equity','Equity','account_equity','AccountEquity'].forEach(function(k) {
+          if (aInfo[k] != null) d[k] = aInfo[k];
+        });
+        const aa = aInfo.account || aInfo.account_info || aInfo.AccountInfo || aInfo.accountInfo;
+        if (aa && typeof aa === 'object') {
+          ['balance','Balance','account_balance','AccountBalance','equity','Equity','account_equity','AccountEquity'].forEach(function(k) {
+            if (aa[k] != null) d[k] = aa[k];
+          });
+        }
+      }
     }
 
     function coerceMoney(v) {
@@ -21015,14 +21032,27 @@ function propFirmScanMt5Account() {
       return (ms >= startMs && ms < endMs) || (ms >= utcStart && ms < utcEnd);
     }
     function dealProfit(p) {
-      const profit = coerceMoney(
+      if (!p || typeof p !== 'object') return 0;
+      // MT5 deal net result = profit + commission + swap + fee.
+      // Some bridge versions already provide a net field and omit components.
+      const gross = coerceMoney(
         p.profit != null ? p.profit :
         (p.Profit != null ? p.Profit :
           (p.pnl != null ? p.pnl :
             (p.realized != null ? p.realized :
               (p.profit_full != null ? p.profit_full : NaN))))
       );
-      return Number.isFinite(profit) ? profit : 0;
+      const commission = coerceMoney(p.commission != null ? p.commission : p.Commission);
+      const swap = coerceMoney(p.swap != null ? p.swap : p.Swap);
+      const fee = coerceMoney(p.fee != null ? p.fee : p.Fee);
+      const hasComponents = Number.isFinite(commission) || Number.isFinite(swap) || Number.isFinite(fee);
+      if (Number.isFinite(gross)) {
+        return gross + (Number.isFinite(commission) ? commission : 0) +
+          (Number.isFinite(swap) ? swap : 0) + (Number.isFinite(fee) ? fee : 0);
+      }
+      const net = coerceMoney(p.net_profit != null ? p.net_profit :
+        (p.net != null ? p.net : p.profit_net));
+      return Number.isFinite(net) ? net : 0;
     }
     function isGoldSym(ps) {
       ps = String(ps || '').toUpperCase().replace(/\s+/g, '');
@@ -21264,10 +21294,23 @@ async function mt5Post(payload) {
   if (!MT5_BRIDGE.token) { MT5_BRIDGE.lastErr='key required'; MT5_BRIDGE.connected=false; mt5PaintStatus(); return {ok:false,error:'Enter the local MT5 bridge key first'}; }
   const ctrl = new AbortController(); const t = setTimeout(function(){try{ctrl.abort();}catch(e){}},10000);
   try {
-    const res = await fetch(MT5_BRIDGE.url,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-Bridge-Token':MT5_BRIDGE.token},body:JSON.stringify(payload||{}),mode:'cors',cache:'no-store',signal:ctrl.signal});
-    clearTimeout(t); let data=null; try{data=await res.json();}catch(eJ){data={message:'Invalid response from local MT5 bridge'};}
-    if(!res.ok||!data||data.ok===false){MT5_BRIDGE.lastErr=(data&&data.error)||('HTTP '+res.status); mt5PaintStatus(); return {ok:false,status:res.status,error:MT5_BRIDGE.lastErr,data:data};}
-    MT5_BRIDGE.lastOk=Date.now(); MT5_BRIDGE.lastErr=''; return {ok:true,status:res.status,data:data};
+    const requestPayload = payload || {};
+    const res = await fetch(MT5_BRIDGE.url,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-Bridge-Token':MT5_BRIDGE.token},body:JSON.stringify(requestPayload),mode:'cors',cache:'no-store',signal:ctrl.signal});
+    clearTimeout(t);
+    const rawBody = await res.text();
+    let data = null;
+    try { data = rawBody ? JSON.parse(rawBody) : {}; }
+    catch(eJ) { data = { message: rawBody || 'Empty/non-JSON response from local MT5 bridge' }; }
+    if(!res.ok||!data||data.ok===false){
+      const action = String(requestPayload.action || 'UNKNOWN');
+      const detail = (data && (data.error || data.message || data.detail)) || rawBody || ('HTTP '+res.status);
+      MT5_BRIDGE.lastErr = action + ' HTTP ' + res.status + ': ' + String(detail).slice(0,220);
+      mt5PaintStatus();
+      console.error('[MT5 bridge]', action, 'HTTP', res.status, 'payload keys:', Object.keys(requestPayload), 'response:', detail);
+      return {ok:false,status:res.status,error:MT5_BRIDGE.lastErr,data:data,action:action,payload:requestPayload};
+    }
+    MT5_BRIDGE.lastOk=Date.now(); MT5_BRIDGE.lastErr='';
+    return {ok:true,status:res.status,data:data,action:String(requestPayload.action||'UNKNOWN')};
   } catch(e) { clearTimeout(t); const msg=(e&&e.name==='AbortError')?'timeout':((e&&e.message)?e.message:'connection failed'); MT5_BRIDGE.lastErr=msg; MT5_BRIDGE.connected=false; mt5PaintStatus(); return {ok:false,error:msg}; }
 }
 async function mt5TestBridge() {
