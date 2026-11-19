@@ -21085,7 +21085,10 @@ function propFirmScanMt5Account() {
     // included exactly once. Never count entry-only/open/partial positions.
     let closedPnl = 0;
     let closedToday = 0;
-    let hasAuthoritativeDeals = Array.isArray(d.history_deals);
+    // Use deal-level history when it actually contains rows. If the bridge returns an empty
+    // history_deals array but STATUS still provides legacy closed_positions, use that
+    // broker-history fallback instead of treating the empty array as authoritative.
+    let hasAuthoritativeDeals = Array.isArray(d.history_deals) && d.history_deals.length > 0;
     if (hasAuthoritativeDeals) {
       const byPosition = new Map();
       const seenTickets = new Set();
@@ -21358,6 +21361,9 @@ async function mt5RefreshStatus() {
     } catch (eN) {}
     MT5_BRIDGE.lastStatus=d;
     try { if (typeof propFirmScanMt5Account === 'function') propFirmScanMt5Account(); } catch (ePf) {}
+    // Push the newly received broker history into the monitor immediately; do not
+    // wait for chart navigation or another unrelated UI event to repaint PnL/room.
+    try { if (typeof goldExecDomRefresh === 'function') goldExecDomRefresh(); } catch (eGed) {}
     const terminalReady=!!(d.terminal_connected&&d.account_connected&&d.tick_available);
     MT5_BRIDGE.connected=terminalReady&&!!(d.trade_allowed&&d.account_trade_allowed);
     MT5_BRIDGE.lastErr=MT5_BRIDGE.connected?'':(terminalReady?'trading permission disabled':(d.error||'terminal/tick unavailable'));
