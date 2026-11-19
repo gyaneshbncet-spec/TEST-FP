@@ -21388,10 +21388,13 @@ function propFirmScanMt5Account() {
       }
     }
 
-    // ---- Reconcile with MT5 Account Profit (broker day truth) ----
-    // Account Profit = closed today + floating. When HISTORY misses a TP/SL deal
-    // (as with +194.76 TP missing while only -102.96 SL in deals), Account Profit
-    // still has the full day result (e.g. bal 10091.8 ⇒ ~+91.80).
+    // ---- Reconcile incomplete HISTORY with MT5 balance (not fake mirror TP) ----
+    // Bug we hit: Account Profit came back as 0 → residual = 0 - (-102.96) = +102.96
+    // invented a fake TP equal to the SL and showed net $0. Never do that.
+    // Truth from your account: bal 10091.8 − base 10000 = +91.80
+    // HISTORY only had SL -102.96 → missing TP residual = +194.76
+    const dealSum = closedPnl;
+    const dealN = closedToday;
     let acctDayProfit = coerceMoney(
       d.profit != null ? d.profit :
         (d.Profit != null ? d.Profit :
@@ -21403,10 +21406,7 @@ function propFirmScanMt5Account() {
     if (!Number.isFinite(acctDayProfit) && MT5_BRIDGE && MT5_BRIDGE.accountInfo) {
       const ai = MT5_BRIDGE.accountInfo;
       acctDayProfit = coerceMoney(
-        ai.profit != null ? ai.profit :
-          (ai.Profit != null ? ai.Profit :
-            (ai.daily_profit != null ? ai.daily_profit :
-              (ai.ProfitToday != null ? ai.ProfitToday : NaN)))
+        ai.profit != null ? ai.profit : (ai.Profit != null ? ai.Profit : NaN)
       );
       if (!Number.isFinite(acctDayProfit)) {
         const aa = ai.account || ai.account_info || ai.AccountInfo || ai.accountInfo;
@@ -21415,72 +21415,93 @@ function propFirmScanMt5Account() {
         }
       }
     }
-    const dealSum = closedPnl;
-    const dealN = closedToday;
-    if (Number.isFinite(acctDayProfit)) {
-      // Realized = account day profit − floating
-      const realizedAcct = acctDayProfit - (Number.isFinite(openPnl) ? openPnl : 0);
-      const gap = realizedAcct - dealSum;
-      // HISTORY incomplete if gap is a real missing trade (> $1)
-      if (Math.abs(gap) > 1) {
-        closedPnl = realizedAcct;
-        // Attribute residual as the missing TP or SL so count becomes 2+
-        if (Math.abs(gap) > 1) {
-          closedToday = dealN + 1;
-          if (gap >= 0) { closedTpPnl += gap; closedTpN += 1; }
-          else { closedSlPnl += gap; closedSlN += 1; }
-        }
-      } else if (dealN === 0 && Math.abs(realizedAcct) > 0.005) {
-        closedPnl = realizedAcct;
-        closedToday = 1;
-        if (realizedAcct >= 0) { closedTpPnl = realizedAcct; closedTpN = 1; }
-        else { closedSlPnl = realizedAcct; closedSlN = 1; }
-      }
-      // Keep breakdown consistent with final closedPnl
-      out.closedTpPnl = closedTpPnl;
-      out.closedSlPnl = closedSlPnl;
-      out.closedTpN = closedTpN;
-      out.closedSlN = closedSlN;
-      propFirmState.liveClosedTpPnl = closedTpPnl;
-      propFirmState.liveClosedSlPnl = closedSlPnl;
-      propFirmState.liveClosedTpN = closedTpN;
-      propFirmState.liveClosedSlN = closedSlN;
+    // Ignore useless Account Profit = 0 when we already have non-zero deal PnL
+    if (Number.isFinite(acctDayProfit) && Math.abs(acctDayProfit) < 0.01 && Math.abs(dealSum) > 1) {
+      acctDayProfit = NaN;
     }
 
-    // Fallback when Account Profit missing: if flat and balance is near prop
-    // base size, today closed ≈ balance − prop base (e.g. 10091.8 − 10000 = +91.8).
+    let bestClosed = dealSum;
+    let bestSrc = 'deals';
+
+    // 1) Balance − prop base when flat (most reliable on your setup)
     try {
-      if (!(Number.isFinite(acctDayProfit)) && out.balance > 1 && Math.abs(openPnl) < 0.5) {
+      if (out.balance > 1 && Math.abs(openPnl) < 0.5) {
         const base = (typeof propFirmAccountSizeUsd === 'function') ? propFirmAccountSizeUsd() : 0;
         if (base > 1) {
-          const inferred = out.balance - base;
-          // Only trust when inferred is in a sane day range and differs from partial HISTORY
-          if (Math.abs(inferred) < base * 0.25) {
-            const gap2 = inferred - dealSum;
-            if (Math.abs(gap2) > 1 || dealN === 0) {
-              closedPnl = inferred;
-              if (Math.abs(gap2) > 1 && dealN >= 1) {
-                closedToday = dealN + 1;
-                if (gap2 >= 0) { closedTpPnl += gap2; closedTpN += 1; }
-                else { closedSlPnl += gap2; closedSlN += 1; }
-              } else if (dealN === 0 && Math.abs(inferred) > 0.005) {
-                closedToday = 1;
-                if (inferred >= 0) { closedTpPnl = inferred; closedTpN = 1; closedSlPnl = 0; closedSlN = 0; }
-                else { closedSlPnl = inferred; closedSlN = 1; closedTpPnl = 0; closedTpN = 0; }
-              }
-              out.closedTpPnl = closedTpPnl;
-              out.closedSlPnl = closedSlPnl;
-              out.closedTpN = closedTpN;
-              out.closedSlN = closedSlN;
-              propFirmState.liveClosedTpPnl = closedTpPnl;
-              propFirmState.liveClosedSlPnl = closedSlPnl;
-              propFirmState.liveClosedTpN = closedTpN;
-              propFirmState.liveClosedSlN = closedSlN;
-            }
+          const balImplied = out.balance - base;
+          // sane day move (< 25% of base)
+          if (Math.abs(balImplied) < base * 0.25) {
+            bestClosed = balImplied;
+            bestSrc = 'balance';
           }
         }
       }
-    } catch (_eInf) {}
+    } catch (_eBal) {}
+
+    // 2) MT5 Account Profit − floating (only if non-zero / meaningful)
+    if (Number.isFinite(acctDayProfit)) {
+      const realizedAcct = acctDayProfit - (Number.isFinite(openPnl) ? openPnl : 0);
+      // Prefer account when it disagrees with deals by > $1 and is not just "0"
+      if (Math.abs(realizedAcct) > 0.01 && Math.abs(realizedAcct - dealSum) > 1) {
+        // If balance implied exists and is close to account, either works
+        if (bestSrc !== 'balance' || Math.abs(bestClosed - realizedAcct) < 1) {
+          bestClosed = realizedAcct;
+          bestSrc = 'account';
+        }
+      }
+    }
+
+    // Apply best estimate; if HISTORY missed a trade, attribute residual once
+    if (Math.abs(bestClosed - dealSum) > 1) {
+      const residual = bestClosed - dealSum;
+      closedPnl = bestClosed;
+      // Only add ONE synthetic residual trade when we already have ≥1 real deal
+      // (e.g. SL -102.96 in HISTORY, residual +194.76 → TP)
+      if (dealN >= 1 && Math.abs(residual) > 1) {
+        closedToday = dealN + 1;
+        if (residual >= 0) {
+          closedTpPnl += residual;
+          closedTpN += 1;
+        } else {
+          closedSlPnl += residual;
+          closedSlN += 1;
+        }
+      } else if (dealN === 0) {
+        closedToday = 1;
+        closedTpPnl = 0; closedSlPnl = 0; closedTpN = 0; closedSlN = 0;
+        if (bestClosed >= 0) { closedTpPnl = bestClosed; closedTpN = 1; }
+        else { closedSlPnl = bestClosed; closedSlN = 1; }
+      }
+    } else {
+      closedPnl = dealSum;
+    }
+
+    // Recompute TP/SL labels from final closedPnl if breakdown still nets wrong
+    // (guard: TP and SL should not be exact mirrors of one HISTORY loss)
+    if (closedTpN === 1 && closedSlN === 1 &&
+        Math.abs(closedTpPnl + closedSlPnl) < 0.05 &&
+        Math.abs(closedTpPnl) > 0.01 &&
+        Math.abs(Math.abs(closedTpPnl) - Math.abs(closedSlPnl)) < 0.05) {
+      // classic fake-mirror bug — rebuild from dealSum + residual vs bestClosed
+      closedTpPnl = 0; closedSlPnl = 0; closedTpN = 0; closedSlN = 0;
+      if (dealSum < 0) { closedSlPnl = dealSum; closedSlN = 1; }
+      else if (dealSum > 0) { closedTpPnl = dealSum; closedTpN = 1; }
+      const res2 = closedPnl - dealSum;
+      if (Math.abs(res2) > 1) {
+        if (res2 >= 0) { closedTpPnl += res2; closedTpN += 1; }
+        else { closedSlPnl += res2; closedSlN += 1; }
+        closedToday = closedTpN + closedSlN;
+      }
+    }
+
+    out.closedTpPnl = closedTpPnl;
+    out.closedSlPnl = closedSlPnl;
+    out.closedTpN = closedTpN;
+    out.closedSlN = closedSlN;
+    propFirmState.liveClosedTpPnl = closedTpPnl;
+    propFirmState.liveClosedSlPnl = closedSlPnl;
+    propFirmState.liveClosedTpN = closedTpN;
+    propFirmState.liveClosedSlN = closedSlN;
 
     // MT5 only — deals + account profit. No backtest / local ledger.
     const usedClosedPnl = closedPnl;
