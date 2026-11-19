@@ -20997,17 +20997,13 @@ function propFirmScanMt5Account() {
     }
     out.equity = eq > 1 ? eq : 0; // Never substitute balance for missing broker equity.
 
-    // MT5 deal timestamps are UTC epoch. The bridge supplies the broker's
-    // UTC offset; use broker-server midnight, never the browser's local midnight.
-    const brokerOffsetHours = Number(d.broker_utc_offset_hours != null
-      ? d.broker_utc_offset_hours
-      : (MT5_BRIDGE.historyInfo && MT5_BRIDGE.historyInfo.broker_utc_offset_hours != null
-        ? MT5_BRIDGE.historyInfo.broker_utc_offset_hours : 0));
-    const safeBrokerOffset = Number.isFinite(brokerOffsetHours) && Math.abs(brokerOffsetHours) <= 14
-      ? brokerOffsetHours : 0;
-    const shiftedNow = new Date(Date.now() + safeBrokerOffset * 3600000);
-    const brokerMidnightShifted = Date.UTC(shiftedNow.getUTCFullYear(), shiftedNow.getUTCMonth(), shiftedNow.getUTCDate());
-    const startMs = brokerMidnightShifted - safeBrokerOffset * 3600000;
+    // TODAY is defined strictly by India Standard Time (Asia/Kolkata, UTC+05:30),
+    // regardless of the MT5 broker server timezone or the device/browser timezone.
+    // MT5 deal timestamps from the bridge are UTC epoch milliseconds/seconds.
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const nowIST = new Date(Date.now() + IST_OFFSET_MS);
+    const istMidnightAsUtc = Date.UTC(nowIST.getUTCFullYear(), nowIST.getUTCMonth(), nowIST.getUTCDate());
+    const startMs = istMidnightAsUtc - IST_OFFSET_MS;
     const endMs = startMs + 86400000;
 
     function toMs(t) {
@@ -21135,8 +21131,8 @@ function propFirmScanMt5Account() {
           return closeTimeMs(b) > closeTimeMs(a) ? b : a;
         });
         const finalExitMs = closeTimeMs(finalExit);
-        // Local calendar day only. Do not union UTC midnight with local
-        // midnight: that incorrectly pulls trades from the adjacent day.
+        // A trade is counted today only when its final MT5 exit timestamp falls
+        // inside today's IST window (00:00–23:59:59.999 Asia/Kolkata).
         if (!(finalExitMs > 0) || !isInToday(finalExitMs)) return;
 
         let positionNet = 0;
@@ -21356,7 +21352,9 @@ async function mt5RefreshStatus() {
     } catch (eAcc) {}
     // Probe HISTORY for today closed profit when closed_positions is thin
     try {
-      const rh = await mt5Post({action:'HISTORY',symbol:MT5_BRIDGE.symbol, day:'today'});
+      // Request the complete MT5 deal history window. Filter TODAY in HTML by
+      // IST, not by broker/server day or a bridge-side 'today' interpretation.
+      const rh = await mt5Post({action:'HISTORY'});
       if (rh && rh.ok && rh.data && typeof rh.data === 'object') {
         MT5_BRIDGE.historyInfo = rh.data;
         d = Object.assign({}, d, rh.data);
@@ -24850,14 +24848,9 @@ if ('serviceWorker' in navigator) {
               _balTxt += ' · eq $' + _eqN.toLocaleString(undefined, { maximumFractionDigits: 2 });
             }
             html += row('MT5 REAL BAL', _balTxt, _balN > 1 ? '#e2e8f0' : '#fbbf24');
-            var _ct = Number(_scan.closedToday) || 0;
-            var _ot = Number(_scan.openCount) || 0;
-            var _cPnl = Number(_scan.closedPnl); if (!Number.isFinite(_cPnl)) _cPnl = 0;
-            var _oPnl = Number(_scan.openPnl); if (!Number.isFinite(_oPnl)) _oPnl = 0;
-            var _tradeLbl = (_ct + ' MT5 closed') + (_ot ? (' + ' + _ot + ' open') : '');
-            var _pnlDetail = ' · C ' + (_cPnl >= 0 ? '+' : '-') + '$' + Math.abs(_cPnl).toFixed(2) +
-              ' / F ' + (_oPnl >= 0 ? '+' : '-') + '$' + Math.abs(_oPnl).toFixed(2);
-            html += row('TODAY PnL', (_pnl >= 0 ? '+$' : '-$') + Math.abs(_pnl).toFixed(2) + ' · ' + _tradeLbl + _pnlDetail, _pnlCol);
+            // Keep the monitor concise: one combined number only.
+            // It equals today's MT5 closed trades (IST) plus current MT5 floating PnL.
+            html += row('TODAY PnL', (_liveTag === 'MT5 LIVE' ? ((_pnl >= 0 ? '+$' : '-$') + Math.abs(_pnl).toFixed(2)) : 'WAITING FOR LIVE MT5 HISTORY'), _liveTag === 'MT5 LIVE' ? _pnlCol : '#fb7185');
             var _maxRoom = (typeof propFirmMaxLossRoomUsd === 'function') ? propFirmMaxLossRoomUsd() : NaN;
             html += row('MAX LOSS CAP', '$' + Math.round(_maxLoss$).toLocaleString() + ' · ' + (Number(propFirmState.maxLossPct)||5) + '%', '#f87171');
             html += row('MAX LOSS ROOM', Number.isFinite(_maxRoom) ? ('$' + Math.round(_maxRoom).toLocaleString() + ' left · $' + Math.round(Math.max(0, _maxLoss$ - _maxRoom)).toLocaleString() + ' used') : 'WAITING FOR LIVE MT5 EQUITY', Number.isFinite(_maxRoom) && _maxRoom > 0 ? '#34d399' : '#fb7185');
