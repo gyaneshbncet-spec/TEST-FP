@@ -8603,7 +8603,6 @@ function tickNewsCountdown() {
     if (drawerTimer) drawerTimer.textContent = "ACTIVE";
     if (chartTitleEl) chartTitleEl.textContent = "USD Live News";
     if (chartTimerEl) chartTimerEl.textContent = "ACTIVE";
-    // Still run prop firm news tick (may use redFolderEvents fallback)
     try { if (typeof propFirmNewsTick === 'function') propFirmNewsTick(); } catch (_eN0) {}
     return;
   }
@@ -8618,7 +8617,6 @@ function tickNewsCountdown() {
       chartTimerEl.textContent = "LIVE NOW";
       chartTimerEl.style.color = '#ff2a44';
     }
-    // PROPFIRM: force-close + block new trades through +5m after news
     try { if (typeof propFirmNewsTick === 'function') propFirmNewsTick(); } catch (_eN1) {}
     return;
   }
@@ -8640,7 +8638,6 @@ function tickNewsCountdown() {
     chartTimerEl.textContent = timerStr;
     chartTimerEl.style.color = (totalSecs < 300) ? '#ff2a44' : '#f59e0b';
   }
-  // PROPFIRM: at −5m start force-close all open trades and lock entries until +5m
   try { if (typeof propFirmNewsTick === 'function') propFirmNewsTick(); } catch (_eN3) {}
 }
 
@@ -21508,48 +21505,60 @@ function propFirmScanMt5Account() {
       });
     } catch (_eBag) {}
 
-    // Local day window + 36h safety so early-morning broker timestamps still count
+    // Local calendar day first; soft 36h ONLY if zero deals found in local day
+    // (prevents yesterday's closes leaking into TODAY TRADE COUNT).
     const dayStart = startMs;
     const dayEnd = endMs;
     const softStart = Date.now() - 36 * 3600 * 1000;
 
-    const seen = Object.create(null);
-    const tradePnls = []; // one entry per unique close
+    function collectTradePnls(useSoft) {
+      const seen = Object.create(null);
+      const tradePnls = [];
+      for (let i = 0; i < bag.length; i++) {
+        const row = bag[i];
+        if (!row || typeof row !== 'object') continue;
+        if (isBalanceDeal(row)) continue;
 
-    for (let i = 0; i < bag.length; i++) {
-      const row = bag[i];
-      if (!row || typeof row !== 'object') continue;
-      if (isBalanceDeal(row)) continue;
+        const pnl = dealProfit(row);
+        if (!Number.isFinite(pnl) || Math.abs(pnl) < 0.005) continue;
 
-      // Profit first — skip zero-profit open/entry noise
-      const pnl = dealProfit(row);
-      if (!Number.isFinite(pnl) || Math.abs(pnl) < 0.005) continue;
+        // Prefer exits; skip explicit IN entries
+        if (!isExitDeal(row) && row.entry != null && row.Entry == null && row.deal_entry == null) {
+          const raw = row.entry;
+          const en = String(raw).toUpperCase();
+          if (en === '0' || en === 'IN' || en === 'DEAL_ENTRY_IN') continue;
+        }
 
-      // Prefer exits; still accept any row with real profit (some bridges omit entry)
-      if (!isExitDeal(row) && row.entry != null && row.Entry == null && row.deal_entry == null) {
-        // explicit IN with profit is rare; skip
-        const raw = row.entry;
-        const en = String(raw).toUpperCase();
-        if (en === '0' || en === 'IN' || en === 'DEAL_ENTRY_IN') continue;
+        let tms = closeTimeMs(row);
+        if (!(tms > 0)) tms = Number(row.time_msc || row.time || row.Time || 0) || 0;
+        if (tms > 0 && tms < 1e12) tms *= 1000;
+
+        const inToday = tms >= dayStart && tms < dayEnd;
+        const inSoft = tms >= softStart && tms <= Date.now() + 60000;
+        if (tms > 0) {
+          if (useSoft) {
+            if (!inToday && !inSoft) continue;
+          } else {
+            if (!inToday) continue;
+          }
+        } else if (!row._src) {
+          continue; // no time and not live cache
+        }
+
+        const dealId = String(row.ticket || row.deal || row.Deal || '');
+        const posId = String(row.position_id || row.Position || row.position || '');
+        // Prefer position_id so partial closes of same position still count as one trade key when possible
+        const key = posId || dealId || (pnl.toFixed(2) + '|' + Math.floor((tms || 0) / 60000));
+        if (seen[key]) continue;
+        seen[key] = 1;
+        tradePnls.push(pnl);
       }
+      return tradePnls;
+    }
 
-      let tms = closeTimeMs(row);
-      if (!(tms > 0)) tms = Number(row.time_msc || row.time || row.Time || 0) || 0;
-      if (tms > 0 && tms < 1e12) tms *= 1000;
-      // Keep if in local today, OR has real profit and is within last 36h (broker TZ skew)
-      const inToday = tms >= dayStart && tms < dayEnd;
-      const inSoft = tms >= softStart && tms <= Date.now() + 60000;
-      if (tms > 0 && !inToday && !inSoft) continue;
-      if (!(tms > 0) && !row._src) continue; // no time and not live cache
-
-      // Unique key: deal ticket, else position+profit+time bucket
-      const dealId = String(row.ticket || row.deal || row.Deal || '');
-      const posId = String(row.position_id || row.Position || row.position || '');
-      const key = dealId || (posId + '|' + pnl.toFixed(2) + '|' + Math.floor((tms || 0) / 60000));
-      if (seen[key]) continue;
-      seen[key] = 1;
-
-      tradePnls.push(pnl);
+    let tradePnls = collectTradePnls(false);
+    if (tradePnls.length === 0) {
+      tradePnls = collectTradePnls(true); // soft window fallback only when local day is empty
     }
 
     tradePnls.forEach(function (v) {
@@ -21607,13 +21616,15 @@ function propFirmScanMt5Account() {
       }
     }
 
-    // ---- Reconcile incomplete HISTORY with MT5 balance (not fake mirror TP) ----
-    // Bug we hit: Account Profit came back as 0 → residual = 0 - (-102.96) = +102.96
-    // invented a fake TP equal to the SL and showed net $0. Never do that.
-    // Truth from your account: bal 10091.8 − base 10000 = +91.80
-    // HISTORY only had SL -102.96 → missing TP residual = +194.76
+    // ---- LIVE MT5 closed PnL (NO synthetic residual trades) ----
+    // Count + TP/SL breakdown come ONLY from real exit deals / live closed cache.
+    // Never invent an extra "missing TP" row — that produced 3 trades when MT5 had 2 closed + 1 floating.
+    // closedPnl total stays the sum of those real deals. Floating is always separate (equity − balance).
     const dealSum = closedPnl;
     const dealN = closedToday;
+
+    // Optional: if HISTORY is empty but Account Profit is meaningful, use it for TOTAL only
+    // (still leave trade count at 0 so we do not invent TP/SL labels).
     let acctDayProfit = coerceMoney(
       d.profit != null ? d.profit :
         (d.Profit != null ? d.Profit :
@@ -21634,84 +21645,34 @@ function propFirmScanMt5Account() {
         }
       }
     }
-    // Ignore useless Account Profit = 0 when we already have non-zero deal PnL
     if (Number.isFinite(acctDayProfit) && Math.abs(acctDayProfit) < 0.01 && Math.abs(dealSum) > 1) {
       acctDayProfit = NaN;
     }
 
-    let bestClosed = dealSum;
-    let bestSrc = 'deals';
-
-    // 1) Balance − prop base when flat (most reliable on your setup)
-    try {
-      if (out.balance > 1 && Math.abs(openPnl) < 0.5) {
-        const base = (typeof propFirmAccountSizeUsd === 'function') ? propFirmAccountSizeUsd() : 0;
-        if (base > 1) {
-          const balImplied = out.balance - base;
-          // sane day move (< 25% of base)
-          if (Math.abs(balImplied) < base * 0.25) {
-            bestClosed = balImplied;
-            bestSrc = 'balance';
-          }
-        }
-      }
-    } catch (_eBal) {}
-
-    // 2) MT5 Account Profit − floating (only if non-zero / meaningful)
-    if (Number.isFinite(acctDayProfit)) {
+    // Prefer real deal sum. Only fall back to Account Profit − floating when we have ZERO deals.
+    if (dealN === 0 && Number.isFinite(acctDayProfit)) {
       const realizedAcct = acctDayProfit - (Number.isFinite(openPnl) ? openPnl : 0);
-      // Prefer account when it disagrees with deals by > $1 and is not just "0"
-      if (Math.abs(realizedAcct) > 0.01 && Math.abs(realizedAcct - dealSum) > 1) {
-        // If balance implied exists and is close to account, either works
-        if (bestSrc !== 'balance' || Math.abs(bestClosed - realizedAcct) < 1) {
-          bestClosed = realizedAcct;
-          bestSrc = 'account';
-        }
-      }
-    }
-
-    // Apply best estimate; if HISTORY missed a trade, attribute residual once
-    if (Math.abs(bestClosed - dealSum) > 1) {
-      const residual = bestClosed - dealSum;
-      closedPnl = bestClosed;
-      // Only add ONE synthetic residual trade when we already have ≥1 real deal
-      // (e.g. SL -102.96 in HISTORY, residual +194.76 → TP)
-      if (dealN >= 1 && Math.abs(residual) > 1) {
-        closedToday = dealN + 1;
-        if (residual >= 0) {
-          closedTpPnl += residual;
-          closedTpN += 1;
-        } else {
-          closedSlPnl += residual;
-          closedSlN += 1;
-        }
-      } else if (dealN === 0) {
-        closedToday = 1;
-        closedTpPnl = 0; closedSlPnl = 0; closedTpN = 0; closedSlN = 0;
-        if (bestClosed >= 0) { closedTpPnl = bestClosed; closedTpN = 1; }
-        else { closedSlPnl = bestClosed; closedSlN = 1; }
+      if (Math.abs(realizedAcct) > 0.01) {
+        closedPnl = realizedAcct;
+        // Do NOT invent closedToday / TP / SL — wait for HISTORY to fill the breakdown.
       }
     } else {
-      closedPnl = dealSum;
+      closedPnl = dealSum; // real deals only
     }
 
-    // Recompute TP/SL labels from final closedPnl if breakdown still nets wrong
-    // (guard: TP and SL should not be exact mirrors of one HISTORY loss)
-    if (closedTpN === 1 && closedSlN === 1 &&
-        Math.abs(closedTpPnl + closedSlPnl) < 0.05 &&
-        Math.abs(closedTpPnl) > 0.01 &&
-        Math.abs(Math.abs(closedTpPnl) - Math.abs(closedSlPnl)) < 0.05) {
-      // classic fake-mirror bug — rebuild from dealSum + residual vs bestClosed
-      closedTpPnl = 0; closedSlPnl = 0; closedTpN = 0; closedSlN = 0;
-      if (dealSum < 0) { closedSlPnl = dealSum; closedSlN = 1; }
-      else if (dealSum > 0) { closedTpPnl = dealSum; closedTpN = 1; }
-      const res2 = closedPnl - dealSum;
-      if (Math.abs(res2) > 1) {
-        if (res2 >= 0) { closedTpPnl += res2; closedTpN += 1; }
-        else { closedSlPnl += res2; closedSlN += 1; }
-        closedToday = closedTpN + closedSlN;
+    // Flag large disagreement for UI (HISTORY may lag) without inventing trades
+    try {
+      if (dealN >= 1 && Number.isFinite(acctDayProfit)) {
+        const realizedAcct = acctDayProfit - (Number.isFinite(openPnl) ? openPnl : 0);
+        if (Math.abs(realizedAcct - dealSum) > 5) {
+          propFirmState.liveHistoryGap = realizedAcct - dealSum;
+        } else {
+          propFirmState.liveHistoryGap = 0;
+        }
+      } else {
+        propFirmState.liveHistoryGap = 0;
       }
-    }
+    } catch (_eGap) { propFirmState.liveHistoryGap = 0; }
 
     out.closedTpPnl = closedTpPnl;
     out.closedSlPnl = closedSlPnl;
@@ -21722,7 +21683,7 @@ function propFirmScanMt5Account() {
     propFirmState.liveClosedTpN = closedTpN;
     propFirmState.liveClosedSlN = closedSlN;
 
-    // MT5 only — deals + account profit. No backtest / local ledger.
+    // MT5 only — real deals. No residual invention. No backtest / local ledger.
     const usedClosedPnl = closedPnl;
     const usedClosedN = closedToday;
 
@@ -22147,8 +22108,9 @@ async function mt5RefreshStatus() {
   finally{MT5_BRIDGE.pollBusy=false;}
 }
 function mt5StartPolling(){
-  // Live STATUS every 2s so TP/SL → closed PnL / day room update in near real time.
-  // Dedicated HISTORY+scan every 60s as a safety net for day PnL.
+  // Live STATUS every 2s so equity / floating / open count stay realtime.
+  // HISTORY is adaptive: every ~12s while positions are open or a close just
+  // happened (so TODAY MT5 PNL / trade count match broker quickly), else ~40s.
   // EXECUTION ON/OFF only gates order punches — polling never stops.
   if(MT5_BRIDGE.pollTimer){
     try { clearInterval(MT5_BRIDGE.pollTimer); } catch(eC) {}
@@ -22162,17 +22124,33 @@ function mt5StartPolling(){
     if (!MT5_BRIDGE.token) return;
     try { mt5RefreshStatus(); } catch (e) {}
   }, 2000);
-  // Auto-scan every 60s: force HISTORY then full prop-firm day PnL refresh
+
+  function mt5ShouldForceHistory() {
+    try {
+      if (MT5_BRIDGE._forceHistoryNext) return true;
+      const openN = Number(propFirmState && propFirmState.liveOpenCount) || 0;
+      if (openN > 0) return true;
+      const age = Date.now() - (Number(MT5_BRIDGE.historyInfoAt) || 0);
+      if (age > 40000) return true;
+      // After a close the live cache may have a row HISTORY has not yet returned
+      if (__mt5LiveClosedCache && Object.keys(__mt5LiveClosedCache).length) {
+        if (age > 12000) return true;
+      }
+    } catch (_e) {}
+    return false;
+  }
+
   MT5_BRIDGE.historyTimer = setInterval(function () {
     if (!MT5_BRIDGE.token) return;
     try {
+      if (!mt5ShouldForceHistory()) return;
       MT5_BRIDGE._forceHistoryNext = true;
       mt5RefreshStatus().then(function () {
         try { if (typeof propFirmScanMt5Account === 'function') propFirmScanMt5Account(); } catch (e1) {}
         try { if (typeof goldExecDomRefresh === 'function') goldExecDomRefresh(); } catch (e2) {}
       });
     } catch (e) {}
-  }, 60000);
+  }, 12000);
   if (MT5_BRIDGE.token) {
     setTimeout(function () { try { mt5RefreshStatus(); } catch (e) {} }, 300);
     setTimeout(function () { try { mt5RefreshStatus(); } catch (e) {} }, 1200);
@@ -25617,17 +25595,24 @@ if ('serviceWorker' in navigator) {
             var _tpN = Number(_scan.closedTpN != null ? _scan.closedTpN : propFirmState.liveClosedTpN) || 0;
             var _slN = Number(_scan.closedSlN != null ? _scan.closedSlN : propFirmState.liveClosedSlN) || 0;
             var _nDeals = Number(_scan.closedToday) || 0;
-            // From your MT5 alerts: TP $194.76 + SL -$102.96 = net $91.80 · 2 trades
+            // Real MT5 only: closed deals from HISTORY/live cache. Never invent residual trades.
+            // Example target: 1 TP + 1 SL + 1 floating → count 2 closed, floating separate.
             var _flash = _hasMt5Nums
-              ? (_fmtPnl(_closedPnl) + '   ·   ' + _nDeals + ' trade' + (_nDeals === 1 ? '' : 's'))
+              ? (_fmtPnl(_closedPnl) + '   ·   ' + _nDeals + ' closed')
               : 'WAITING FOR MT5';
             if (_hasMt5Nums && _nDeals > 0) {
               _flash += '   ·   TP ' + _fmtPnl(_tpP) + ' (' + _tpN + ')  SL ' + _fmtPnl(_slP) + ' (' + _slN + ')';
             }
-            html += row('TODAY MT5 PNL', _flash, _hasMt5Nums ? (_closedPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
-            html += row('TODAY TRADE COUNT', _hasMt5Nums ? String(_nDeals) : '—', '#e2e8f0');
+            try {
+              var _gap = Number(propFirmState.liveHistoryGap) || 0;
+              if (_hasMt5Nums && Math.abs(_gap) > 5) {
+                _flash += '   ·   hist lag';
+              }
+            } catch (_eG) {}
+            html += row('TODAY CLOSED PNL', _flash, _hasMt5Nums ? (_closedPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
+            html += row('TODAY CLOSED TRADES', _hasMt5Nums ? String(_nDeals) : '—', '#e2e8f0');
             html += row('FLOATING PNL', _hasMt5Nums ? _fmtPnl(_floatPnl) : 'WAITING FOR LIVE MT5 EQUITY', _hasMt5Nums ? (_floatPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
-            html += row('TOTAL TODAY PNL', _hasMt5Nums ? _fmtPnl(_pnl) : 'WAITING FOR LIVE MT5 HISTORY', _hasMt5Nums ? _pnlCol : '#fb7185');
+            html += row('TOTAL TODAY PNL', _hasMt5Nums ? (_fmtPnl(_pnl) + '  (closed+float)') : 'WAITING FOR LIVE MT5 HISTORY', _hasMt5Nums ? _pnlCol : '#fb7185');
             var _maxRoom = (typeof propFirmMaxLossRoomUsd === 'function') ? propFirmMaxLossRoomUsd() : NaN;
             html += row('MAX LOSS CAP', '$' + Math.round(_maxLoss$).toLocaleString() + ' · ' + (Number(propFirmState.maxLossPct)||5) + '%', '#f87171');
             html += row('MAX LOSS ROOM', Number.isFinite(_maxRoom) ? ('$' + Math.round(_maxRoom).toLocaleString() + ' left · $' + Math.round(Math.max(0, _maxLoss$ - _maxRoom)).toLocaleString() + ' used') : 'WAITING FOR LIVE MT5 EQUITY', Number.isFinite(_maxRoom) && _maxRoom > 0 ? '#34d399' : '#fb7185');
