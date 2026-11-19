@@ -20365,7 +20365,7 @@ async function algoAutoBacktestAllTfs(force) {
 const MT5_BRIDGE = {
   url: 'http://127.0.0.1:8080/trade', enabled: false, connected: false,
   lastOk: 0, lastErr: '', symbol: 'GOLD.i#', token: '', lastStatus: null,
-  pollTimer: null, pollBusy: false
+  pollTimer: null, historyTimer: null, pollBusy: false, _forceHistoryNext: false, _lastOpenCount: null
 };
 
 let _mt5PrefsInitialized = false;
@@ -20556,6 +20556,49 @@ let propFirmState = {
   liveDataError: '',
   htfPrefer: true // PROPFIRM: prefer / require 15m+ entries
 };
+
+/** Instant closed deals detected from STATUS (TP/SL) before HISTORY catches up.
+ *  Keyed by ticket/position id. Filtered to local calendar day on each scan. */
+var __mt5LiveClosedCache = Object.create(null);
+function mt5RememberClosedDeal(row) {
+  if (!row || typeof row !== 'object') return;
+  try {
+    const ticket = String(row.ticket || row.deal || row.position_id || row.Position || row.id || '');
+    if (!ticket) return;
+    const profit = Number(row.profit != null ? row.profit : (row.Profit != null ? row.Profit : (row.pnl != null ? row.pnl : 0))) || 0;
+    let tms = Number(row.time_msc || row.close_time_msc || row.time || row.Time || row.close_time || row.TimeClose || Date.now()) || Date.now();
+    if (tms > 0 && tms < 1e12) tms *= 1000;
+    else if (tms > 1e14) tms = Math.floor(tms / 1000);
+    __mt5LiveClosedCache[ticket] = {
+      ticket: ticket,
+      deal: ticket,
+      position_id: row.position_id || row.Position || ticket,
+      profit: profit,
+      Profit: profit,
+      commission: Number(row.commission || row.Commission || 0) || 0,
+      swap: Number(row.swap || row.Swap || 0) || 0,
+      fee: Number(row.fee || row.Fee || 0) || 0,
+      entry: row.entry != null ? row.entry : 1, // mark as exit
+      time: tms,
+      time_msc: tms,
+      close_time: tms,
+      symbol: row.symbol || row.Symbol || '',
+      _src: 'live_status'
+    };
+  } catch (e) {}
+}
+function mt5PruneClosedCacheLocalDay() {
+  try {
+    const now = new Date();
+    const startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const endMs = startMs + 86400000;
+    Object.keys(__mt5LiveClosedCache).forEach(function (k) {
+      const r = __mt5LiveClosedCache[k];
+      const t = Number(r && (r.time_msc || r.time)) || 0;
+      if (!(t >= startMs && t < endMs)) delete __mt5LiveClosedCache[k];
+    });
+  } catch (e) {}
+}
 
 function propFirmLoad() {
   try {
@@ -21000,13 +21043,12 @@ function propFirmScanMt5Account() {
     }
     out.equity = eq > 1 ? eq : 0; // Never substitute balance for missing broker equity.
 
-    // TODAY is defined strictly by India Standard Time (Asia/Kolkata, UTC+05:30),
-    // regardless of the MT5 broker server timezone or the device/browser timezone.
-    // MT5 deal timestamps from the bridge are UTC epoch milliseconds/seconds.
-    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-    const nowIST = new Date(Date.now() + IST_OFFSET_MS);
-    const istMidnightAsUtc = Date.UTC(nowIST.getUTCFullYear(), nowIST.getUTCMonth(), nowIST.getUTCDate());
-    const startMs = istMidnightAsUtc - IST_OFFSET_MS;
+    // TODAY = device LOCAL calendar day (user local time).
+    // MT5 deal timestamps from the bridge are UTC epoch ms/s; we compare against
+    // local midnight → local midnight+1d so closed PnL matches the trader's clock.
+    // (If the browser is set to Asia/Kolkata this is IST; other TZs use that local day.)
+    const _localNow = new Date();
+    const startMs = new Date(_localNow.getFullYear(), _localNow.getMonth(), _localNow.getDate()).getTime();
     const endMs = startMs + 86400000;
 
     function toMs(t) {
@@ -21085,9 +21127,9 @@ function propFirmScanMt5Account() {
         entry === 'DEAL_ENTRY_OUT' || entry === 'DEAL_ENTRY_OUT_BY' || entry === 'DEAL_ENTRY_INOUT';
     }
 
-    // ---- MT5 REALIZED PNL: sum today's actual EXIT deals by IST timestamp ----
-    // Do not group by position_id or depend on the position still being present.
-    // MT5 records each realized close (including partial closes) as an OUT/OUT_BY/INOUT deal.
+    // ---- MT5 REALIZED PNL: sum today's EXIT deals by LOCAL calendar day ----
+    // Always union history_deals + closed_positions (by ticket). An empty deals
+    // array from HISTORY must NOT block closed_positions fallback (prior bug).
     let closedPnl = 0;
     let closedToday = 0;
     let rawDeals = Array.isArray(d.history_deals) ? d.history_deals :
@@ -21120,45 +21162,45 @@ function propFirmScanMt5Account() {
       } catch (_nd) {}
     }
     if (!rawDeals) rawDeals = [];
-    // Authoritative when the bridge returned a deals array (even empty = no closes today),
-    // or explicitly marked full-account history. Do not require history_scope alone.
-    const hasAuthoritativeDeals = Array.isArray(rawDeals) && (
-      rawDeals.length > 0 ||
-      !!(MT5_BRIDGE && MT5_BRIDGE.historyInfo && !MT5_BRIDGE.historyInfoError) ||
-      d.history_scope === 'ALL_ACCOUNT_SYMBOLS' ||
-      (MT5_BRIDGE && MT5_BRIDGE.historyInfo && MT5_BRIDGE.historyInfo.history_scope === 'ALL_ACCOUNT_SYMBOLS')
-    );
-    if (hasAuthoritativeDeals) {
-      const seenExitTickets = new Set();
-      for (let i = 0; i < rawDeals.length; i++) {
-        const deal = rawDeals[i];
-        if (!deal || isBalanceDeal(deal)) continue;
-        if (!isExitDeal(deal)) continue;
-        const closeMs = closeTimeMs(deal);
-        if (!isInToday(closeMs)) continue;
-        const ticket = String(deal.ticket || deal.deal || '');
-        if (ticket && seenExitTickets.has(ticket)) continue;
-        if (ticket) seenExitTickets.add(ticket);
-        // Deal PnL is realized on the close deal. Include its commission/swap/fee.
-        closedPnl += dealProfit(deal);
-        closedToday++;
+    const closedPosFallback = Array.isArray(d.closed_positions) ? d.closed_positions :
+      (Array.isArray(d.closedPositions) ? d.closedPositions :
+        (Array.isArray(d.ClosedPositions) ? d.ClosedPositions : []));
+    // Collect from deals first, then merge any closed_positions not already counted.
+    const seenExitTickets = new Set();
+    function accumulateExitRow(row) {
+      if (!row || isBalanceDeal(row)) return;
+      if (!isExitDeal(row)) return;
+      const closeMs = closeTimeMs(row);
+      if (!isInToday(closeMs)) return;
+      const ticket = String(row.ticket || row.deal || row.position_id || row.Position || '');
+      if (ticket && seenExitTickets.has(ticket)) return;
+      if (ticket) seenExitTickets.add(ticket);
+      closedPnl += dealProfit(row);
+      closedToday++;
+    }
+    for (let i = 0; i < rawDeals.length; i++) accumulateExitRow(rawDeals[i]);
+    for (let i = 0; i < closedPosFallback.length; i++) accumulateExitRow(closedPosFallback[i]);
+    // Instant TP/SL closes from STATUS (before HISTORY lag)
+    try {
+      mt5PruneClosedCacheLocalDay();
+      const cacheKeys = Object.keys(__mt5LiveClosedCache || {});
+      for (let ci = 0; ci < cacheKeys.length; ci++) {
+        accumulateExitRow(__mt5LiveClosedCache[cacheKeys[ci]]);
       }
-    } else {
-      // Compatibility fallback only when this bridge does not expose deal history.
-      const fallback = Array.isArray(d.closed_positions) ? d.closed_positions :
-        (Array.isArray(d.closedPositions) ? d.closedPositions : []);
-      const seen = new Set();
-      for (let i = 0; i < fallback.length; i++) {
-        const row = fallback[i];
-        if (!row || isBalanceDeal(row) || !isExitDeal(row)) continue;
-        const closeMs = closeTimeMs(row);
-        if (!isInToday(closeMs)) continue;
-        const key = String(row.ticket || row.deal || row.position_id || i);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        closedPnl += dealProfit(row);
+    } catch (_eCache) {}
+    // Last-resort: bridge-provided daily_profit when no deal rows parsed but value present
+    if (closedToday === 0) {
+      const bridgeDaily = coerceMoney(
+        d.daily_profit != null ? d.daily_profit :
+          (d.DailyProfit != null ? d.DailyProfit :
+            (d.profit_today != null ? d.profit_today :
+              (d.ProfitToday != null ? d.ProfitToday :
+                (d.closed_pnl_today != null ? d.closed_pnl_today : NaN))))
+      );
+      if (Number.isFinite(bridgeDaily) && bridgeDaily !== 0) {
+        closedPnl = bridgeDaily;
+        // deal count unknown from aggregate field — leave closedToday as counted
       }
-      closedToday = seen.size;
     }
 
     // ---- Account-wide live floating PnL ----
@@ -21268,7 +21310,16 @@ function propFirmMaxLossRoomUsd() {
  */
 function propFirmDayRoomUsd() {
   const cap = propFirmDayLossCapUsd();
-  const dayPnl = Number(propFirmState.liveDayPnl) || 0;
+  // Real-time day PnL = today's closed (local day) + live floating.
+  // Prefer component fields so room moves with equity even if liveDayPnl lags.
+  const closed = Number(propFirmState.liveClosedPnl);
+  const floating = Number(propFirmState.liveOpenPnl);
+  let dayPnl;
+  if (Number.isFinite(closed) || Number.isFinite(floating)) {
+    dayPnl = (Number.isFinite(closed) ? closed : 0) + (Number.isFinite(floating) ? floating : 0);
+  } else {
+    dayPnl = Number(propFirmState.liveDayPnl) || 0;
+  }
   // room = dayCap + min(0, dayPnl)  → loss reduces room; profit leaves full cap
   return Math.max(0, cap + Math.min(0, dayPnl));
 }
@@ -21376,11 +21427,23 @@ async function mt5RefreshStatus() {
         } catch (eOne) {}
       }
     } catch (eAcc) {}
-    // Probe HISTORY for today closed profit when closed_positions is thin
+    // Probe HISTORY for today closed profit (1 local calendar day + small buffer)
     try {
-      // Request the complete MT5 deal history window. Filter TODAY in HTML by
-      // IST, not by broker/server day or a bridge-side 'today' interpretation.
-      const rh = await mt5Post({action:'HISTORY'});
+      // Explicit from/to so the bridge returns at least today's deals (local day).
+      // Filter TODAY again in HTML by local midnight — do not trust bridge 'today'.
+      const _ln = new Date();
+      const _dayStart = new Date(_ln.getFullYear(), _ln.getMonth(), _ln.getDate()).getTime();
+      const _fromMs = _dayStart - 6 * 3600 * 1000; // 6h buffer for broker TZ skew
+      const _toMs = _dayStart + 86400000 + 3600 * 1000;
+      const rh = await mt5Post({
+        action: 'HISTORY',
+        from: Math.floor(_fromMs / 1000),
+        to: Math.floor(_toMs / 1000),
+        from_ms: _fromMs,
+        to_ms: _toMs,
+        days: 1,
+        period: '1d'
+      });
       if (rh && rh.ok && rh.data && typeof rh.data === 'object') {
         MT5_BRIDGE.historyInfo = rh.data;
         MT5_BRIDGE.historyInfoAt = Date.now();
@@ -21469,9 +21532,46 @@ async function mt5RefreshStatus() {
           changed = true;
         }
       } else if(t.mt5Ticket||t.mt5PositionId){
-        const c=closed.find(x=>String(x.position_id)===String(t.mt5PositionId||t.mt5Ticket));
-        if(c&&t.mt5Status!=='MT5_CLOSED'){t.mt5Status='MT5_CLOSED';t.mt5Closed=true;t.mt5BrokerExit=Number(c.price||c.price_close||c.close_price)||null;t.mt5BrokerProfit=Number(c.profit!=null?c.profit:(c.Profit!=null?c.Profit:0))||0;t.mt5BrokerCloseTime=Number(c.time_msc||c.time||c.Time||c.close_time)||0;if(t.mt5BrokerCloseTime>0&&t.mt5BrokerCloseTime<1e12)t.mt5BrokerCloseTime*=1000;changed=true;}
-        else if(!c && t.mt5Status==='MT5_FILLED'){t.mt5Status='MT5_POSITION_NOT_VISIBLE';changed=true;}
+        const c=closed.find(x=>String(x.position_id)===String(t.mt5PositionId||t.mt5Ticket)||String(x.ticket)===String(t.mt5Ticket));
+        if(c&&t.mt5Status!=='MT5_CLOSED'){
+          t.mt5Status='MT5_CLOSED';t.mt5Closed=true;
+          t.mt5BrokerExit=Number(c.price||c.price_close||c.close_price)||null;
+          t.mt5BrokerProfit=Number(c.profit!=null?c.profit:(c.Profit!=null?c.Profit:0))||0;
+          t.mt5BrokerCloseTime=Number(c.time_msc||c.time||c.Time||c.close_time)||0;
+          if(t.mt5BrokerCloseTime>0&&t.mt5BrokerCloseTime<1e12)t.mt5BrokerCloseTime*=1000;
+          if(!t.mt5BrokerCloseTime)t.mt5BrokerCloseTime=Date.now();
+          // Feed today's closed PnL immediately (TP/SL hit)
+          try {
+            mt5RememberClosedDeal({
+              ticket: t.mt5Ticket || t.mt5PositionId,
+              position_id: t.mt5PositionId || t.mt5Ticket,
+              profit: t.mt5BrokerProfit,
+              time_msc: t.mt5BrokerCloseTime,
+              symbol: t.symbol || (MT5_BRIDGE && MT5_BRIDGE.symbol) || '',
+              entry: 1
+            });
+            MT5_BRIDGE._forceHistoryNext = true;
+          } catch (_eRem) {}
+          changed=true;
+        }
+        else if(!c && (t.mt5Status==='MT5_FILLED' || t.mt5Status==='MT5_POSITION_NOT_VISIBLE')){
+          // Broker position vanished without closed row yet → still count as closed for day PnL
+          if (t.mt5Status==='MT5_FILLED') { t.mt5Status='MT5_POSITION_NOT_VISIBLE'; changed=true; }
+          // If local already has TP/SL outcome with pnl, remember it for today's closed
+          if ((t.outcome === 'TP' || t.outcome === 'SL' || t.status === 'TP' || t.status === 'SL') && t.pnl != null) {
+            try {
+              mt5RememberClosedDeal({
+                ticket: t.mt5Ticket || t.mt5PositionId || t.id,
+                position_id: t.mt5PositionId || t.mt5Ticket || t.id,
+                profit: Number(t.mt5BrokerProfit != null ? t.mt5BrokerProfit : t.pnl) || 0,
+                time_msc: Number(t.mt5BrokerCloseTime || t.exitTime || Date.now()),
+                symbol: t.symbol || (MT5_BRIDGE && MT5_BRIDGE.symbol) || '',
+                entry: 1
+              });
+              MT5_BRIDGE._forceHistoryNext = true;
+            } catch (_eRem2) {}
+          }
+        }
       }
       // Only retry strategy close when resolve is safe AND broker still shows position AND outcome is real
       if (p && (t.outcome === 'TP' || t.outcome === 'SL') && !t.mt5Closed && !t.mt5ClosePending) {
@@ -21480,26 +21580,58 @@ async function mt5RefreshStatus() {
         }
       }
     });
+    // Seed live closed cache from every closed_positions row in this STATUS
+    try {
+      for (let ci = 0; ci < closed.length; ci++) {
+        if (closed[ci]) mt5RememberClosedDeal(closed[ci]);
+      }
+    } catch (_eSeed) {}
+    // Detect open-count drop (TP/SL) → force next HISTORY pull
+    try {
+      const openNow = positions.length;
+      const prevOpen = (MT5_BRIDGE._lastOpenCount != null) ? MT5_BRIDGE._lastOpenCount : openNow;
+      if (openNow < prevOpen) MT5_BRIDGE._forceHistoryNext = true;
+      MT5_BRIDGE._lastOpenCount = openNow;
+    } catch (_eDrop) {}
+    // Re-scan prop firm day PnL/room after every STATUS (real-time)
+    try { if (typeof propFirmScanMt5Account === 'function') propFirmScanMt5Account(); } catch (_ePf2) {}
+    try { if (typeof goldExecDomRefresh === 'function') goldExecDomRefresh(); } catch (_eGed2) {}
     if(changed){algoSaveTrades(log);try{algoRenderLog();}catch(e){}}
     mt5PaintStatus();
   } catch(e){MT5_BRIDGE.connected=false;MT5_BRIDGE.lastErr=(e&&e.message)||'status error';mt5PaintStatus();}
   finally{MT5_BRIDGE.pollBusy=false;}
 }
 function mt5StartPolling(){
-  // Always keep a live STATUS heartbeat while the website is open so History
-  // and Gold Execution Monitor stay in sync with MT5 (positions, balance, tick).
+  // Live STATUS every 2s so TP/SL → closed PnL / day room update in near real time.
+  // Dedicated HISTORY+scan every 60s as a safety net for day PnL.
   // EXECUTION ON/OFF only gates order punches — polling never stops.
   if(MT5_BRIDGE.pollTimer){
     try { clearInterval(MT5_BRIDGE.pollTimer); } catch(eC) {}
     MT5_BRIDGE.pollTimer = null;
   }
+  if(MT5_BRIDGE.historyTimer){
+    try { clearInterval(MT5_BRIDGE.historyTimer); } catch(eH) {}
+    MT5_BRIDGE.historyTimer = null;
+  }
   MT5_BRIDGE.pollTimer = setInterval(function () {
     if (!MT5_BRIDGE.token) return;
     try { mt5RefreshStatus(); } catch (e) {}
-  }, 2500);
+  }, 2000);
+  // Auto-scan every 60s: force HISTORY then full prop-firm day PnL refresh
+  MT5_BRIDGE.historyTimer = setInterval(function () {
+    if (!MT5_BRIDGE.token) return;
+    try {
+      MT5_BRIDGE._forceHistoryNext = true;
+      mt5RefreshStatus().then(function () {
+        try { if (typeof propFirmScanMt5Account === 'function') propFirmScanMt5Account(); } catch (e1) {}
+        try { if (typeof goldExecDomRefresh === 'function') goldExecDomRefresh(); } catch (e2) {}
+      });
+    } catch (e) {}
+  }, 60000);
   if (MT5_BRIDGE.token) {
     setTimeout(function () { try { mt5RefreshStatus(); } catch (e) {} }, 300);
     setTimeout(function () { try { mt5RefreshStatus(); } catch (e) {} }, 1200);
+    setTimeout(function () { try { MT5_BRIDGE._forceHistoryNext = true; mt5RefreshStatus(); } catch (e) {} }, 2500);
   }
 }
 
@@ -24903,17 +25035,34 @@ if ('serviceWorker' in navigator) {
             // Show numbers whenever MT5 scan has a real source — do not hide behind strict LIVE tag.
             var _closedPnl = Number(_scan.closedPnl) || 0;
             var _floatPnl = Number(_scan.openPnl) || 0;
+            // Recompute total + room from live scan components (real-time)
+            _pnl = _closedPnl + _floatPnl;
+            _pnlCol = _pnl >= 0 ? '#34d399' : '#fb7185';
+            try {
+              if (typeof propFirmDayLossCapUsd === 'function') {
+                var _capLive = propFirmDayLossCapUsd();
+                _room = Math.max(0, _capLive + Math.min(0, _pnl));
+                _roomCol = _room > (_capLive * 0.25) ? '#34d399' : (_room > 1 ? '#fbbf24' : '#fb7185');
+              }
+            } catch (_eRoom) {}
             var _fmtPnl = function(v) { return (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2); };
-            var _hasMt5Nums = (_scan.source === 'mt5' || _scan.source === 'last_mt5') &&
-              (_liveTag === 'MT5 LIVE' || _liveTag === 'MT5 INCOMPLETE' || _liveTag === 'MT5 STALE');
-            html += row('CLOSED PNL TODAY', _hasMt5Nums ? (_fmtPnl(_closedPnl) + ' · ' + String(_scan.closedToday || 0) + ' deals') : 'WAITING FOR LIVE MT5 HISTORY', _hasMt5Nums ? (_closedPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
+            // Show numbers whenever broker source is present — do not hide behind LIVE tag.
+            // Only hide when we have never received MT5 account/history data.
+            var _hasMt5Nums = (_scan.source === 'mt5' || _scan.source === 'last_mt5');
+            var _hasHistory = _hasMt5Nums && (
+              (Number(_scan.closedToday) > 0) ||
+              (Number(_scan.closedPnl) !== 0) ||
+              (MT5_BRIDGE && MT5_BRIDGE.historyInfo && !MT5_BRIDGE.historyInfoError) ||
+              _liveTag === 'MT5 LIVE' || _liveTag === 'MT5 INCOMPLETE' || _liveTag === 'MT5 STALE'
+            );
+            html += row('CLOSED PNL TODAY', _hasHistory ? (_fmtPnl(_closedPnl) + ' · ' + String(_scan.closedToday || 0) + ' deals · local day') : 'WAITING FOR LIVE MT5 HISTORY', _hasHistory ? (_closedPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
             html += row('FLOATING PNL', _hasMt5Nums ? _fmtPnl(_floatPnl) : 'WAITING FOR LIVE MT5 EQUITY', _hasMt5Nums ? (_floatPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
             html += row('TOTAL TODAY PNL', _hasMt5Nums ? _fmtPnl(_pnl) : 'WAITING FOR LIVE MT5 HISTORY', _hasMt5Nums ? _pnlCol : '#fb7185');
             var _maxRoom = (typeof propFirmMaxLossRoomUsd === 'function') ? propFirmMaxLossRoomUsd() : NaN;
             html += row('MAX LOSS CAP', '$' + Math.round(_maxLoss$).toLocaleString() + ' · ' + (Number(propFirmState.maxLossPct)||5) + '%', '#f87171');
             html += row('MAX LOSS ROOM', Number.isFinite(_maxRoom) ? ('$' + Math.round(_maxRoom).toLocaleString() + ' left · $' + Math.round(Math.max(0, _maxLoss$ - _maxRoom)).toLocaleString() + ' used') : 'WAITING FOR LIVE MT5 EQUITY', Number.isFinite(_maxRoom) && _maxRoom > 0 ? '#34d399' : '#fb7185');
             html += row('DAY LOSS CAP', '$' + Math.round(_cap).toLocaleString() + ' · ' + (Number(propFirmState.dayLossPct)||5) + '%', '#fbbf24');
-            html += row('DAY ROOM LEFT', (_hasMt5Nums ? '$' + Math.round(_room).toLocaleString() : 'WAITING FOR LIVE MT5 HISTORY'), _hasMt5Nums ? _roomCol : '#fb7185');
+            html += row('DAY ROOM LEFT', (_hasMt5Nums ? '$' + Math.round(_room).toLocaleString() + ' · live' : 'WAITING FOR LIVE MT5 HISTORY'), _hasMt5Nums ? _roomCol : '#fb7185');
             html += row('OPEN (MT5)', String(_scan.openCount || 0) + ' · max 1', (_scan.openCount >= 1) ? '#fb7185' : '#34d399');
             html += row('TF PREFER', '15m+', '#93c5fd');
           } catch (_eScan) {}
