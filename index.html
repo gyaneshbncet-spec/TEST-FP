@@ -21082,104 +21082,69 @@ function propFirmScanMt5Account() {
         entry === 'DEAL_ENTRY_OUT' || entry === 'DEAL_ENTRY_OUT_BY' || entry === 'DEAL_ENTRY_INOUT';
     }
 
-    // ---- Authoritative MT5 closed-position history for TODAY ----
-    // A position belongs to TODAY when its final exit deal happened today,
-    // even if its entry was yesterday or earlier. Aggregate every deal in that
-    // position lifecycle so entry commission, overnight swap and exit costs are
-    // included exactly once. Never count entry-only/open/partial positions.
+    // ---- MT5 REALIZED PNL: sum today's actual EXIT deals by IST timestamp ----
+    // Do not group by position_id or depend on the position still being present.
+    // MT5 records each realized close (including partial closes) as an OUT/OUT_BY/INOUT deal.
     let closedPnl = 0;
     let closedToday = 0;
-    // Use deal-level history when it actually contains rows. If the bridge returns an empty
-    // history_deals array but STATUS still provides legacy closed_positions, use that
-    // broker-history fallback instead of treating the empty array as authoritative.
-    let hasAuthoritativeDeals = Array.isArray(d.history_deals) && (d.history_deals.length > 0 || d.history_scope === 'ALL_ACCOUNT_SYMBOLS');
+    const rawDeals = Array.isArray(d.history_deals) ? d.history_deals :
+      (Array.isArray(d.deals) ? d.deals : (Array.isArray(d.history) ? d.history : []));
+    const hasAuthoritativeDeals = Array.isArray(rawDeals) &&
+      (rawDeals.length > 0 || d.history_scope === 'ALL_ACCOUNT_SYMBOLS');
     if (hasAuthoritativeDeals) {
-      const byPosition = new Map();
-      const seenTickets = new Set();
-      const rawDeals = d.history_deals;
+      const seenExitTickets = new Set();
       for (let i = 0; i < rawDeals.length; i++) {
-        const p = rawDeals[i];
-        if (!p || isBalanceDeal(p)) continue;
-        const ticket = String(p.ticket || p.deal || '');
-        if (ticket && seenTickets.has(ticket)) continue;
-        if (ticket) seenTickets.add(ticket);
-        const pid = String(p.position_id || p.position || p.identifier || '');
-        if (!pid || pid === '0') continue;
-        if (!byPosition.has(pid)) byPosition.set(pid, []);
-        byPosition.get(pid).push(p);
-      }
-
-      // Bridge supplies IDs for ALL currently-open broker positions, not just
-      // this EA's positions. This prevents partial exits being reported as
-      // completed trades.
-      const openIds = new Set();
-      const activeIds = Array.isArray(d.open_position_ids) ? d.open_position_ids : [];
-      activeIds.forEach(function(x) { if (x != null && String(x) !== '0') openIds.add(String(x)); });
-      const positionsForActiveCheck = Array.isArray(d.positions) ? d.positions :
-        (Array.isArray(d.open_positions) ? d.open_positions : []);
-      positionsForActiveCheck.forEach(function(x) {
-        if (!x) return;
-        const id = x.identifier || x.position_id || x.position || x.ticket;
-        if (id != null && String(id) !== '0') openIds.add(String(id));
-      });
-
-      byPosition.forEach(function(items, pid) {
-        if (openIds.has(pid)) return; // still open; not a closed trade
-        const exits = items.filter(isExitDeal);
-        if (!exits.length) return;
-        const finalExit = exits.reduce(function(a, b) {
-          return closeTimeMs(b) > closeTimeMs(a) ? b : a;
-        });
-        const finalExitMs = closeTimeMs(finalExit);
-        // A trade is counted today only when its final MT5 exit timestamp falls
-        // inside today's IST window (00:00–23:59:59.999 Asia/Kolkata).
-        if (!(finalExitMs > 0) || !isInToday(finalExitMs)) return;
-
-        let positionNet = 0;
-        items.forEach(function(deal) { positionNet += dealProfit(deal); });
-        closedPnl += positionNet;
+        const deal = rawDeals[i];
+        if (!deal || isBalanceDeal(deal)) continue;
+        if (!isExitDeal(deal)) continue;
+        const closeMs = closeTimeMs(deal);
+        if (!isInToday(closeMs)) continue;
+        const ticket = String(deal.ticket || deal.deal || '');
+        if (ticket && seenExitTickets.has(ticket)) continue;
+        if (ticket) seenExitTickets.add(ticket);
+        // Deal PnL is realized on the close deal. Include its commission/swap/fee.
+        closedPnl += dealProfit(deal);
         closedToday++;
-      });
+      }
     } else {
-      // Legacy bridge fallback: count only unique closed-position rows whose
-      // actual close timestamp is today. Never use HTML/backtest records.
+      // Compatibility fallback only when this bridge does not expose deal history.
       const fallback = Array.isArray(d.closed_positions) ? d.closed_positions :
         (Array.isArray(d.closedPositions) ? d.closedPositions : []);
       const seen = new Set();
       for (let i = 0; i < fallback.length; i++) {
-        const p = fallback[i];
-        if (!p || isBalanceDeal(p) || !isExitDeal(p)) continue;
-        const sym = p.symbol || p.Symbol || '';
-        if (sym && !isGoldSym(sym)) continue;
-        const ct = closeTimeMs(p);
-        if (!(ct > 0) || !isInToday(ct)) continue;
-        const key = String(p.position_id || p.ticket || p.deal || i);
+        const row = fallback[i];
+        if (!row || isBalanceDeal(row) || !isExitDeal(row)) continue;
+        const closeMs = closeTimeMs(row);
+        if (!isInToday(closeMs)) continue;
+        const key = String(row.ticket || row.deal || row.position_id || i);
         if (seen.has(key)) continue;
         seen.add(key);
-        closedPnl += dealProfit(p);
+        closedPnl += dealProfit(row);
       }
       closedToday = seen.size;
     }
 
-    // ---- Open floating (confirmed working on your desk) ----
+    // ---- Account-wide live floating PnL ----
+    // MT5 equity minus balance is the broker's live floating result across ALL symbols,
+    // including swaps and position costs represented in account equity.
     const positions = Array.isArray(d.account_positions) ? d.account_positions
       : (Array.isArray(d.positions) ? d.positions
         : (Array.isArray(d.open_positions) ? d.open_positions
           : (Array.isArray(d.Positions) ? d.Positions : [])));
     let openPnl = 0;
-    let openN = 0;
-    for (let i = 0; i < positions.length; i++) {
-      const p = positions[i];
-      if (!p) continue;
-      openN++;
-      openPnl += dealProfit(p);
-    }
-    if (openN > 0 && Math.abs(openPnl) < 0.01 && out.equity > 1 && out.balance > 1) {
+    let openN = positions.length;
+    if (out.equity > 1 && out.balance > 1) {
       openPnl = out.equity - out.balance;
+    } else {
+      for (let i = 0; i < positions.length; i++) {
+        const pos = positions[i];
+        if (!pos) continue;
+        openPnl += dealProfit(pos);
+      }
     }
 
-    // MT5 broker history is the sole authority for closed PnL and trade count.
-    // No local ledger, generic account.profit, backtest or synthetic trade fallback.
+    // MT5 broker exit deals are the sole authority for realized PnL.
+    // No local ledger, backtest or synthetic trade fallback.
     const usedClosedPnl = closedPnl;
     const usedClosedN = closedToday;
 
