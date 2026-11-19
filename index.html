@@ -21091,21 +21091,43 @@ function propFirmScanMt5Account() {
     let closedPnl = 0;
     let closedToday = 0;
     let rawDeals = Array.isArray(d.history_deals) ? d.history_deals :
-      (Array.isArray(d.deals) ? d.deals : (Array.isArray(d.history) ? d.history : null));
+      (Array.isArray(d.deals) ? d.deals : (Array.isArray(d.history) ? d.history :
+        (Array.isArray(d.HistoryDeals) ? d.HistoryDeals :
+          (Array.isArray(d.deal_history) ? d.deal_history : null))));
     // Some bridge builds wrap the response one additional level deep.
     if (!rawDeals && MT5_BRIDGE && MT5_BRIDGE.historyInfo) {
       const h = MT5_BRIDGE.historyInfo;
-      const candidates = [h.history_deals, h.deals, h.history,
-        h.data && h.data.history_deals, h.data && h.data.deals,
-        h.result && h.result.history_deals, h.result && h.result.deals];
+      const candidates = [h.history_deals, h.deals, h.history, h.HistoryDeals, h.deal_history,
+        h.data && h.data.history_deals, h.data && h.data.deals, h.data && h.data.history,
+        h.result && h.result.history_deals, h.result && h.result.deals, h.result && h.result.history,
+        h.history && h.history.deals, h.history && h.history.history_deals];
       for (let ri = 0; ri < candidates.length; ri++) {
         if (Array.isArray(candidates[ri])) { rawDeals = candidates[ri]; break; }
       }
     }
+    // Also scan STATUS payload nests for deal arrays
+    if (!rawDeals) {
+      try {
+        const nests = [d.data, d.result, d.history_info, d.History, d.trade_history];
+        for (let ni = 0; ni < nests.length && !rawDeals; ni++) {
+          const n = nests[ni];
+          if (!n || typeof n !== 'object') continue;
+          const c2 = [n.history_deals, n.deals, n.history, n.HistoryDeals];
+          for (let ci = 0; ci < c2.length; ci++) {
+            if (Array.isArray(c2[ci])) { rawDeals = c2[ci]; break; }
+          }
+        }
+      } catch (_nd) {}
+    }
     if (!rawDeals) rawDeals = [];
-    const hasAuthoritativeDeals = Array.isArray(rawDeals) &&
-      (rawDeals.length > 0 || d.history_scope === 'ALL_ACCOUNT_SYMBOLS' ||
-       (MT5_BRIDGE && MT5_BRIDGE.historyInfo && MT5_BRIDGE.historyInfo.history_scope === 'ALL_ACCOUNT_SYMBOLS'));
+    // Authoritative when the bridge returned a deals array (even empty = no closes today),
+    // or explicitly marked full-account history. Do not require history_scope alone.
+    const hasAuthoritativeDeals = Array.isArray(rawDeals) && (
+      rawDeals.length > 0 ||
+      !!(MT5_BRIDGE && MT5_BRIDGE.historyInfo && !MT5_BRIDGE.historyInfoError) ||
+      d.history_scope === 'ALL_ACCOUNT_SYMBOLS' ||
+      (MT5_BRIDGE && MT5_BRIDGE.historyInfo && MT5_BRIDGE.historyInfo.history_scope === 'ALL_ACCOUNT_SYMBOLS')
+    );
     if (hasAuthoritativeDeals) {
       const seenExitTickets = new Set();
       for (let i = 0; i < rawDeals.length; i++) {
@@ -21188,10 +21210,30 @@ function propFirmScanMt5Account() {
     propFirmState.liveOpenCount = out.openCount;
     propFirmState.liveClosedToday = out.closedToday;
     propFirmState.liveScanAt = Date.now();
-    const historyFresh = !!(MT5_BRIDGE && Number(MT5_BRIDGE.historyInfoAt) > 0 && (Date.now() - Number(MT5_BRIDGE.historyInfoAt)) <= 10000);
-    const hasBrokerHistory = !!((d.history_scope === 'ALL_ACCOUNT_SYMBOLS' || (MT5_BRIDGE && MT5_BRIDGE.historyInfo && MT5_BRIDGE.historyInfo.history_scope === 'ALL_ACCOUNT_SYMBOLS')) && Array.isArray(rawDeals));
-    const hasBrokerPositions = Array.isArray(d.account_positions);
-    propFirmState.liveDataStatus = (out.balance > 1 && out.equity > 1 && historyFresh && hasBrokerHistory && hasBrokerPositions) ? 'LIVE' : 'INCOMPLETE';
+    // LIVE gate must not depend on optional bridge tags (history_scope / account_positions).
+    // Many MT5 bridges return deals under history_deals/deals and positions under positions
+    // without setting history_scope=ALL_ACCOUNT_SYMBOLS or account_positions — that used to
+    // force INCOMPLETE and hide CLOSED PNL TODAY even when numbers were computed.
+    const historyAgeMs = (MT5_BRIDGE && Number(MT5_BRIDGE.historyInfoAt) > 0)
+      ? (Date.now() - Number(MT5_BRIDGE.historyInfoAt)) : 1e15;
+    const historyFresh = historyAgeMs <= 30000; // tolerate up to 30s between HISTORY polls
+    const hasDealArray = Array.isArray(rawDeals); // empty array after successful HISTORY is still valid
+    const hasHistoryPayload = !!(MT5_BRIDGE && MT5_BRIDGE.historyInfo && typeof MT5_BRIDGE.historyInfo === 'object' && !MT5_BRIDGE.historyInfoError);
+    const hasBrokerHistory = hasDealArray || hasHistoryPayload ||
+      !!(d.history_scope === 'ALL_ACCOUNT_SYMBOLS' ||
+         (MT5_BRIDGE && MT5_BRIDGE.historyInfo && MT5_BRIDGE.historyInfo.history_scope === 'ALL_ACCOUNT_SYMBOLS'));
+    const hasBrokerPositions = Array.isArray(d.account_positions) ||
+      Array.isArray(d.positions) || Array.isArray(d.open_positions) ||
+      Array.isArray(d.Positions) || Array.isArray(d.accountPositions) ||
+      Array.isArray(positions);
+    const balEqOk = (out.balance > 1 && out.equity > 1);
+    if (balEqOk && (historyFresh || hasBrokerHistory) && hasBrokerPositions) {
+      propFirmState.liveDataStatus = 'LIVE';
+    } else if (balEqOk || out.source === 'mt5' || out.source === 'last_mt5') {
+      propFirmState.liveDataStatus = 'INCOMPLETE';
+    } else {
+      propFirmState.liveDataStatus = 'NO DATA';
+    }
     propFirmState.liveDataError = (MT5_BRIDGE && MT5_BRIDGE.historyInfoError) ? String(MT5_BRIDGE.historyInfoError) : '';
 
   } catch (e) {
@@ -21344,10 +21386,26 @@ async function mt5RefreshStatus() {
         MT5_BRIDGE.historyInfoAt = Date.now();
         MT5_BRIDGE.historyInfoError = '';
         d = Object.assign({}, d, rh.data);
+        // Unwrap one more envelope level common in some EA bridges
+        try {
+          const nested = rh.data.data || rh.data.result || rh.data.history || null;
+          if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+            d = Object.assign({}, d, nested);
+            if (Array.isArray(nested.history_deals) && !Array.isArray(d.history_deals)) d.history_deals = nested.history_deals;
+            if (Array.isArray(nested.deals) && !Array.isArray(d.deals)) d.deals = nested.deals;
+          }
+        } catch (_unw) {}
         if (Array.isArray(rh.data.history_deals)) d.history_deals = rh.data.history_deals;
         if (Array.isArray(rh.data.deals)) d.deals = rh.data.deals;
         if (Array.isArray(rh.data.closed_positions) && !Array.isArray(d.closed_positions)) d.closed_positions = rh.data.closed_positions;
         if (Array.isArray(rh.data.history) && !Array.isArray(d.history)) d.history = rh.data.history;
+        // Mark full-account history when we received any deals array (empty = valid zero day)
+        if (Array.isArray(d.history_deals) || Array.isArray(d.deals) || Array.isArray(d.history)) {
+          if (!d.history_scope) d.history_scope = 'ALL_ACCOUNT_SYMBOLS';
+          if (MT5_BRIDGE.historyInfo && !MT5_BRIDGE.historyInfo.history_scope) {
+            try { MT5_BRIDGE.historyInfo.history_scope = 'ALL_ACCOUNT_SYMBOLS'; } catch (_hs) {}
+          }
+        }
       }
     } catch (eHist) {
       MT5_BRIDGE.historyInfoError = (eHist && eHist.message) ? eHist.message : 'MT5 HISTORY request failed';
@@ -24825,9 +24883,9 @@ if ('serviceWorker' in navigator) {
             var _maxLoss$ = (typeof propFirmMaxLossCapUsd === 'function') ? propFirmMaxLossCapUsd() : (_propSz * ((Number(propFirmState.maxLossPct)||5)/100));
             html += row('PROP ACCOUNT', '$' + Math.round(_propSz).toLocaleString() + ' · fixed risk base', '#a78bfa');
             var _ageMs = Date.now() - (Number(propFirmState.liveScanAt) || 0);
-            var _liveTag = (propFirmState.liveDataStatus === 'LIVE' && _ageMs <= 10000) ? 'MT5 LIVE' :
+            var _liveTag = (propFirmState.liveDataStatus === 'LIVE' && _ageMs <= 30000) ? 'MT5 LIVE' :
               (propFirmState.liveDataStatus === 'DISCONNECTED' ? 'MT5 DISCONNECTED' :
-                (_ageMs > 10000 ? 'MT5 STALE' : 'MT5 INCOMPLETE'));
+                (_ageMs > 30000 ? 'MT5 STALE' : 'MT5 INCOMPLETE'));
             html += row('MT5 DATA', _liveTag + (_ageMs > 0 ? ' · ' + Math.max(0, Math.round(_ageMs/1000)) + 's' : ''),
               _liveTag === 'MT5 LIVE' ? '#34d399' : '#fb7185');
             var _balN = Number(_scan.balance) || 0;
@@ -24842,17 +24900,20 @@ if ('serviceWorker' in navigator) {
             html += row('MT5 REAL BAL', _balTxt, _balN > 1 ? '#e2e8f0' : '#fbbf24');
             // Show realized and floating components independently for transparent reconciliation.
             // TOTAL TODAY PNL = today's closed MT5 deals (IST) + current account floating PnL.
+            // Show numbers whenever MT5 scan has a real source — do not hide behind strict LIVE tag.
             var _closedPnl = Number(_scan.closedPnl) || 0;
             var _floatPnl = Number(_scan.openPnl) || 0;
             var _fmtPnl = function(v) { return (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2); };
-            html += row('CLOSED PNL TODAY', _liveTag === 'MT5 LIVE' ? (_fmtPnl(_closedPnl) + ' · ' + String(_scan.closedToday || 0) + ' deals') : 'WAITING FOR LIVE MT5 HISTORY', _liveTag === 'MT5 LIVE' ? (_closedPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
-            html += row('FLOATING PNL', _liveTag === 'MT5 LIVE' ? _fmtPnl(_floatPnl) : 'WAITING FOR LIVE MT5 EQUITY', _liveTag === 'MT5 LIVE' ? (_floatPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
-            html += row('TOTAL TODAY PNL', _liveTag === 'MT5 LIVE' ? _fmtPnl(_pnl) : 'WAITING FOR LIVE MT5 HISTORY', _liveTag === 'MT5 LIVE' ? _pnlCol : '#fb7185');
+            var _hasMt5Nums = (_scan.source === 'mt5' || _scan.source === 'last_mt5') &&
+              (_liveTag === 'MT5 LIVE' || _liveTag === 'MT5 INCOMPLETE' || _liveTag === 'MT5 STALE');
+            html += row('CLOSED PNL TODAY', _hasMt5Nums ? (_fmtPnl(_closedPnl) + ' · ' + String(_scan.closedToday || 0) + ' deals') : 'WAITING FOR LIVE MT5 HISTORY', _hasMt5Nums ? (_closedPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
+            html += row('FLOATING PNL', _hasMt5Nums ? _fmtPnl(_floatPnl) : 'WAITING FOR LIVE MT5 EQUITY', _hasMt5Nums ? (_floatPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
+            html += row('TOTAL TODAY PNL', _hasMt5Nums ? _fmtPnl(_pnl) : 'WAITING FOR LIVE MT5 HISTORY', _hasMt5Nums ? _pnlCol : '#fb7185');
             var _maxRoom = (typeof propFirmMaxLossRoomUsd === 'function') ? propFirmMaxLossRoomUsd() : NaN;
             html += row('MAX LOSS CAP', '$' + Math.round(_maxLoss$).toLocaleString() + ' · ' + (Number(propFirmState.maxLossPct)||5) + '%', '#f87171');
             html += row('MAX LOSS ROOM', Number.isFinite(_maxRoom) ? ('$' + Math.round(_maxRoom).toLocaleString() + ' left · $' + Math.round(Math.max(0, _maxLoss$ - _maxRoom)).toLocaleString() + ' used') : 'WAITING FOR LIVE MT5 EQUITY', Number.isFinite(_maxRoom) && _maxRoom > 0 ? '#34d399' : '#fb7185');
             html += row('DAY LOSS CAP', '$' + Math.round(_cap).toLocaleString() + ' · ' + (Number(propFirmState.dayLossPct)||5) + '%', '#fbbf24');
-            html += row('DAY ROOM LEFT', (_liveTag === 'MT5 LIVE' ? '$' + Math.round(_room).toLocaleString() : 'WAITING FOR LIVE MT5 HISTORY'), _liveTag === 'MT5 LIVE' ? _roomCol : '#fb7185');
+            html += row('DAY ROOM LEFT', (_hasMt5Nums ? '$' + Math.round(_room).toLocaleString() : 'WAITING FOR LIVE MT5 HISTORY'), _hasMt5Nums ? _roomCol : '#fb7185');
             html += row('OPEN (MT5)', String(_scan.openCount || 0) + ' · max 1', (_scan.openCount >= 1) ? '#fb7185' : '#34d399');
             html += row('TF PREFER', '15m+', '#93c5fd');
           } catch (_eScan) {}
