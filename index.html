@@ -20552,6 +20552,8 @@ let propFirmState = {
   liveDayTrades: 0,
   liveOpenCount: 0,
   liveScanAt: 0,
+  liveDataStatus: 'NO DATA',
+  liveDataError: '',
   htfPrefer: true // PROPFIRM: prefer / require 15m+ entries
 };
 
@@ -20993,14 +20995,20 @@ function propFirmScanMt5Account() {
       out.balance = Number(propFirmState.liveBalance);
       out.source = 'last_mt5';
     }
-    out.equity = eq > 1 ? eq : out.balance;
+    out.equity = eq > 1 ? eq : 0; // Never substitute balance for missing broker equity.
 
-    // Today's window is the user's local calendar day. MT5 epoch timestamps
-    // are converted by Date into local time before this comparison.
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const startMs = start.getTime();
-    const endMs = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1).getTime();
+    // MT5 deal timestamps are UTC epoch. The bridge supplies the broker's
+    // UTC offset; use broker-server midnight, never the browser's local midnight.
+    const brokerOffsetHours = Number(d.broker_utc_offset_hours != null
+      ? d.broker_utc_offset_hours
+      : (MT5_BRIDGE.historyInfo && MT5_BRIDGE.historyInfo.broker_utc_offset_hours != null
+        ? MT5_BRIDGE.historyInfo.broker_utc_offset_hours : 0));
+    const safeBrokerOffset = Number.isFinite(brokerOffsetHours) && Math.abs(brokerOffsetHours) <= 14
+      ? brokerOffsetHours : 0;
+    const shiftedNow = new Date(Date.now() + safeBrokerOffset * 3600000);
+    const brokerMidnightShifted = Date.UTC(shiftedNow.getUTCFullYear(), shiftedNow.getUTCMonth(), shiftedNow.getUTCDate());
+    const startMs = brokerMidnightShifted - safeBrokerOffset * 3600000;
+    const endMs = startMs + 86400000;
 
     function toMs(t) {
       if (t == null || t === '') return 0;
@@ -21088,7 +21096,7 @@ function propFirmScanMt5Account() {
     // Use deal-level history when it actually contains rows. If the bridge returns an empty
     // history_deals array but STATUS still provides legacy closed_positions, use that
     // broker-history fallback instead of treating the empty array as authoritative.
-    let hasAuthoritativeDeals = Array.isArray(d.history_deals) && d.history_deals.length > 0;
+    let hasAuthoritativeDeals = Array.isArray(d.history_deals) && (d.history_deals.length > 0 || d.history_scope === 'ALL_ACCOUNT_SYMBOLS');
     if (hasAuthoritativeDeals) {
       const byPosition = new Map();
       const seenTickets = new Set();
@@ -21096,8 +21104,6 @@ function propFirmScanMt5Account() {
       for (let i = 0; i < rawDeals.length; i++) {
         const p = rawDeals[i];
         if (!p || isBalanceDeal(p)) continue;
-        const sym = p.symbol || p.Symbol || '';
-        if (sym && !isGoldSym(sym)) continue;
         const ticket = String(p.ticket || p.deal || '');
         if (ticket && seenTickets.has(ticket)) continue;
         if (ticket) seenTickets.add(ticket);
@@ -21160,16 +21166,15 @@ function propFirmScanMt5Account() {
     }
 
     // ---- Open floating (confirmed working on your desk) ----
-    const positions = Array.isArray(d.positions) ? d.positions
-      : (Array.isArray(d.open_positions) ? d.open_positions
-        : (Array.isArray(d.Positions) ? d.Positions : []));
+    const positions = Array.isArray(d.account_positions) ? d.account_positions
+      : (Array.isArray(d.positions) ? d.positions
+        : (Array.isArray(d.open_positions) ? d.open_positions
+          : (Array.isArray(d.Positions) ? d.Positions : [])));
     let openPnl = 0;
     let openN = 0;
     for (let i = 0; i < positions.length; i++) {
       const p = positions[i];
       if (!p) continue;
-      const sym = p.symbol || p.Symbol || '';
-      if (sym && !isGoldSym(sym)) continue;
       openN++;
       openPnl += dealProfit(p);
     }
@@ -21207,6 +21212,8 @@ function propFirmScanMt5Account() {
     propFirmState.liveOpenCount = out.openCount;
     propFirmState.liveClosedToday = out.closedToday;
     propFirmState.liveScanAt = Date.now();
+    propFirmState.liveDataStatus = (out.balance > 1 && out.equity > 1 && d.history_scope === 'ALL_ACCOUNT_SYMBOLS' && Array.isArray(d.history_deals) && Array.isArray(d.account_positions)) ? 'LIVE' : 'INCOMPLETE';
+    propFirmState.liveDataError = '';
   } catch (e) {
     try { console.warn('[PropFirm] MT5 scan', e); } catch (e2) {}
   }
@@ -21222,6 +21229,14 @@ function propFirmDayLossCapUsd() {
 }
 function propFirmMaxLossCapUsd() {
   return propFirmAccountSizeUsd() * ((Number(propFirmState.maxLossPct) || 5) / 100);
+}
+
+/** Remaining static max-loss room from the selected initial prop-firm balance. */
+function propFirmMaxLossRoomUsd() {
+  const floor = propFirmAccountSizeUsd() - propFirmMaxLossCapUsd();
+  const equity = Number(propFirmState.liveEquity);
+  if (!(equity > 1) || propFirmState.liveSource !== 'mt5') return NaN;
+  return Math.max(0, equity - floor);
 }
 
 /**
@@ -21321,7 +21336,7 @@ async function mt5RefreshStatus() {
   MT5_BRIDGE.pollBusy=true;
   try {
     const r=await mt5Post({action:'STATUS',symbol:MT5_BRIDGE.symbol});
-    if(!r.ok){MT5_BRIDGE.connected=false;MT5_BRIDGE.lastErr=r.error||'offline';mt5PaintStatus();return;}
+    if(!r.ok){MT5_BRIDGE.connected=false;MT5_BRIDGE.lastErr=r.error||'offline';propFirmState.liveDataStatus='DISCONNECTED';propFirmState.liveDataError=MT5_BRIDGE.lastErr;mt5PaintStatus();try{goldExecDomRefresh();}catch(_e){}return;}
     let d=r.data||{};
     // Probe ACCOUNT for balance/equity (STATUS often omits them)
     try {
@@ -21360,6 +21375,7 @@ async function mt5RefreshStatus() {
       if (d.daily_profit == null && d.ProfitToday != null) d.daily_profit = d.ProfitToday;
     } catch (eN) {}
     MT5_BRIDGE.lastStatus=d;
+    MT5_BRIDGE.lastStatusAt=Date.now();
     try { if (typeof propFirmScanMt5Account === 'function') propFirmScanMt5Account(); } catch (ePf) {}
     // Push the newly received broker history into the monitor immediately; do not
     // wait for chart navigation or another unrelated UI event to repaint PnL/room.
@@ -24817,7 +24833,13 @@ if ('serviceWorker' in navigator) {
             var _src = _scan.source === 'mt5' ? '' : (_scan.source === 'last_mt5' ? ' · last' : ' · n/a');
             var _propSz = (typeof propFirmAccountSizeUsd === 'function') ? propFirmAccountSizeUsd() : (Number(propFirmState.accountSize) || 0);
             var _maxLoss$ = (typeof propFirmMaxLossCapUsd === 'function') ? propFirmMaxLossCapUsd() : (_propSz * ((Number(propFirmState.maxLossPct)||5)/100));
-            html += row('PROP ACCOUNT', '$' + Math.round(_propSz).toLocaleString() + ' · risk base', '#a78bfa');
+            html += row('PROP ACCOUNT', '$' + Math.round(_propSz).toLocaleString() + ' · fixed risk base', '#a78bfa');
+            var _ageMs = Date.now() - (Number(propFirmState.liveScanAt) || 0);
+            var _liveTag = (propFirmState.liveDataStatus === 'LIVE' && _ageMs <= 10000) ? 'MT5 LIVE' :
+              (propFirmState.liveDataStatus === 'DISCONNECTED' ? 'MT5 DISCONNECTED' :
+                (_ageMs > 10000 ? 'MT5 STALE' : 'MT5 INCOMPLETE'));
+            html += row('MT5 DATA', _liveTag + (_ageMs > 0 ? ' · ' + Math.max(0, Math.round(_ageMs/1000)) + 's' : ''),
+              _liveTag === 'MT5 LIVE' ? '#34d399' : '#fb7185');
             var _balN = Number(_scan.balance) || 0;
             var _eqN = Number(_scan.equity) || 0;
             var _srcTag = (_scan.source === 'mt5') ? '' : (_scan.source === 'last_mt5' ? ' · last' : '');
@@ -24836,9 +24858,11 @@ if ('serviceWorker' in navigator) {
             var _pnlDetail = ' · C ' + (_cPnl >= 0 ? '+' : '-') + '$' + Math.abs(_cPnl).toFixed(2) +
               ' / F ' + (_oPnl >= 0 ? '+' : '-') + '$' + Math.abs(_oPnl).toFixed(2);
             html += row('TODAY PnL', (_pnl >= 0 ? '+$' : '-$') + Math.abs(_pnl).toFixed(2) + ' · ' + _tradeLbl + _pnlDetail, _pnlCol);
+            var _maxRoom = (typeof propFirmMaxLossRoomUsd === 'function') ? propFirmMaxLossRoomUsd() : NaN;
             html += row('MAX LOSS CAP', '$' + Math.round(_maxLoss$).toLocaleString() + ' · ' + (Number(propFirmState.maxLossPct)||5) + '%', '#f87171');
+            html += row('MAX LOSS ROOM', Number.isFinite(_maxRoom) ? ('$' + Math.round(_maxRoom).toLocaleString() + ' left · $' + Math.round(Math.max(0, _maxLoss$ - _maxRoom)).toLocaleString() + ' used') : 'WAITING FOR LIVE MT5 EQUITY', Number.isFinite(_maxRoom) && _maxRoom > 0 ? '#34d399' : '#fb7185');
             html += row('DAY LOSS CAP', '$' + Math.round(_cap).toLocaleString() + ' · ' + (Number(propFirmState.dayLossPct)||5) + '%', '#fbbf24');
-            html += row('DAY ROOM LEFT', '$' + Math.round(_room).toLocaleString(), _roomCol);
+            html += row('DAY ROOM LEFT', (_liveTag === 'MT5 LIVE' ? '$' + Math.round(_room).toLocaleString() : 'WAITING FOR LIVE MT5 HISTORY'), _liveTag === 'MT5 LIVE' ? _roomCol : '#fb7185');
             html += row('OPEN (MT5)', String(_scan.openCount || 0) + ' · max 1', (_scan.openCount >= 1) ? '#fb7185' : '#34d399');
             html += row('TF PREFER', '15m+', '#93c5fd');
           } catch (_eScan) {}
