@@ -20558,46 +20558,143 @@ let propFirmState = {
 };
 
 /** Instant closed deals detected from STATUS (TP/SL) before HISTORY catches up.
- *  Keyed by ticket/position id. Filtered to local calendar day on each scan. */
+ *  Keyed primarily by position_id so each closed trade counts once.
+ *  Open-position snapshots detect vanishing tickets the moment floating closes. */
 var __mt5LiveClosedCache = Object.create(null);
+var __mt5OpenSnap = Object.create(null); // ticket/posId → last open snapshot
+try {
+  var _cc = sessionStorage.getItem('gp_mt5_closed_cache_v1');
+  if (_cc) {
+    var _cp = JSON.parse(_cc);
+    if (_cp && typeof _cp === 'object') __mt5LiveClosedCache = _cp;
+  }
+} catch (_eLoadC) {}
+function mt5PersistClosedCache() {
+  try { sessionStorage.setItem('gp_mt5_closed_cache_v1', JSON.stringify(__mt5LiveClosedCache)); } catch (e) {}
+}
+function mt5LocalDayBounds() {
+  const now = new Date();
+  const startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return { startMs: startMs, endMs: startMs + 86400000 };
+}
+function mt5ToMsSafe(t) {
+  if (t == null || t === '') return 0;
+  if (typeof t === 'string' && !/^\d+(\.\d+)?$/.test(String(t).trim())) {
+    let s = String(t).trim();
+    if (/^\d{4}\.\d{2}\.\d{2}/.test(s)) s = s.replace(/^(\d{4})\.(\d{2})\.(\d{2})/, '$1-$2-$3');
+    const p = Date.parse(s);
+    if (Number.isFinite(p)) return p;
+  }
+  let n = Number(t);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  if (n < 1e11) n *= 1000;
+  else if (n > 1e14) n = Math.floor(n / 1000);
+  return n;
+}
 function mt5RememberClosedDeal(row) {
   if (!row || typeof row !== 'object') return;
   try {
-    const ticket = String(row.ticket || row.deal || row.position_id || row.Position || row.id || '');
-    if (!ticket) return;
-    const profit = Number(row.profit != null ? row.profit : (row.Profit != null ? row.Profit : (row.pnl != null ? row.pnl : 0))) || 0;
-    let tms = Number(row.time_msc || row.close_time_msc || row.time || row.Time || row.close_time || row.TimeClose || Date.now()) || Date.now();
-    if (tms > 0 && tms < 1e12) tms *= 1000;
-    else if (tms > 1e14) tms = Math.floor(tms / 1000);
-    __mt5LiveClosedCache[ticket] = {
-      ticket: ticket,
-      deal: ticket,
-      position_id: row.position_id || row.Position || ticket,
+    const posId = String(row.position_id || row.Position || row.position || row.pos_id || '');
+    const dealId = String(row.ticket || row.deal || row.Deal || row.id || '');
+    // Prefer position_id as stable trade key (one closed trade = one position)
+    const key = posId || dealId;
+    if (!key) return;
+    const profit = Number(
+      row.profit != null ? row.profit :
+        (row.Profit != null ? row.Profit :
+          (row.pnl != null ? row.pnl :
+            (row.mt5BrokerProfit != null ? row.mt5BrokerProfit : 0)))
+    ) || 0;
+    let tms = mt5ToMsSafe(
+      row.time_msc || row.close_time_msc || row.time || row.Time ||
+      row.close_time || row.TimeClose || row.mt5BrokerCloseTime || 0
+    );
+    if (!(tms > 0)) tms = Date.now();
+    const prev = __mt5LiveClosedCache[key];
+    // Keep the row with latest timestamp / non-zero profit preference
+    if (prev) {
+      const prevT = Number(prev.time_msc || prev.time) || 0;
+      const prevP = Number(prev.profit) || 0;
+      if (prevT >= tms && (prevP !== 0 || profit === 0)) {
+        // still refresh profit if previous was 0 and new has value
+        if (!(prevP === 0 && profit !== 0)) return;
+      }
+      // If same position, prefer summing only when explicit partial flag; else overwrite with latest total
+    }
+    __mt5LiveClosedCache[key] = {
+      ticket: dealId || key,
+      deal: dealId || key,
+      position_id: posId || key,
       profit: profit,
       Profit: profit,
       commission: Number(row.commission || row.Commission || 0) || 0,
       swap: Number(row.swap || row.Swap || 0) || 0,
       fee: Number(row.fee || row.Fee || 0) || 0,
-      entry: row.entry != null ? row.entry : 1, // mark as exit
+      entry: 1, // force EXIT so isExitDeal accepts cache rows
       time: tms,
       time_msc: tms,
       close_time: tms,
       symbol: row.symbol || row.Symbol || '',
-      _src: 'live_status'
+      _src: row._src || 'live_status'
     };
+    mt5PersistClosedCache();
   } catch (e) {}
 }
 function mt5PruneClosedCacheLocalDay() {
   try {
-    const now = new Date();
-    const startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const endMs = startMs + 86400000;
+    const b = mt5LocalDayBounds();
     Object.keys(__mt5LiveClosedCache).forEach(function (k) {
       const r = __mt5LiveClosedCache[k];
       const t = Number(r && (r.time_msc || r.time)) || 0;
-      if (!(t >= startMs && t < endMs)) delete __mt5LiveClosedCache[k];
+      if (!(t >= b.startMs && t < b.endMs)) delete __mt5LiveClosedCache[k];
     });
+    mt5PersistClosedCache();
   } catch (e) {}
+}
+/** Snapshot open positions; any ticket that vanishes = just closed (TP/SL). */
+function mt5TrackOpenPositions(positions) {
+  const list = Array.isArray(positions) ? positions : [];
+  const nowMap = Object.create(null);
+  for (let i = 0; i < list.length; i++) {
+    const p = list[i];
+    if (!p) continue;
+    const id = String(p.identifier || p.position_id || p.Position || p.ticket || p.Ticket || '');
+    if (!id) continue;
+    const profit = Number(p.profit != null ? p.profit : (p.Profit != null ? p.Profit : (p.unrealized != null ? p.unrealized : 0))) || 0;
+    nowMap[id] = {
+      ticket: String(p.ticket || p.Ticket || id),
+      position_id: id,
+      profit: profit,
+      Profit: profit,
+      symbol: p.symbol || p.Symbol || '',
+      volume: p.volume || p.Volume || p.lots || 0,
+      time_msc: Date.now(),
+      entry: 1,
+      _src: 'open_vanish'
+    };
+  }
+  // Vanished opens → closed right now
+  const prevKeys = Object.keys(__mt5OpenSnap);
+  let vanished = 0;
+  for (let i = 0; i < prevKeys.length; i++) {
+    const k = prevKeys[i];
+    if (!nowMap[k]) {
+      const snap = __mt5OpenSnap[k];
+      if (snap) {
+        snap.time_msc = Date.now();
+        snap.time = snap.time_msc;
+        snap.close_time = snap.time_msc;
+        snap.entry = 1;
+        mt5RememberClosedDeal(snap);
+        vanished++;
+      }
+    }
+  }
+  __mt5OpenSnap = nowMap;
+  if (vanished > 0) {
+    try { MT5_BRIDGE._forceHistoryNext = true; } catch (e) {}
+  }
+  return vanished;
 }
 
 function propFirmLoad() {
@@ -21166,28 +21263,88 @@ function propFirmScanMt5Account() {
       (Array.isArray(d.closedPositions) ? d.closedPositions :
         (Array.isArray(d.ClosedPositions) ? d.ClosedPositions : []));
     // Collect from deals first, then merge any closed_positions not already counted.
-    const seenExitTickets = new Set();
-    function accumulateExitRow(row) {
+    // Dedupe by position_id (trade count). HISTORY deals are authoritative;
+    // cache / ledger only fill positions not already present (no double count).
+    const seenDealTickets = new Set();
+    const posProfit = Object.create(null); // position_id → profit
+    const posSource = Object.create(null); // position_id → 'history'|'cache'|'ledger'
+    function accumulateExitRow(row, srcRank) {
+      // srcRank: 1=history/closed_pos, 2=live cache, 3=local ledger
       if (!row || isBalanceDeal(row)) return;
       if (!isExitDeal(row)) return;
-      const closeMs = closeTimeMs(row);
+      let closeMs = closeTimeMs(row);
+      if (!(closeMs > 0) && row._src) closeMs = Number(row.time_msc || row.time) || 0;
+      if (!(closeMs > 0)) closeMs = Date.now();
       if (!isInToday(closeMs)) return;
-      const ticket = String(row.ticket || row.deal || row.position_id || row.Position || '');
-      if (ticket && seenExitTickets.has(ticket)) return;
-      if (ticket) seenExitTickets.add(ticket);
-      closedPnl += dealProfit(row);
-      closedToday++;
+      const dealKey = String(row.ticket || row.deal || '');
+      const posKey = String(row.position_id || row.Position || row.position || dealKey || '');
+      if (!dealKey && !posKey) return;
+      if (dealKey && seenDealTickets.has(dealKey)) return;
+      if (dealKey) seenDealTickets.add(dealKey);
+      const pnl = dealProfit(row);
+      const pKey = posKey || dealKey;
+      const rank = srcRank || 1;
+      if (posProfit[pKey] != null) {
+        // Higher-priority source already set this position — skip lower sources
+        if ((posSource[pKey] || 99) <= rank) return;
+        // Higher rank (lower number wins): allow overwrite only if existing was weaker
+      }
+      if (posProfit[pKey] == null || (posSource[pKey] != null && posSource[pKey] > rank)) {
+        posProfit[pKey] = pnl;
+        posSource[pKey] = rank;
+      } else if (posSource[pKey] === rank && rank === 1) {
+        // Same rank history: sum partial exit deals for same position
+        posProfit[pKey] += pnl;
+      }
     }
-    for (let i = 0; i < rawDeals.length; i++) accumulateExitRow(rawDeals[i]);
-    for (let i = 0; i < closedPosFallback.length; i++) accumulateExitRow(closedPosFallback[i]);
-    // Instant TP/SL closes from STATUS (before HISTORY lag)
+    for (let i = 0; i < rawDeals.length; i++) accumulateExitRow(rawDeals[i], 1);
+    for (let i = 0; i < closedPosFallback.length; i++) accumulateExitRow(closedPosFallback[i], 1);
+    // Instant TP/SL closes from STATUS / vanished open snapshots (rank 2)
     try {
       mt5PruneClosedCacheLocalDay();
       const cacheKeys = Object.keys(__mt5LiveClosedCache || {});
       for (let ci = 0; ci < cacheKeys.length; ci++) {
-        accumulateExitRow(__mt5LiveClosedCache[cacheKeys[ci]]);
+        accumulateExitRow(__mt5LiveClosedCache[cacheKeys[ci]], 2);
       }
     } catch (_eCache) {}
+    // Local algo ledger MT5_CLOSED / TP / SL for today (rank 3 — lowest priority)
+    try {
+      if (typeof algoLoadTrades === 'function') {
+        const ledger = algoLoadTrades() || [];
+        for (let li = 0; li < ledger.length; li++) {
+          const t = ledger[li];
+          if (!t) continue;
+          const closedOk = t.mt5Closed || t.mt5Status === 'MT5_CLOSED' ||
+            t.outcome === 'TP' || t.outcome === 'SL' || t.status === 'TP' || t.status === 'SL';
+          if (!closedOk) continue;
+          if (String(t.source || '').toUpperCase() === 'BACKTEST') continue;
+          const profit = Number(t.mt5BrokerProfit != null ? t.mt5BrokerProfit : t.pnl);
+          if (!Number.isFinite(profit)) continue;
+          let tms = Number(t.mt5BrokerCloseTime || t.exitTime || t.closedAt || t.closeTime || 0) || 0;
+          if (tms > 0 && tms < 1e12) tms *= 1000;
+          if (!(tms > 0)) tms = Date.now();
+          accumulateExitRow({
+            ticket: String(t.mt5Ticket || t.id || ''),
+            deal: String(t.mt5Ticket || t.id || ''),
+            position_id: String(t.mt5PositionId || t.mt5Ticket || t.id || ''),
+            profit: profit,
+            Profit: profit,
+            entry: 1,
+            time_msc: tms,
+            time: tms,
+            symbol: t.symbol || '',
+            _src: 'local_ledger'
+          }, 3);
+        }
+      }
+    } catch (_eLed) {}
+    // Build totals from unique positions (1 closed trade = 1 position_id)
+    closedPnl = 0;
+    closedToday = 0;
+    Object.keys(posProfit).forEach(function (pk) {
+      closedPnl += Number(posProfit[pk]) || 0;
+      closedToday += 1;
+    });
     // Last-resort: bridge-provided daily_profit when no deal rows parsed but value present
     if (closedToday === 0) {
       const bridgeDaily = coerceMoney(
@@ -21496,8 +21653,14 @@ async function mt5RefreshStatus() {
     MT5_BRIDGE.lastErr=MT5_BRIDGE.connected?'':(terminalReady?'trading permission disabled':(d.error||'terminal/tick unavailable'));
     // First successful broker status → allow safe resolve a few seconds later
     try { if (typeof algoMarkResolveSafe === 'function') algoMarkResolveSafe(); } catch (eSafe) {}
-    const positions=Array.isArray(d.positions)?d.positions:[];
-    const closed=Array.isArray(d.closed_positions)?d.closed_positions:[];
+    const positions=Array.isArray(d.positions)?d.positions:
+      (Array.isArray(d.account_positions)?d.account_positions:
+        (Array.isArray(d.open_positions)?d.open_positions:[]));
+    const closed=Array.isArray(d.closed_positions)?d.closed_positions:
+      (Array.isArray(d.closedPositions)?d.closedPositions:[]);
+    // Detect floating → closed the instant an open ticket vanishes (TP/SL)
+    let vanishedN = 0;
+    try { vanishedN = mt5TrackOpenPositions(positions) || 0; } catch (_eTrack) {}
     const log=algoLoadTrades(); let changed=false;
     log.forEach(function(t){
       if(!t)return;
@@ -21586,11 +21749,26 @@ async function mt5RefreshStatus() {
         if (closed[ci]) mt5RememberClosedDeal(closed[ci]);
       }
     } catch (_eSeed) {}
-    // Detect open-count drop (TP/SL) → force next HISTORY pull
+    // Detect open-count drop (TP/SL) → force HISTORY + rapid re-scan
     try {
       const openNow = positions.length;
       const prevOpen = (MT5_BRIDGE._lastOpenCount != null) ? MT5_BRIDGE._lastOpenCount : openNow;
-      if (openNow < prevOpen) MT5_BRIDGE._forceHistoryNext = true;
+      if (openNow < prevOpen || vanishedN > 0) {
+        MT5_BRIDGE._forceHistoryNext = true;
+        // Pull HISTORY again in 1.2s so broker deal row is included
+        setTimeout(function () {
+          try {
+            MT5_BRIDGE._forceHistoryNext = true;
+            mt5RefreshStatus();
+          } catch (eR) {}
+        }, 1200);
+        setTimeout(function () {
+          try {
+            if (typeof propFirmScanMt5Account === 'function') propFirmScanMt5Account();
+            if (typeof goldExecDomRefresh === 'function') goldExecDomRefresh();
+          } catch (eR2) {}
+        }, 1800);
+      }
       MT5_BRIDGE._lastOpenCount = openNow;
     } catch (_eDrop) {}
     // Re-scan prop firm day PnL/room after every STATUS (real-time)
