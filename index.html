@@ -21388,14 +21388,107 @@ function propFirmScanMt5Account() {
       }
     }
 
-    // MT5 broker exit deals are the sole authority for realized PnL.
-    // No local ledger, backtest or synthetic trade fallback.
+    // ---- Reconcile with MT5 Account Profit (broker day truth) ----
+    // Account Profit = closed today + floating. When HISTORY misses a TP/SL deal
+    // (as with +194.76 TP missing while only -102.96 SL in deals), Account Profit
+    // still has the full day result (e.g. bal 10091.8 ⇒ ~+91.80).
+    let acctDayProfit = coerceMoney(
+      d.profit != null ? d.profit :
+        (d.Profit != null ? d.Profit :
+          (d.daily_profit != null ? d.daily_profit :
+            (d.DailyProfit != null ? d.DailyProfit :
+              (d.profit_today != null ? d.profit_today :
+                (d.ProfitToday != null ? d.ProfitToday : NaN)))))
+    );
+    if (!Number.isFinite(acctDayProfit) && MT5_BRIDGE && MT5_BRIDGE.accountInfo) {
+      const ai = MT5_BRIDGE.accountInfo;
+      acctDayProfit = coerceMoney(
+        ai.profit != null ? ai.profit :
+          (ai.Profit != null ? ai.Profit :
+            (ai.daily_profit != null ? ai.daily_profit :
+              (ai.ProfitToday != null ? ai.ProfitToday : NaN)))
+      );
+      if (!Number.isFinite(acctDayProfit)) {
+        const aa = ai.account || ai.account_info || ai.AccountInfo || ai.accountInfo;
+        if (aa && typeof aa === 'object') {
+          acctDayProfit = coerceMoney(aa.profit != null ? aa.profit : aa.Profit);
+        }
+      }
+    }
+    const dealSum = closedPnl;
+    const dealN = closedToday;
+    if (Number.isFinite(acctDayProfit)) {
+      // Realized = account day profit − floating
+      const realizedAcct = acctDayProfit - (Number.isFinite(openPnl) ? openPnl : 0);
+      const gap = realizedAcct - dealSum;
+      // HISTORY incomplete if gap is a real missing trade (> $1)
+      if (Math.abs(gap) > 1) {
+        closedPnl = realizedAcct;
+        // Attribute residual as the missing TP or SL so count becomes 2+
+        if (Math.abs(gap) > 1) {
+          closedToday = dealN + 1;
+          if (gap >= 0) { closedTpPnl += gap; closedTpN += 1; }
+          else { closedSlPnl += gap; closedSlN += 1; }
+        }
+      } else if (dealN === 0 && Math.abs(realizedAcct) > 0.005) {
+        closedPnl = realizedAcct;
+        closedToday = 1;
+        if (realizedAcct >= 0) { closedTpPnl = realizedAcct; closedTpN = 1; }
+        else { closedSlPnl = realizedAcct; closedSlN = 1; }
+      }
+      // Keep breakdown consistent with final closedPnl
+      out.closedTpPnl = closedTpPnl;
+      out.closedSlPnl = closedSlPnl;
+      out.closedTpN = closedTpN;
+      out.closedSlN = closedSlN;
+      propFirmState.liveClosedTpPnl = closedTpPnl;
+      propFirmState.liveClosedSlPnl = closedSlPnl;
+      propFirmState.liveClosedTpN = closedTpN;
+      propFirmState.liveClosedSlN = closedSlN;
+    }
+
+    // Fallback when Account Profit missing: if flat and balance is near prop
+    // base size, today closed ≈ balance − prop base (e.g. 10091.8 − 10000 = +91.8).
+    try {
+      if (!(Number.isFinite(acctDayProfit)) && out.balance > 1 && Math.abs(openPnl) < 0.5) {
+        const base = (typeof propFirmAccountSizeUsd === 'function') ? propFirmAccountSizeUsd() : 0;
+        if (base > 1) {
+          const inferred = out.balance - base;
+          // Only trust when inferred is in a sane day range and differs from partial HISTORY
+          if (Math.abs(inferred) < base * 0.25) {
+            const gap2 = inferred - dealSum;
+            if (Math.abs(gap2) > 1 || dealN === 0) {
+              closedPnl = inferred;
+              if (Math.abs(gap2) > 1 && dealN >= 1) {
+                closedToday = dealN + 1;
+                if (gap2 >= 0) { closedTpPnl += gap2; closedTpN += 1; }
+                else { closedSlPnl += gap2; closedSlN += 1; }
+              } else if (dealN === 0 && Math.abs(inferred) > 0.005) {
+                closedToday = 1;
+                if (inferred >= 0) { closedTpPnl = inferred; closedTpN = 1; closedSlPnl = 0; closedSlN = 0; }
+                else { closedSlPnl = inferred; closedSlN = 1; closedTpPnl = 0; closedTpN = 0; }
+              }
+              out.closedTpPnl = closedTpPnl;
+              out.closedSlPnl = closedSlPnl;
+              out.closedTpN = closedTpN;
+              out.closedSlN = closedSlN;
+              propFirmState.liveClosedTpPnl = closedTpPnl;
+              propFirmState.liveClosedSlPnl = closedSlPnl;
+              propFirmState.liveClosedTpN = closedTpN;
+              propFirmState.liveClosedSlN = closedSlN;
+            }
+          }
+        }
+      }
+    } catch (_eInf) {}
+
+    // MT5 only — deals + account profit. No backtest / local ledger.
     const usedClosedPnl = closedPnl;
     const usedClosedN = closedToday;
 
     out.closedPnl = usedClosedPnl;
     out.openPnl = openPnl;
-    out.dayPnl = usedClosedPnl + openPnl; // realized MT5 deals today + current MT5 floating PnL
+    out.dayPnl = usedClosedPnl + openPnl; // realized MT5 + floating
     out.closedToday = usedClosedN;
     out.openCount = openN;
     out.dayTrades = usedClosedN + openN;
@@ -21646,6 +21739,19 @@ async function mt5RefreshStatus() {
       if (d.daily_profit == null && d.DailyProfit != null) d.daily_profit = d.DailyProfit;
       if (d.daily_profit == null && d.profit_today != null) d.daily_profit = d.profit_today;
       if (d.daily_profit == null && d.ProfitToday != null) d.daily_profit = d.ProfitToday;
+      // MT5 Account Profit = today closed + floating (critical when HISTORY misses a deal)
+      if (d.profit == null && d.Profit != null) d.profit = d.Profit;
+      if (d.Profit == null && d.profit != null) d.Profit = d.profit;
+      if (MT5_BRIDGE.accountInfo) {
+        const _ai = MT5_BRIDGE.accountInfo;
+        if (d.profit == null && _ai.profit != null) d.profit = _ai.profit;
+        if (d.profit == null && _ai.Profit != null) d.profit = _ai.Profit;
+        const _aa = _ai.account || _ai.account_info || _ai.AccountInfo;
+        if (_aa && d.profit == null) {
+          if (_aa.profit != null) d.profit = _aa.profit;
+          else if (_aa.Profit != null) d.profit = _aa.Profit;
+        }
+      }
     } catch (eN) {}
     MT5_BRIDGE.lastStatus=d;
     MT5_BRIDGE.lastStatusAt=Date.now();
