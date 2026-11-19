@@ -21035,6 +21035,10 @@ function propFirmScanMt5Account() {
         out.closedPnl = Number(propFirmState.liveClosedPnl) || 0;
         out.openPnl = Number(propFirmState.liveOpenPnl) || 0;
         out.closedToday = Number(propFirmState.liveClosedToday) || 0;
+        out.closedTpPnl = Number(propFirmState.liveClosedTpPnl) || 0;
+        out.closedSlPnl = Number(propFirmState.liveClosedSlPnl) || 0;
+        out.closedTpN = Number(propFirmState.liveClosedTpN) || 0;
+        out.closedSlN = Number(propFirmState.liveClosedSlN) || 0;
         out.openCount = Number(propFirmState.liveOpenCount) || 0;
         out.source = 'last_mt5';
       }
@@ -21178,26 +21182,35 @@ function propFirmScanMt5Account() {
     }
     function dealProfit(p) {
       if (!p || typeof p !== 'object') return 0;
-      // MT5 deal net result = profit + commission + swap + fee.
-      // Some bridge versions already provide a net field and omit components.
+      // Prefer explicit NET fields first (already TP/SL result after costs).
+      const net = coerceMoney(
+        p.net_profit != null ? p.net_profit :
+          (p.profit_net != null ? p.profit_net :
+            (p.net != null ? p.net :
+              (p.NetProfit != null ? p.NetProfit :
+                (p.mt5BrokerProfit != null ? p.mt5BrokerProfit : NaN))))
+      );
+      if (Number.isFinite(net)) return net;
+
+      // MT5 standard: gross profit + commission + swap + fee (commission/swap usually ≤ 0).
       const gross = coerceMoney(
         p.profit != null ? p.profit :
         (p.Profit != null ? p.Profit :
           (p.pnl != null ? p.pnl :
             (p.realized != null ? p.realized :
-              (p.profit_full != null ? p.profit_full : NaN))))
+              (p.profit_full != null ? p.profit_full :
+                (p.ProfitFull != null ? p.ProfitFull : NaN)))))
       );
       const commission = coerceMoney(p.commission != null ? p.commission : p.Commission);
       const swap = coerceMoney(p.swap != null ? p.swap : p.Swap);
       const fee = coerceMoney(p.fee != null ? p.fee : p.Fee);
-      const hasComponents = Number.isFinite(commission) || Number.isFinite(swap) || Number.isFinite(fee);
-      if (Number.isFinite(gross)) {
-        return gross + (Number.isFinite(commission) ? commission : 0) +
-          (Number.isFinite(swap) ? swap : 0) + (Number.isFinite(fee) ? fee : 0);
-      }
-      const net = coerceMoney(p.net_profit != null ? p.net_profit :
-        (p.net != null ? p.net : p.profit_net));
-      return Number.isFinite(net) ? net : 0;
+      if (!Number.isFinite(gross)) return 0;
+      // Only add cost components when present. Do not invent zeros that hide sign.
+      let total = gross;
+      if (Number.isFinite(commission)) total += commission;
+      if (Number.isFinite(swap)) total += swap;
+      if (Number.isFinite(fee)) total += fee;
+      return total;
     }
     function isGoldSym(ps) {
       ps = String(ps || '').toUpperCase().replace(/\s+/g, '');
@@ -21263,43 +21276,52 @@ function propFirmScanMt5Account() {
       (Array.isArray(d.closedPositions) ? d.closedPositions :
         (Array.isArray(d.ClosedPositions) ? d.ClosedPositions : []));
     // Collect from deals first, then merge any closed_positions not already counted.
-    // Dedupe by position_id (trade count). HISTORY deals are authoritative;
-    // cache / ledger only fill positions not already present (no double count).
+    // FINAL closed PnL = signed sum of every closed trade today (TP positive + SL negative).
+    // Trade count = unique position_id. History deals are authoritative; cache/ledger fill gaps only.
     const seenDealTickets = new Set();
-    const posProfit = Object.create(null); // position_id → profit
-    const posSource = Object.create(null); // position_id → 'history'|'cache'|'ledger'
+    const posProfit = Object.create(null);   // position_id → signed net PnL
+    const posSource = Object.create(null);   // position_id → rank (1 hist, 2 cache, 3 ledger)
     function accumulateExitRow(row, srcRank) {
-      // srcRank: 1=history/closed_pos, 2=live cache, 3=local ledger
       if (!row || isBalanceDeal(row)) return;
       if (!isExitDeal(row)) return;
       let closeMs = closeTimeMs(row);
       if (!(closeMs > 0) && row._src) closeMs = Number(row.time_msc || row.time) || 0;
       if (!(closeMs > 0)) closeMs = Date.now();
       if (!isInToday(closeMs)) return;
-      const dealKey = String(row.ticket || row.deal || '');
-      const posKey = String(row.position_id || row.Position || row.position || dealKey || '');
-      if (!dealKey && !posKey) return;
-      if (dealKey && seenDealTickets.has(dealKey)) return;
-      if (dealKey) seenDealTickets.add(dealKey);
-      const pnl = dealProfit(row);
+      const dealKey = String(row.ticket || row.deal || row.Deal || '');
+      const posKey = String(row.position_id || row.Position || row.position || row.pos_id || '');
       const pKey = posKey || dealKey;
-      const rank = srcRank || 1;
-      if (posProfit[pKey] != null) {
-        // Higher-priority source already set this position — skip lower sources
-        if ((posSource[pKey] || 99) <= rank) return;
-        // Higher rank (lower number wins): allow overwrite only if existing was weaker
+      if (!pKey) return;
+      // De-dupe identical deal tickets only (partial closes on same position still sum)
+      if (dealKey) {
+        if (seenDealTickets.has(dealKey)) return;
+        seenDealTickets.add(dealKey);
       }
-      if (posProfit[pKey] == null || (posSource[pKey] != null && posSource[pKey] > rank)) {
+      const pnl = dealProfit(row);
+      if (!Number.isFinite(pnl)) return;
+      const rank = srcRank || 1;
+      if (posProfit[pKey] == null) {
         posProfit[pKey] = pnl;
         posSource[pKey] = rank;
-      } else if (posSource[pKey] === rank && rank === 1) {
-        // Same rank history: sum partial exit deals for same position
-        posProfit[pKey] += pnl;
+        return;
       }
+      const prevRank = posSource[pKey] || 99;
+      if (rank < prevRank) {
+        // Better source replaces weaker estimate (e.g. HISTORY over vanish floating)
+        posProfit[pKey] = pnl;
+        posSource[pKey] = rank;
+        return;
+      }
+      if (rank === prevRank && rank === 1) {
+        // Same HISTORY rank: sum partial OUT deals for this position
+        posProfit[pKey] += pnl;
+        return;
+      }
+      // Weaker or equal non-history source: keep existing signed profit
     }
     for (let i = 0; i < rawDeals.length; i++) accumulateExitRow(rawDeals[i], 1);
     for (let i = 0; i < closedPosFallback.length; i++) accumulateExitRow(closedPosFallback[i], 1);
-    // Instant TP/SL closes from STATUS / vanished open snapshots (rank 2)
+    // Instant TP/SL from STATUS / vanished opens (only if HISTORY not yet present for that pos)
     try {
       mt5PruneClosedCacheLocalDay();
       const cacheKeys = Object.keys(__mt5LiveClosedCache || {});
@@ -21307,7 +21329,7 @@ function propFirmScanMt5Account() {
         accumulateExitRow(__mt5LiveClosedCache[cacheKeys[ci]], 2);
       }
     } catch (_eCache) {}
-    // Local algo ledger MT5_CLOSED / TP / SL for today (rank 3 — lowest priority)
+    // Local ledger TP/SL signed pnl (lowest priority fill)
     try {
       if (typeof algoLoadTrades === 'function') {
         const ledger = algoLoadTrades() || [];
@@ -21318,8 +21340,18 @@ function propFirmScanMt5Account() {
             t.outcome === 'TP' || t.outcome === 'SL' || t.status === 'TP' || t.status === 'SL';
           if (!closedOk) continue;
           if (String(t.source || '').toUpperCase() === 'BACKTEST') continue;
-          const profit = Number(t.mt5BrokerProfit != null ? t.mt5BrokerProfit : t.pnl);
+          // Prefer broker-signed profit; fall back to local signed pnl (TP + / SL −)
+          let profit = Number(t.mt5BrokerProfit);
+          if (!Number.isFinite(profit)) profit = Number(t.pnl);
           if (!Number.isFinite(profit)) continue;
+          // If outcome is SL and profit was stored as absolute, force negative
+          if ((t.outcome === 'SL' || t.status === 'SL') && profit > 0 && t.mt5BrokerProfit == null) {
+            profit = -Math.abs(profit);
+          }
+          // If outcome is TP and profit stored negative by mistake, force positive when no broker value
+          if ((t.outcome === 'TP' || t.status === 'TP') && profit < 0 && t.mt5BrokerProfit == null) {
+            profit = Math.abs(profit);
+          }
           let tms = Number(t.mt5BrokerCloseTime || t.exitTime || t.closedAt || t.closeTime || 0) || 0;
           if (tms > 0 && tms < 1e12) tms *= 1000;
           if (!(tms > 0)) tms = Date.now();
@@ -21329,6 +21361,7 @@ function propFirmScanMt5Account() {
             position_id: String(t.mt5PositionId || t.mt5Ticket || t.id || ''),
             profit: profit,
             Profit: profit,
+            net_profit: profit,
             entry: 1,
             time_msc: tms,
             time: tms,
@@ -21338,13 +21371,26 @@ function propFirmScanMt5Account() {
         }
       }
     } catch (_eLed) {}
-    // Build totals from unique positions (1 closed trade = 1 position_id)
+    // FINAL = sum of signed per-position results (TP − SL net)
     closedPnl = 0;
     closedToday = 0;
+    let closedTpPnl = 0, closedSlPnl = 0, closedTpN = 0, closedSlN = 0;
     Object.keys(posProfit).forEach(function (pk) {
-      closedPnl += Number(posProfit[pk]) || 0;
+      const v = Number(posProfit[pk]) || 0;
+      closedPnl += v;
       closedToday += 1;
+      if (v >= 0) { closedTpPnl += v; closedTpN += 1; }
+      else { closedSlPnl += v; closedSlN += 1; }
     });
+    // Expose breakdown for monitor UI
+    out.closedTpPnl = closedTpPnl;
+    out.closedSlPnl = closedSlPnl;
+    out.closedTpN = closedTpN;
+    out.closedSlN = closedSlN;
+    propFirmState.liveClosedTpPnl = closedTpPnl;
+    propFirmState.liveClosedSlPnl = closedSlPnl;
+    propFirmState.liveClosedTpN = closedTpN;
+    propFirmState.liveClosedSlN = closedSlN;
     // Last-resort: bridge-provided daily_profit when no deal rows parsed but value present
     if (closedToday === 0) {
       const bridgeDaily = coerceMoney(
@@ -25233,7 +25279,18 @@ if ('serviceWorker' in navigator) {
               (MT5_BRIDGE && MT5_BRIDGE.historyInfo && !MT5_BRIDGE.historyInfoError) ||
               _liveTag === 'MT5 LIVE' || _liveTag === 'MT5 INCOMPLETE' || _liveTag === 'MT5 STALE'
             );
-            html += row('CLOSED PNL TODAY', _hasHistory ? (_fmtPnl(_closedPnl) + ' · ' + String(_scan.closedToday || 0) + ' deals · local day') : 'WAITING FOR LIVE MT5 HISTORY', _hasHistory ? (_closedPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
+            var _tpP = Number(_scan.closedTpPnl != null ? _scan.closedTpPnl : propFirmState.liveClosedTpPnl) || 0;
+            var _slP = Number(_scan.closedSlPnl != null ? _scan.closedSlPnl : propFirmState.liveClosedSlPnl) || 0;
+            var _tpN = Number(_scan.closedTpN != null ? _scan.closedTpN : propFirmState.liveClosedTpN) || 0;
+            var _slN = Number(_scan.closedSlN != null ? _scan.closedSlN : propFirmState.liveClosedSlN) || 0;
+            var _closedLabel = _hasHistory
+              ? (_fmtPnl(_closedPnl) + ' · ' + String(_scan.closedToday || 0) + ' deals')
+              : 'WAITING FOR LIVE MT5 HISTORY';
+            if (_hasHistory && (_tpN || _slN)) {
+              _closedLabel += ' · TP ' + _fmtPnl(_tpP) + ' (' + _tpN + ') · SL ' + _fmtPnl(_slP) + ' (' + _slN + ')';
+            }
+            html += row('CLOSED PNL TODAY', _closedLabel, _hasHistory ? (_closedPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
+            html += row('FINAL CLOSED (TP+SL)', _hasHistory ? _fmtPnl(_closedPnl) : '—', _hasHistory ? (_closedPnl >= 0 ? '#34d399' : '#fb7185') : '#94a3b8');
             html += row('FLOATING PNL', _hasMt5Nums ? _fmtPnl(_floatPnl) : 'WAITING FOR LIVE MT5 EQUITY', _hasMt5Nums ? (_floatPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
             html += row('TOTAL TODAY PNL', _hasMt5Nums ? _fmtPnl(_pnl) : 'WAITING FOR LIVE MT5 HISTORY', _hasMt5Nums ? _pnlCol : '#fb7185');
             var _maxRoom = (typeof propFirmMaxLossRoomUsd === 'function') ? propFirmMaxLossRoomUsd() : NaN;
