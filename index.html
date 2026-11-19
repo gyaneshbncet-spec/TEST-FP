@@ -21208,8 +21208,12 @@ function propFirmScanMt5Account() {
     propFirmState.liveOpenCount = out.openCount;
     propFirmState.liveClosedToday = out.closedToday;
     propFirmState.liveScanAt = Date.now();
-    propFirmState.liveDataStatus = (out.balance > 1 && out.equity > 1 && d.history_scope === 'ALL_ACCOUNT_SYMBOLS' && Array.isArray(d.history_deals) && Array.isArray(d.account_positions)) ? 'LIVE' : 'INCOMPLETE';
-    propFirmState.liveDataError = '';
+    const historyFresh = !!(MT5_BRIDGE && Number(MT5_BRIDGE.historyInfoAt) > 0 && (Date.now() - Number(MT5_BRIDGE.historyInfoAt)) <= 10000);
+    const hasBrokerHistory = !!(d.history_scope === 'ALL_ACCOUNT_SYMBOLS' && Array.isArray(d.history_deals));
+    const hasBrokerPositions = Array.isArray(d.account_positions);
+    propFirmState.liveDataStatus = (out.balance > 1 && out.equity > 1 && historyFresh && hasBrokerHistory && hasBrokerPositions) ? 'LIVE' : 'INCOMPLETE';
+    propFirmState.liveDataError = (MT5_BRIDGE && MT5_BRIDGE.historyInfoError) ? String(MT5_BRIDGE.historyInfoError) : '';
+
   } catch (e) {
     try { console.warn('[PropFirm] MT5 scan', e); } catch (e2) {}
   }
@@ -21357,13 +21361,17 @@ async function mt5RefreshStatus() {
       const rh = await mt5Post({action:'HISTORY'});
       if (rh && rh.ok && rh.data && typeof rh.data === 'object') {
         MT5_BRIDGE.historyInfo = rh.data;
+        MT5_BRIDGE.historyInfoAt = Date.now();
+        MT5_BRIDGE.historyInfoError = '';
         d = Object.assign({}, d, rh.data);
         if (Array.isArray(rh.data.history_deals)) d.history_deals = rh.data.history_deals;
         if (Array.isArray(rh.data.deals)) d.deals = rh.data.deals;
         if (Array.isArray(rh.data.closed_positions) && !Array.isArray(d.closed_positions)) d.closed_positions = rh.data.closed_positions;
         if (Array.isArray(rh.data.history) && !Array.isArray(d.history)) d.history = rh.data.history;
       }
-    } catch (eHist) {}
+    } catch (eHist) {
+      MT5_BRIDGE.historyInfoError = (eHist && eHist.message) ? eHist.message : 'MT5 HISTORY request failed';
+    }
     // Normalize alternate key casings onto top-level
     try {
       if (d.balance == null && d.Balance != null) d.balance = d.Balance;
@@ -21375,6 +21383,10 @@ async function mt5RefreshStatus() {
     MT5_BRIDGE.lastStatus=d;
     MT5_BRIDGE.lastStatusAt=Date.now();
     try { if (typeof propFirmScanMt5Account === 'function') propFirmScanMt5Account(); } catch (ePf) {}
+    if (MT5_BRIDGE.historyInfoError) {
+      propFirmState.liveDataStatus = 'INCOMPLETE';
+      propFirmState.liveDataError = MT5_BRIDGE.historyInfoError;
+    }
     // Push the newly received broker history into the monitor immediately; do not
     // wait for chart navigation or another unrelated UI event to repaint PnL/room.
     try { if (typeof goldExecDomRefresh === 'function') goldExecDomRefresh(); } catch (eGed) {}
