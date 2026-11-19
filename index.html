@@ -21247,30 +21247,31 @@ function propFirmScanMt5Account() {
         entry === 'DEAL_ENTRY_OUT' || entry === 'DEAL_ENTRY_OUT_BY' || entry === 'DEAL_ENTRY_INOUT';
     }
 
-    // ---- MT5 REALIZED PNL: sum today's EXIT deals by LOCAL calendar day ----
-    // Always union history_deals + closed_positions (by ticket). An empty deals
-    // array from HISTORY must NOT block closed_positions fallback (prior bug).
+    // ============================================================
+    // FLASH TODAY PNL (MT5 ONLY) — simple, no backtest / no local
+    // 1) Take HISTORY + closed_positions from MT5
+    // 2) Keep EXIT deals whose close time is local calendar today
+    // 3) Sum signed profit  →  closedPnl
+    // 4) Unique position_id →  closedToday (trade count)
+    // ============================================================
     let closedPnl = 0;
     let closedToday = 0;
     let rawDeals = Array.isArray(d.history_deals) ? d.history_deals :
       (Array.isArray(d.deals) ? d.deals : (Array.isArray(d.history) ? d.history :
         (Array.isArray(d.HistoryDeals) ? d.HistoryDeals :
           (Array.isArray(d.deal_history) ? d.deal_history : null))));
-    // Some bridge builds wrap the response one additional level deep.
     if (!rawDeals && MT5_BRIDGE && MT5_BRIDGE.historyInfo) {
       const h = MT5_BRIDGE.historyInfo;
       const candidates = [h.history_deals, h.deals, h.history, h.HistoryDeals, h.deal_history,
         h.data && h.data.history_deals, h.data && h.data.deals, h.data && h.data.history,
-        h.result && h.result.history_deals, h.result && h.result.deals, h.result && h.result.history,
-        h.history && h.history.deals, h.history && h.history.history_deals];
+        h.result && h.result.history_deals, h.result && h.result.deals, h.result && h.result.history];
       for (let ri = 0; ri < candidates.length; ri++) {
         if (Array.isArray(candidates[ri])) { rawDeals = candidates[ri]; break; }
       }
     }
-    // Also scan STATUS payload nests for deal arrays
     if (!rawDeals) {
       try {
-        const nests = [d.data, d.result, d.history_info, d.History, d.trade_history];
+        const nests = [d.data, d.result, d.history_info, d.History];
         for (let ni = 0; ni < nests.length && !rawDeals; ni++) {
           const n = nests[ni];
           if (!n || typeof n !== 'object') continue;
@@ -21285,88 +21286,54 @@ function propFirmScanMt5Account() {
     const closedPosFallback = Array.isArray(d.closed_positions) ? d.closed_positions :
       (Array.isArray(d.closedPositions) ? d.closedPositions :
         (Array.isArray(d.ClosedPositions) ? d.ClosedPositions : []));
-    // Collect from deals first, then merge any closed_positions not already counted.
-    // FINAL closed PnL = signed sum of MT5 closed trades today only (TP + / SL −).
-    // Sources: MT5 HISTORY deals + STATUS closed_positions + MT5 open-vanish snapshots.
-    // NEVER use backtest, paper, or local algo t.pnl. Trade count = unique MT5 position_id.
-    const seenDealTickets = new Set();
-    const posProfit = Object.create(null);   // position_id → signed net PnL
-    const posSource = Object.create(null);   // position_id → rank (1 hist, 2 cache, 3 ledger)
-    function accumulateExitRow(row, srcRank) {
-      if (!row || isBalanceDeal(row)) return;
-      // Hard reject any backtest / local-sim tagged rows
-      const _srcTag = String(row._src || row.source || '').toUpperCase();
-      if (_srcTag.indexOf('BACKTEST') >= 0 || _srcTag.indexOf('LOCAL_LEDGER') >= 0 || _srcTag.indexOf('PAPER') >= 0) return;
-      if (!isExitDeal(row)) return;
-      let closeMs = closeTimeMs(row);
-      if (!(closeMs > 0) && row._src) closeMs = Number(row.time_msc || row.time) || 0;
-      if (!(closeMs > 0)) closeMs = Date.now();
-      if (!isInToday(closeMs)) return;
-      const dealKey = String(row.ticket || row.deal || row.Deal || '');
-      const posKey = String(row.position_id || row.Position || row.position || row.pos_id || '');
-      const pKey = posKey || dealKey;
-      if (!pKey) return;
-      // De-dupe identical deal tickets only (partial closes on same position still sum)
-      if (dealKey) {
-        if (seenDealTickets.has(dealKey)) return;
-        seenDealTickets.add(dealKey);
-      }
-      const pnl = dealProfit(row);
-      if (!Number.isFinite(pnl)) return;
-      const rank = srcRank || 1;
-      if (posProfit[pKey] == null) {
-        posProfit[pKey] = pnl;
-        posSource[pKey] = rank;
-        return;
-      }
-      const prevRank = posSource[pKey] || 99;
-      if (rank < prevRank) {
-        // Better source replaces weaker estimate (e.g. HISTORY over vanish floating)
-        posProfit[pKey] = pnl;
-        posSource[pKey] = rank;
-        return;
-      }
-      if (rank === prevRank && rank === 1) {
-        // Same HISTORY rank: sum partial OUT deals for this position
-        posProfit[pKey] += pnl;
-        return;
-      }
-      // Weaker or equal non-history source: keep existing signed profit
-    }
-    for (let i = 0; i < rawDeals.length; i++) accumulateExitRow(rawDeals[i], 1);
-    for (let i = 0; i < closedPosFallback.length; i++) accumulateExitRow(closedPosFallback[i], 1);
-    // Instant TP/SL from STATUS / vanished opens (only if HISTORY not yet present for that pos)
+
+    // Merge MT5 live closed cache (STATUS vanishes / closed rows only — already MT5-sourced)
+    const extraRows = [];
     try {
       mt5PruneClosedCacheLocalDay();
-      const cacheKeys = Object.keys(__mt5LiveClosedCache || {});
-      for (let ci = 0; ci < cacheKeys.length; ci++) {
-        accumulateExitRow(__mt5LiveClosedCache[cacheKeys[ci]], 2);
+      Object.keys(__mt5LiveClosedCache || {}).forEach(function (k) {
+        const r = __mt5LiveClosedCache[k];
+        if (r) extraRows.push(r);
+      });
+    } catch (_eC) {}
+
+    const allRows = rawDeals.concat(closedPosFallback).concat(extraRows);
+    const seenDeal = Object.create(null);
+    const posNet = Object.create(null); // position_id → summed signed PnL
+
+    for (let i = 0; i < allRows.length; i++) {
+      const row = allRows[i];
+      if (!row || isBalanceDeal(row)) continue;
+      if (!isExitDeal(row)) continue;
+      let closeMs = closeTimeMs(row);
+      if (!(closeMs > 0)) closeMs = Number(row.time_msc || row.time) || 0;
+      if (!(closeMs > 0) && row._src) closeMs = Date.now();
+      if (!isInToday(closeMs)) continue;
+
+      const dealId = String(row.ticket || row.deal || row.Deal || '');
+      if (dealId) {
+        if (seenDeal[dealId]) continue;
+        seenDeal[dealId] = 1;
       }
-    } catch (_eCache) {}
-    // LOCAL / BACKTEST ledger is NEVER used for CLOSED PNL TODAY.
-    // Only MT5 HISTORY deals, STATUS closed_positions, and MT5 open-vanish snapshots.
-    // (Previously local t.pnl / backtest TP polluted the $195 MT5 day total.)
-    // FINAL = sum of signed per-position results (TP − SL net)
+      const posId = String(row.position_id || row.Position || row.position || dealId || ('row' + i));
+      const pnl = dealProfit(row);
+      if (!Number.isFinite(pnl)) continue;
+      if (posNet[posId] == null) posNet[posId] = 0;
+      posNet[posId] += pnl;
+    }
+
     closedPnl = 0;
     closedToday = 0;
     let closedTpPnl = 0, closedSlPnl = 0, closedTpN = 0, closedSlN = 0;
-    Object.keys(posProfit).forEach(function (pk) {
-      const v = Number(posProfit[pk]) || 0;
+    Object.keys(posNet).forEach(function (pid) {
+      const v = Number(posNet[pid]) || 0;
       closedPnl += v;
       closedToday += 1;
       if (v >= 0) { closedTpPnl += v; closedTpN += 1; }
       else { closedSlPnl += v; closedSlN += 1; }
     });
-    // Expose breakdown for monitor UI
-    out.closedTpPnl = closedTpPnl;
-    out.closedSlPnl = closedSlPnl;
-    out.closedTpN = closedTpN;
-    out.closedSlN = closedSlN;
-    propFirmState.liveClosedTpPnl = closedTpPnl;
-    propFirmState.liveClosedSlPnl = closedSlPnl;
-    propFirmState.liveClosedTpN = closedTpN;
-    propFirmState.liveClosedSlN = closedSlN;
-    // Last-resort: bridge-provided daily_profit when no deal rows parsed but value present
+
+    // Optional bridge daily_profit only if we found zero rows but bridge reports a day total
     if (closedToday === 0) {
       const bridgeDaily = coerceMoney(
         d.daily_profit != null ? d.daily_profit :
@@ -21377,9 +21344,20 @@ function propFirmScanMt5Account() {
       );
       if (Number.isFinite(bridgeDaily) && bridgeDaily !== 0) {
         closedPnl = bridgeDaily;
-        // deal count unknown from aggregate field — leave closedToday as counted
+        if (bridgeDaily >= 0) { closedTpPnl = bridgeDaily; closedTpN = 1; }
+        else { closedSlPnl = bridgeDaily; closedSlN = 1; }
+        closedToday = 1;
       }
     }
+
+    out.closedTpPnl = closedTpPnl;
+    out.closedSlPnl = closedSlPnl;
+    out.closedTpN = closedTpN;
+    out.closedSlN = closedSlN;
+    propFirmState.liveClosedTpPnl = closedTpPnl;
+    propFirmState.liveClosedSlPnl = closedSlPnl;
+    propFirmState.liveClosedTpN = closedTpN;
+    propFirmState.liveClosedSlN = closedSlN;
 
     // ---- Account-wide live floating PnL ----
     // MT5 equity minus balance is the broker's live floating result across ALL symbols,
@@ -25263,14 +25241,16 @@ if ('serviceWorker' in navigator) {
             var _slP = Number(_scan.closedSlPnl != null ? _scan.closedSlPnl : propFirmState.liveClosedSlPnl) || 0;
             var _tpN = Number(_scan.closedTpN != null ? _scan.closedTpN : propFirmState.liveClosedTpN) || 0;
             var _slN = Number(_scan.closedSlN != null ? _scan.closedSlN : propFirmState.liveClosedSlN) || 0;
-            var _closedLabel = _hasHistory
-              ? (_fmtPnl(_closedPnl) + ' · ' + String(_scan.closedToday || 0) + ' MT5 deals')
-              : 'WAITING FOR LIVE MT5 HISTORY';
-            if (_hasHistory && (_tpN || _slN)) {
-              _closedLabel += ' · TP ' + _fmtPnl(_tpP) + ' (' + _tpN + ') · SL ' + _fmtPnl(_slP) + ' (' + _slN + ')';
+            var _nDeals = Number(_scan.closedToday) || 0;
+            // FLASH TODAY — one clear line: net PnL + trade count from MT5 history only
+            var _flash = _hasHistory
+              ? (_fmtPnl(_closedPnl) + '  ·  ' + _nDeals + ' trade' + (_nDeals === 1 ? '' : 's'))
+              : 'WAITING FOR MT5 HISTORY';
+            if (_hasHistory && (_tpN + _slN) > 0) {
+              _flash += '  ·  TP ' + _fmtPnl(_tpP) + '×' + _tpN + '  SL ' + _fmtPnl(_slP) + '×' + _slN;
             }
-            html += row('CLOSED PNL TODAY', _closedLabel, _hasHistory ? (_closedPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
-            html += row('FINAL CLOSED (MT5 ONLY)', _hasHistory ? (_fmtPnl(_closedPnl) + ' · no backtest/local') : '—', _hasHistory ? (_closedPnl >= 0 ? '#34d399' : '#fb7185') : '#94a3b8');
+            html += row('TODAY MT5 PNL', _flash, _hasHistory ? (_closedPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
+            html += row('TODAY TRADE COUNT', _hasHistory ? (String(_nDeals) + ' closed') : '—', _hasHistory ? '#e2e8f0' : '#94a3b8');
             html += row('FLOATING PNL', _hasMt5Nums ? _fmtPnl(_floatPnl) : 'WAITING FOR LIVE MT5 EQUITY', _hasMt5Nums ? (_floatPnl >= 0 ? '#34d399' : '#fb7185') : '#fb7185');
             html += row('TOTAL TODAY PNL', _hasMt5Nums ? _fmtPnl(_pnl) : 'WAITING FOR LIVE MT5 HISTORY', _hasMt5Nums ? _pnlCol : '#fb7185');
             var _maxRoom = (typeof propFirmMaxLossRoomUsd === 'function') ? propFirmMaxLossRoomUsd() : NaN;
