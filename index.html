@@ -8603,7 +8603,6 @@ function tickNewsCountdown() {
     if (drawerTimer) drawerTimer.textContent = "ACTIVE";
     if (chartTitleEl) chartTitleEl.textContent = "USD Live News";
     if (chartTimerEl) chartTimerEl.textContent = "ACTIVE";
-    try { if (typeof propFirmNewsTick === 'function') propFirmNewsTick(); } catch (_eN0) {}
     return;
   }
   const diff = nextRedEvent.timestamp - Date.now();
@@ -8617,12 +8616,10 @@ function tickNewsCountdown() {
       chartTimerEl.textContent = "LIVE NOW";
       chartTimerEl.style.color = '#ff2a44';
     }
-    try { if (typeof propFirmNewsTick === 'function') propFirmNewsTick(); } catch (_eN1) {}
     return;
   }
   if (diff <= -180000) {
     sortAndPaintNews();
-    try { if (typeof propFirmNewsTick === 'function') propFirmNewsTick(); } catch (_eN2) {}
     return;
   }
   const totalSecs = Math.floor(diff / 1000);
@@ -8638,7 +8635,6 @@ function tickNewsCountdown() {
     chartTimerEl.textContent = timerStr;
     chartTimerEl.style.color = (totalSecs < 300) ? '#ff2a44' : '#f59e0b';
   }
-  try { if (typeof propFirmNewsTick === 'function') propFirmNewsTick(); } catch (_eN3) {}
 }
 
 function togglePairsAccordion() {
@@ -20558,6 +20554,8 @@ let propFirmState = {
   liveScanAt: 0,
   liveDataStatus: 'NO DATA',
   liveDataError: '',
+  liveDayKey: '', // YYYY-MM-DD local — resets closed PnL when date changes
+  liveDayResetAt: 0,
   htfPrefer: true // PROPFIRM: prefer / require 15m+ entries
 };
 
@@ -21024,221 +21022,87 @@ function propFirmIsPropMode() {
   return String((propFirmState && propFirmState.tradeMode) || 'PROPFIRM') === 'PROPFIRM';
 }
 
-/* ===== PROPFIRM NEWS BLACKOUT =====
- * High-impact USD/gold news: no trading in [event−5m, event+5m].
- * −5m → force-close ALL open MT5 + local trades (profit or loss).
- * Until +5m after release → block every new entry.
- * NORMAL mode is not gated by this (prop firm rules only).
- */
-var PROP_NEWS_PRE_MS = 5 * 60 * 1000;
-var PROP_NEWS_POST_MS = 5 * 60 * 1000;
-var __propNewsForceCloseAt = 0;
-var __propNewsForceCloseKey = '';
-var __propNewsLastState = { locked: false, phase: 'CLEAR', reason: '', eventTitle: '', msTo: 0, msAfter: 0 };
+/** Local calendar day key YYYY-MM-DD (device timezone). */
+function propFirmLocalDayKey(d) {
+  const n = d || new Date();
+  const y = n.getFullYear();
+  const m = String(n.getMonth() + 1).padStart(2, '0');
+  const day = String(n.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
 
-/** Next high-impact red event from live calendar (same source as chart timer). */
-function propFirmNextRedNews() {
+/** Zero TODAY closed PnL / trade counts and drop stale closed-deal cache. */
+function propFirmResetTodayClosedStats(reason) {
   try {
-    if (typeof nextRedEvent !== 'undefined' && nextRedEvent && nextRedEvent.timestamp > 0) {
-      return nextRedEvent;
-    }
+    propFirmState.liveClosedPnl = 0;
+    propFirmState.liveClosedToday = 0;
+    propFirmState.liveClosedTpPnl = 0;
+    propFirmState.liveClosedSlPnl = 0;
+    propFirmState.liveClosedTpN = 0;
+    propFirmState.liveClosedSlN = 0;
+    propFirmState.liveDayPnl = Number(propFirmState.liveOpenPnl) || 0; // floating only until new closes
+    propFirmState.liveDayTrades = Number(propFirmState.liveOpenCount) || 0;
+    propFirmState.liveHistoryGap = 0;
+    propFirmState.liveDayKey = propFirmLocalDayKey();
+    propFirmState.liveDayResetAt = Date.now();
   } catch (_e) {}
   try {
-    const now = Date.now();
-    const src = (typeof redFolderEvents !== 'undefined' && Array.isArray(redFolderEvents)) ? redFolderEvents : [];
-    const upcoming = src
-      .filter(function (e) { return e && e.timestamp > (now - PROP_NEWS_POST_MS - 60000); })
-      .sort(function (a, b) { return a.timestamp - b.timestamp; });
-    return upcoming.length ? upcoming[0] : null;
-  } catch (_e2) { return null; }
-}
-
-/**
- * PROPFIRM news lock state.
- * phase: CLEAR | PRE_CLOSE | LIVE | POST_BLOCK
- * locked: true when new entries must be blocked
- * forceClose: true when all open trades must be flattened NOW
- */
-function propFirmNewsLockState() {
-  const out = {
-    locked: false,
-    forceClose: false,
-    phase: 'CLEAR',
-    reason: '',
-    eventTitle: '',
-    eventTs: 0,
-    msTo: 0,
-    msAfter: 0,
-    preMs: PROP_NEWS_PRE_MS,
-    postMs: PROP_NEWS_POST_MS
-  };
-  if (!propFirmIsPropMode()) return out;
-  const ev = propFirmNextRedNews();
-  if (!ev || !(ev.timestamp > 0)) return out;
-  const now = Date.now();
-  const ts = Number(ev.timestamp) || 0;
-  const msTo = ts - now;
-  const msAfter = now - ts;
-  out.eventTitle = String(ev.title || 'High-impact news');
-  out.eventTs = ts;
-  out.msTo = msTo;
-  out.msAfter = msAfter;
-
-  // PRE window: within 5 minutes before release
-  if (msTo > 0 && msTo <= PROP_NEWS_PRE_MS) {
-    out.locked = true;
-    out.forceClose = true;
-    out.phase = 'PRE_CLOSE';
-    out.reason = 'NEWS in ' + Math.ceil(msTo / 1000) + 's — close all · no new trades until +5m after';
-    return out;
-  }
-  // LIVE / just released (0 … +5m after)
-  if (msTo <= 0 && msAfter >= 0 && msAfter <= PROP_NEWS_POST_MS) {
-    out.locked = true;
-    out.forceClose = true; // still force flat during and just after release
-    out.phase = (msAfter < 30000) ? 'LIVE' : 'POST_BLOCK';
-    out.reason = (msAfter < 30000)
-      ? 'NEWS LIVE — all trades closed · no new entries for ' + Math.ceil((PROP_NEWS_POST_MS - msAfter) / 1000) + 's'
-      : 'POST-NEWS lock · ' + Math.ceil((PROP_NEWS_POST_MS - msAfter) / 1000) + 's left · no new trades';
-    return out;
-  }
-  return out;
-}
-
-/** Close every open MT5 position on the bridged symbol + mark local algo trades closed. */
-async function propFirmForceCloseAllForNews(reason) {
-  const why = reason || 'PROPFIRM news blackout';
-  let closed = 0;
-  try {
-    // 1) Local algo trades that have broker tickets
-    if (typeof algoLoadTrades === 'function' && typeof mt5SendClose === 'function') {
-      const log = algoLoadTrades() || [];
-      for (let i = 0; i < log.length; i++) {
-        const t = log[i];
-        if (!t) continue;
-        const open = !t.mt5Closed && (t.status === 'OPEN' || t.outcome == null || t.outcome === '' || t.outcome === 'OPEN');
-        if (open && t.mt5Ticket) {
-          try {
-            t.outcome = 'NEWS_FLAT';
-            t.status = 'NEWS_FLAT';
-            await mt5SendClose(t, why);
-            closed++;
-          } catch (_eC) {}
-        } else if (open && !t.mt5Ticket) {
-          // Paper / local-only — flatten in ledger
-          t.outcome = 'NEWS_FLAT';
-          t.status = 'NEWS_FLAT';
-          t.exit = (typeof state !== 'undefined' && state.gold_price) ? state.gold_price : t.entry;
-          t.mt5Closed = true;
-          t.mt5Status = 'NEWS_FLAT_LOCAL';
-          t.mt5Note = why;
-          closed++;
-        }
-      }
-      try { algoSaveTrades(log); algoRenderLog(); } catch (_eS) {}
-    }
-  } catch (_e1) {}
-
-  try {
-    // 2) Any remaining broker positions for this symbol (even if not in local log)
-    const d = (typeof MT5_BRIDGE !== 'undefined' && MT5_BRIDGE && MT5_BRIDGE.lastStatus) ? MT5_BRIDGE.lastStatus : null;
-    const positions = (d && Array.isArray(d.positions)) ? d.positions
-      : (d && Array.isArray(d.account_positions)) ? d.account_positions
-      : (d && Array.isArray(d.open_positions)) ? d.open_positions : [];
-    const sym = String((MT5_BRIDGE && MT5_BRIDGE.symbol) || '').toUpperCase();
-    for (let i = 0; i < positions.length; i++) {
-      const p = positions[i];
-      if (!p) continue;
-      const ps = String(p.symbol || p.Symbol || '').toUpperCase();
-      if (sym && ps && ps !== sym && ps.indexOf('XAU') < 0 && ps.indexOf('GOLD') < 0) continue;
-      const ticket = p.ticket || p.Ticket || p.identifier || p.position_id || p.Position;
-      if (!ticket) continue;
-      const sideRaw = String(p.type != null ? p.type : (p.side || p.Side || '')).toUpperCase();
-      const side = (sideRaw === '1' || sideRaw.indexOf('SELL') >= 0) ? 'SELL' : 'BUY';
-      const lots = Number(p.volume || p.Volume || p.lots || 0.01) || 0.01;
-      try {
-        if (typeof mt5Post === 'function' && MT5_BRIDGE && MT5_BRIDGE.connected) {
-          await mt5Post({
-            action: 'CLOSE',
-            symbol: MT5_BRIDGE.symbol,
-            side: side,
-            lots: lots,
-            ticket: ticket,
-            id: 'NEWS_' + ticket,
-            outcome: 'NEWS_FLAT',
-            source: 'HTML_NEWS_BLACKOUT'
-          });
-          closed++;
-        }
-      } catch (_eP) {}
+    // Drop any closed-cache rows not belonging to the new local day
+    if (typeof mt5PruneClosedCacheLocalDay === 'function') mt5PruneClosedCacheLocalDay();
+    // Also hard-clear cache if prune missed (timestamps missing)
+    const b = (typeof mt5LocalDayBounds === 'function') ? mt5LocalDayBounds() : null;
+    if (b && typeof __mt5LiveClosedCache !== 'undefined' && __mt5LiveClosedCache) {
+      Object.keys(__mt5LiveClosedCache).forEach(function (k) {
+        const r = __mt5LiveClosedCache[k];
+        const t = Number(r && (r.time_msc || r.time)) || 0;
+        if (!(t >= b.startMs && t < b.endMs)) delete __mt5LiveClosedCache[k];
+      });
+      try { if (typeof mt5PersistClosedCache === 'function') mt5PersistClosedCache(); } catch (_p) {}
     }
   } catch (_e2) {}
-
+  // Force fresh HISTORY so broker deals for the new day load cleanly
   try {
-    if (typeof algoUpdateStatus === 'function') {
-      algoUpdateStatus('<span class="warn">PROPFIRM NEWS · force-closed ' + closed + ' · ' + why + '</span>');
+    if (typeof MT5_BRIDGE !== 'undefined' && MT5_BRIDGE) {
+      MT5_BRIDGE._forceHistoryNext = true;
+      // Invalidate prior-day HISTORY snapshot so it cannot seed today counts
+      MT5_BRIDGE.historyInfo = null;
+      MT5_BRIDGE.historyInfoAt = 0;
+      MT5_BRIDGE.historyInfoError = '';
     }
   } catch (_e3) {}
   try {
-    if (typeof showAlertToast === 'function') {
-      showAlertToast('PROPFIRM NEWS LOCK', 'Closed open trades · no new entries until +5m after news', 'warn');
-    } else if (typeof window.showDeskAlert === 'function') {
-      window.showDeskAlert('PROPFIRM NEWS LOCK', 'Closed open trades', 'warn');
+    if (typeof algoUpdateStatus === 'function') {
+      algoUpdateStatus('<span class="ok">New local day · today closed PnL / trade count reset' +
+        (reason ? (' · ' + reason) : '') + '</span>');
     }
   } catch (_e4) {}
-  return closed;
 }
 
-/** Called every second from news countdown — enforce close + keep lock state fresh. */
-function propFirmNewsTick() {
-  try {
-    const st = propFirmNewsLockState();
-    __propNewsLastState = st;
-    if (!st.locked) return st;
-
-    // UI: paint chart timer as NEWS LOCK when in window
-    try {
-      const chartTimerEl = document.getElementById('chartNewsTimer');
-      const drawerTimer = document.getElementById('drawerNewsTimer');
-      if (st.phase === 'PRE_CLOSE') {
-        const sec = Math.max(0, Math.ceil(st.msTo / 1000));
-        const label = 'CLOSE ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
-        if (chartTimerEl) { chartTimerEl.textContent = label; chartTimerEl.style.color = '#ff2a44'; }
-        if (drawerTimer) { drawerTimer.textContent = label; drawerTimer.style.color = '#ff2a44'; }
-      } else if (st.phase === 'LIVE' || st.phase === 'POST_BLOCK') {
-        const left = Math.max(0, Math.ceil((PROP_NEWS_POST_MS - st.msAfter) / 1000));
-        const label = (st.phase === 'LIVE' ? 'LIVE LOCK ' : 'POST LOCK ') + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
-        if (chartTimerEl) { chartTimerEl.textContent = label; chartTimerEl.style.color = '#ff2a44'; }
-        if (drawerTimer) { drawerTimer.textContent = label; drawerTimer.style.color = '#ff2a44'; }
-      }
-    } catch (_eUi) {}
-
-    if (st.forceClose) {
-      const key = String(st.eventTs) + '_' + st.phase;
-      const now = Date.now();
-      // Throttle force-close bursts: first hit immediately, then every 8s while still open
-      const need = (key !== __propNewsForceCloseKey) || (now - __propNewsForceCloseAt > 8000);
-      if (need) {
-        __propNewsForceCloseKey = key;
-        __propNewsForceCloseAt = now;
-        // Fire-and-forget; STATUS poll will confirm flat
-        try {
-          propFirmForceCloseAllForNews(st.reason).then(function () {
-            try { if (typeof mt5RefreshStatus === 'function') mt5RefreshStatus(); } catch (_eR) {}
-            try { if (typeof goldExecDomRefresh === 'function') goldExecDomRefresh(); } catch (_eG) {}
-          });
-        } catch (_eFc) {}
-      }
-    }
-    return st;
-  } catch (e) {
-    return __propNewsLastState;
+/**
+ * If the local calendar day rolled over since last scan, reset TODAY closed stats.
+ * Returns true when a reset happened.
+ */
+function propFirmEnsureLocalDay() {
+  const key = propFirmLocalDayKey();
+  const prev = propFirmState.liveDayKey || '';
+  if (prev && prev === key) return false;
+  // First boot: seed key without treating as rollover noise if already zero
+  if (!prev) {
+    propFirmState.liveDayKey = key;
+    // Still prune cache to local day so sessionStorage from yesterday cannot leak
+    try { if (typeof mt5PruneClosedCacheLocalDay === 'function') mt5PruneClosedCacheLocalDay(); } catch (_e) {}
+    return false;
   }
+  // Day changed
+  propFirmResetTodayClosedStats('date ' + prev + ' → ' + key);
+  return true;
 }
 
 /** Parse flexible MT5 STATUS payload → balance, equity, today PnL, today trade count, open count. */
 function propFirmScanMt5Account() {
   // Real MT5 only — never display Prop Account Size as "MT5 REAL BAL"
+  // Roll local day first so yesterday's closed PnL never paints as "today"
+  try { propFirmEnsureLocalDay(); } catch (_eDay) {}
   const out = {
     balance: 0,
     equity: 0,
@@ -21257,15 +21121,25 @@ function propFirmScanMt5Account() {
       if (Number(propFirmState.liveBalance) > 1 && propFirmState.liveSource === 'mt5') {
         out.balance = Number(propFirmState.liveBalance);
         out.equity = Number(propFirmState.liveEquity) || out.balance;
-        out.dayPnl = Number(propFirmState.liveDayPnl) || 0;
-        out.closedPnl = Number(propFirmState.liveClosedPnl) || 0;
         out.openPnl = Number(propFirmState.liveOpenPnl) || 0;
-        out.closedToday = Number(propFirmState.liveClosedToday) || 0;
-        out.closedTpPnl = Number(propFirmState.liveClosedTpPnl) || 0;
-        out.closedSlPnl = Number(propFirmState.liveClosedSlPnl) || 0;
-        out.closedTpN = Number(propFirmState.liveClosedTpN) || 0;
-        out.closedSlN = Number(propFirmState.liveClosedSlN) || 0;
         out.openCount = Number(propFirmState.liveOpenCount) || 0;
+        // Only reuse closed/today fields when they belong to THIS local day
+        const sameDay = (propFirmState.liveDayKey === propFirmLocalDayKey());
+        if (sameDay) {
+          out.dayPnl = Number(propFirmState.liveDayPnl) || 0;
+          out.closedPnl = Number(propFirmState.liveClosedPnl) || 0;
+          out.closedToday = Number(propFirmState.liveClosedToday) || 0;
+          out.closedTpPnl = Number(propFirmState.liveClosedTpPnl) || 0;
+          out.closedSlPnl = Number(propFirmState.liveClosedSlPnl) || 0;
+          out.closedTpN = Number(propFirmState.liveClosedTpN) || 0;
+          out.closedSlN = Number(propFirmState.liveClosedSlN) || 0;
+        } else {
+          out.dayPnl = out.openPnl;
+          out.closedPnl = 0;
+          out.closedToday = 0;
+          out.closedTpPnl = 0; out.closedSlPnl = 0;
+          out.closedTpN = 0; out.closedSlN = 0;
+        }
         out.source = 'last_mt5';
       }
       return out;
@@ -21505,11 +21379,12 @@ function propFirmScanMt5Account() {
       });
     } catch (_eBag) {}
 
-    // Local calendar day first; soft 36h ONLY if zero deals found in local day
-    // (prevents yesterday's closes leaking into TODAY TRADE COUNT).
+    // Local calendar day first. Soft window is ONLY a small pre-midnight TZ skew
+    // (3h before local midnight) — never a 36h lookback that would paint
+    // yesterday's closed trades as TODAY after the date rolls.
     const dayStart = startMs;
     const dayEnd = endMs;
-    const softStart = Date.now() - 36 * 3600 * 1000;
+    const softStart = dayStart - (3 * 3600 * 1000);
 
     function collectTradePnls(useSoft) {
       const seen = Object.create(null);
@@ -21711,6 +21586,7 @@ function propFirmScanMt5Account() {
     propFirmState.liveDayTrades = out.dayTrades;
     propFirmState.liveOpenCount = out.openCount;
     propFirmState.liveClosedToday = out.closedToday;
+    propFirmState.liveDayKey = propFirmLocalDayKey();
     propFirmState.liveScanAt = Date.now();
     // LIVE gate must not depend on optional bridge tags (history_scope / account_positions).
     // Many MT5 bridges return deals under history_deals/deals and positions under positions
@@ -21784,16 +21660,9 @@ function propFirmDayRoomUsd() {
   return Math.max(0, cap + Math.min(0, dayPnl));
 }
 
-/** True when PROPFIRM blocks a new entry (news lock, MT5 open, local open, or day room exhausted). */
+/** True when PROPFIRM blocks a new entry (MT5 open, local open, or day room exhausted). */
 function propFirmBlocksNewTrade(tf) {
   if (!propFirmIsPropMode()) return { block: false };
-  // News blackout first — 5m before → 5m after high-impact release
-  try {
-    const news = (typeof propFirmNewsLockState === 'function') ? propFirmNewsLockState() : null;
-    if (news && news.locked) {
-      return { block: true, reason: news.reason || 'PROPFIRM news blackout (−5m / +5m)', news: true, phase: news.phase };
-    }
-  } catch (_eN) {}
   try { propFirmScanMt5Account(); } catch (e) {}
   const brokerOpen = (typeof algoCountMt5BrokerOpen === 'function')
     ? algoCountMt5BrokerOpen()
@@ -22164,18 +22033,6 @@ async function mt5SendOpen(trade) {
   if(!trade)return null;
   const src=String(trade.source||'').toUpperCase(); if(src==='BACKTEST')return null;
   if(trade.mt5Status && trade.mt5Status!=='PAPER_ONLY' && trade.mt5Status!=='PAPER_OFFLINE')return null;
-  // PROPFIRM news blackout: hard block any new MT5 punch −5m … +5m around high-impact news
-  try {
-    if (typeof propFirmIsPropMode === 'function' && propFirmIsPropMode() && typeof propFirmNewsLockState === 'function') {
-      const ns = propFirmNewsLockState();
-      if (ns && ns.locked) {
-        trade.mt5Status = 'PAPER_ONLY';
-        trade.mt5Note = ns.reason || 'PROPFIRM news blackout — no new trades';
-        try { algoUpdateStatus('<span class="warn">NEWS LOCK · entry blocked · ' + (ns.phase || '') + '</span>'); } catch (_e) {}
-        return { ok: false, paper: true, error: 'news blackout', news: true };
-      }
-    }
-  } catch (_eNews) {}
   // HARD CAP: never open more than 4 live MT5/paper positions under any condition.
   // BACKTEST is already excluded above — backtest history still records freely.
   try {
@@ -25620,20 +25477,6 @@ if ('serviceWorker' in navigator) {
             html += row('DAY ROOM LEFT', (_hasMt5Nums ? '$' + Math.round(_room).toLocaleString() + ' · live' : 'WAITING FOR LIVE MT5 HISTORY'), _hasMt5Nums ? _roomCol : '#fb7185');
             html += row('OPEN (MT5)', String(_scan.openCount || 0) + ' · max 1', (_scan.openCount >= 1) ? '#fb7185' : '#34d399');
             html += row('TF PREFER', '15m+', '#93c5fd');
-            try {
-              var _ns = (typeof propFirmNewsLockState === 'function') ? propFirmNewsLockState() : null;
-              if (_ns && _ns.locked) {
-                var _nLabel = (_ns.phase === 'PRE_CLOSE') ? 'CLOSE ALL · PRE-NEWS'
-                  : (_ns.phase === 'LIVE') ? 'LIVE · NO NEW TRADES'
-                  : 'POST-NEWS · NO NEW TRADES';
-                html += row('NEWS LOCK', _nLabel, '#fb7185');
-                if (_ns.eventTitle) html += row('NEWS EVENT', String(_ns.eventTitle).slice(0, 28), '#fbbf24');
-              } else {
-                html += row('NEWS LOCK', 'CLEAR · trade allowed', '#34d399');
-              }
-            } catch (_eNewsUi) {
-              html += row('NEWS LOCK', '—', '#94a3b8');
-            }
           } catch (_eScan) {}
         }
       } catch (_eMode) {}
